@@ -1,0 +1,82 @@
+"""Estilos visuales IESPRO-Taller."""
+
+import tkinter as tk
+from tkinter import ttk
+
+COLORS = {
+    "bg": "#f1f5f9",
+    "card": "#ffffff",
+    "header": "#1e3a5f",
+    "header_text": "#ffffff",
+    "accent": "#2563eb",
+    "accent_hover": "#1d4ed8",
+    "text": "#1e293b",
+    "muted": "#64748b",
+    "border": "#cbd5e1",
+    "user_bubble": "#2563eb",
+    "user_text": "#ffffff",
+    "bot_bubble": "#ffffff",
+    "bot_text": "#1e293b",
+    "chat_bg": "#e2e8f0",
+}
+
+
+def apply_theme(root):
+    root.configure(bg=COLORS["bg"])
+
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    style.configure(".", background=COLORS["bg"], foreground=COLORS["text"], font=("Helvetica", 11))
+    style.configure("TFrame", background=COLORS["bg"])
+    style.configure("TLabel", background=COLORS["bg"], foreground=COLORS["text"])
+    style.configure("Header.TFrame", background=COLORS["header"])
+    style.configure("Header.TLabel", background=COLORS["header"], foreground=COLORS["header_text"], font=("Helvetica", 13, "bold"))
+    style.configure("SubHeader.TLabel", background=COLORS["header"], foreground="#cbd5e1", font=("Helvetica", 10))
+    style.configure("TLabelframe", background=COLORS["bg"])
+    style.configure("TLabelframe.Label", font=("Helvetica", 11, "bold"))
+    style.configure("TNotebook.Tab", padding=(14, 8), font=("Helvetica", 10, "bold"))
+    style.configure("Primary.TButton", font=("Helvetica", 11, "bold"), padding=(12, 6))
+    style.configure("Treeview", rowheight=28, font=("Helvetica", 10))
+    style.configure("Treeview.Heading", font=("Helvetica", 10, "bold"))
+    style.configure("Status.TLabel", background="#e2e8f0", foreground=COLORS["muted"], font=("Helvetica", 9))
+    style.configure("Card.TFrame", background=COLORS["card"])
+    style.configure("Card.TLabel", background=COLORS["card"], foreground=COLORS["text"])
+    style.configure("CardTitle.TLabel", background=COLORS["card"], foreground=COLORS["muted"], font=("Helvetica", 10))
+    style.configure("CardValue.TLabel", background=COLORS["card"], foreground=COLORS["header"], font=("Helvetica", 22, "bold"))
+    style.configure("CardAccent.TLabel", background=COLORS["card"], foreground=COLORS["accent"], font=("Helvetica", 22, "bold"))
+    style.configure("Section.TLabel", background=COLORS["bg"], foreground=COLORS["text"], font=("Helvetica", 12, "bold"))
+
+
+def style_listbox(listbox: tk.Listbox) -> None:
+    listbox.configure(
+        bg=COLORS["card"],
+        fg=COLORS["text"],
+        selectbackground=COLORS["accent"],
+        selectforeground=COLORS["user_text"],
+        highlightthickness=1,
+        highlightbackground=COLORS["border"],
+        highlightcolor=COLORS["accent"],
+        relief="flat",
+        borderwidth=1,
+        font=("Helvetica", 10),
+        activestyle="none",
+    )
+
+
+def style_text_widget(widget, *, height_bg: str | None = None) -> None:
+    widget.configure(
+        bg=height_bg or COLORS["card"],
+        fg=COLORS["text"],
+        insertbackground=COLORS["text"],
+        relief="flat",
+        borderwidth=1,
+        highlightthickness=1,
+        highlightbackground=COLORS["border"],
+        font=("Helvetica", 11),
+        padx=10,
+        pady=10,
+    )
