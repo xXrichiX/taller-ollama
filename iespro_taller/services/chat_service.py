@@ -12,7 +12,13 @@ from services.chat_intents import (
 )
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
+from services.tool_response_format import format_tool_calls_log
 from services.tools_service import TOOL_DEFINITIONS, ToolsService, run_sql_query
+
+SUCURSAL_TOOLS = frozenset({
+    "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
+    "crear_cita_natural", "cambiar_estado_cita_natural",
+})
 
 PLAIN_TEXT_RULE = """
 FORMATO DE RESPUESTA (obligatorio):
@@ -159,7 +165,7 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
                 if isinstance(args, str):
                     args = json.loads(args) if args else {}
 
-                if "id_sucursal" not in args and name in ("listar_citas", "listar_islas", "contar_citas"):
+                if "id_sucursal" not in args and name in SUCURSAL_TOOLS:
                     args["id_sucursal"] = self.id_sucursal
 
                 result = self.tools.execute(name, args)
@@ -170,12 +176,17 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
                     "content": json.dumps(result, ensure_ascii=False, default=str),
                 })
 
-            final = ollama.chat(
-                model=OLLAMA_CHAT_MODEL,
-                messages=messages + [{"role": "system", "content": PLAIN_TEXT_RULE}],
-            )
-            answer = plain_chat_text(final["message"]["content"])
-            raw = final
+            formatted = format_tool_calls_log(tool_calls_log)
+            if formatted:
+                answer = formatted
+                raw = None
+            else:
+                final = ollama.chat(
+                    model=OLLAMA_CHAT_MODEL,
+                    messages=messages + [{"role": "system", "content": PLAIN_TEXT_RULE}],
+                )
+                answer = plain_chat_text(final["message"]["content"]) or formatted
+                raw = final
             route = "function_calling"
         else:
             answer = plain_chat_text(msg.get("content", "No pude generar respuesta."))

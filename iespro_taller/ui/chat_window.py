@@ -172,10 +172,10 @@ class ChatWindow(tk.Toplevel):
         else:
             route = result.get("route", "llm_direct")
             label = ROUTE_LABELS.get(route, "Asistente")
-            self._bot_message(
-                plain_chat_text(result.get("answer", "Sin respuesta.")),
-                meta=label,
-            )
+            answer = plain_chat_text(result.get("answer", "") or "")
+            if not answer.strip():
+                answer = "No pude obtener una respuesta. Intenta de nuevo."
+            self._bot_message(answer, meta=label)
 
         self._set_busy(False)
 
