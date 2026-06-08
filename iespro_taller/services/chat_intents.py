@@ -20,7 +20,19 @@ WORKSHOP_HINTS = (
     "crea", "crear", "agenda", "marca", "pendiente", "proceso", "complet",
     "similar", "parecid", "busca", "roberto", "maria", "maría", "abc",
     "hola", "gracias", "salir", "diagn", "servicio", "horario",
+    "recuerda", "recuerdas", "anterior", "antes", "conversacion", "conversación",
+    "charla", "mencione", "mencioné", "hablamos", "dije",
 )
+
+
+def is_memory_recall_question(question: str) -> bool:
+    q = _norm(question)
+    patterns = (
+        "recuerdas", "recuerda lo", "conversacion anterior", "charla anterior",
+        "lo que te dije", "lo que dije", "hablamos antes", "mencione antes",
+        "mencioné antes", "en la otra conversacion", "otra conversacion",
+    )
+    return any(p in q for p in patterns)
 
 
 def _norm(text: str) -> str:

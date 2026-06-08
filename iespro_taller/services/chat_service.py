@@ -10,6 +10,7 @@ from services.chat_intents import (
     INVALID_INPUT_ANSWER,
     is_capabilities_question,
     is_invalid_input,
+    is_memory_recall_question,
 )
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
@@ -94,6 +95,20 @@ class ChatService:
             return []
         return self.repo.obtener_mensajes(self.id_conversacion)
 
+    def list_conversations(self) -> list[dict]:
+        if not self.id_usuario:
+            return []
+        return self.repo.listar_conversaciones(self.id_usuario, self.id_sucursal)
+
+    def switch_conversation(self, id_conversacion: int) -> bool:
+        if not self.id_usuario:
+            return False
+        convs = {c["id"] for c in self.list_conversations()}
+        if id_conversacion not in convs:
+            return False
+        self.id_conversacion = id_conversacion
+        return True
+
     def bootstrap(self) -> tuple[bool, str]:
         try:
             added = self.rag.sync_fallas_from_db()
@@ -107,6 +122,43 @@ class ChatService:
         return self.repo.obtener_mensajes_para_ollama(
             self.id_conversacion,
             limite=OLLAMA_CONTEXT_LIMIT,
+        )
+
+    def _memory_from_other_conversations(self) -> str:
+        if not self.id_usuario or not self.id_conversacion:
+            return ""
+
+        rows = self.repo.obtener_memoria_otras_conversaciones(
+            self.id_usuario,
+            self.id_sucursal,
+            self.id_conversacion,
+            limite_mensajes=10,
+        )
+        if not rows:
+            return ""
+
+        lines: list[str] = []
+        for row in reversed(rows):
+            titulo = (row.get("titulo") or "Conversación").strip()[:40]
+            role = "Usuario" if row["role"] == "user" else "Asistente"
+            texto = (row.get("contenido") or "").strip().replace("\n", " ")[:200]
+            if texto:
+                lines.append(f"- [{titulo}] {role}: {texto}")
+
+        if not lines:
+            return ""
+
+        return (
+            "\n\nMemoria de otras conversaciones de este mismo usuario "
+            "(úsala si pregunta algo de antes, de otra charla o 'lo que te dije'):\n"
+            + "\n".join(lines)
+        )
+
+    def _build_system_prompt(self) -> str:
+        return (
+            SYSTEM_PROMPT
+            + f"\nSucursal activa: {self.id_sucursal}"
+            + self._memory_from_other_conversations()
         )
 
     def _maybe_set_titulo(self, question: str) -> None:
@@ -173,6 +225,9 @@ class ChatService:
         if is_capabilities_question(question):
             return self._result(question, CAPABILITIES_ANSWER, "help")
 
+        if is_memory_recall_question(question):
+            return self._answer_from_memory(question)
+
         sql_answer = run_sql_query(question, self.id_sucursal)
         if sql_answer:
             return self._result(question, sql_answer, "sql")
@@ -197,6 +252,36 @@ class ChatService:
 
         return self._ask_with_tools(question)
 
+    def _answer_from_memory(self, question: str) -> dict[str, Any]:
+        actual = self._ollama_context()
+        memoria = self._memory_from_other_conversations()
+
+        historial_actual = ""
+        if actual:
+            historial_actual = "Conversación actual:\n" + "\n".join(
+                f"- {'Usuario' if m['role'] == 'user' else 'Asistente'}: {m['content'][:180]}"
+                for m in actual[-8:]
+            )
+
+        prompt = f"""Eres el asistente del taller IESPRO. Responde en texto plano en español, sin markdown.
+El usuario pregunta si recuerdas algo de charlas anteriores o de esta conversación.
+Usa SOLO la información de abajo. Si no hay datos suficientes, dilo con claridad.
+
+{historial_actual}
+{memoria}
+
+Pregunta del usuario: {question}
+
+Responde de forma breve y útil, citando lo que dijo o pidió antes si aplica."""
+
+        try:
+            response = ollama.generate(model=OLLAMA_CHAT_MODEL, prompt=prompt)
+            answer = plain_chat_text(response["response"])
+        except Exception as exc:
+            answer = f"No pude consultar el historial: {exc}"
+
+        return self._result(question, answer, "llm_direct")
+
     def _answer_from_rag(self, question: str, rag_result: dict) -> str:
         matches = rag_result.get("matches", [])
         if not matches:
@@ -207,15 +292,19 @@ class ChatService:
             for m in matches
         )
 
+        memoria = self._memory_from_other_conversations()
+
         prompt = f"""Eres el asistente del taller IESPRO. Responde SOLO en texto plano en español.
 NO uses asteriscos, markdown ni encabezados con #.
 
 Pregunta: {question}
+{memoria}
 
 Fallas similares encontradas en el historial:
 {context}
 
 Explica si la falla es parecida a casos anteriores (menciona placa y cita si aplica) y qué conviene revisar.
+Si la pregunta alude a algo de una conversación anterior del usuario, usa la memoria de arriba.
 No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
 
         response = ollama.generate(model=OLLAMA_CHAT_MODEL, prompt=prompt)
@@ -223,7 +312,7 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
 
     def _ask_with_tools(self, question: str) -> dict[str, Any]:
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT + f"\nSucursal activa: {self.id_sucursal}"},
+            {"role": "system", "content": self._build_system_prompt()},
             *self._ollama_context(),
             {"role": "user", "content": question},
         ]

@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from services.text_format import plain_chat_text
-from ui.theme import COLORS
+from ui.theme import COLORS, style_listbox
 
 ROUTE_LABELS = {
     "sql": "Datos del taller",
@@ -16,64 +16,112 @@ ROUTE_LABELS = {
 
 
 class ChatWindow(tk.Toplevel):
-    """Ventana flotante de chat — estilo conversación, sin JSON crudo."""
+    """Ventana flotante de chat con historial de conversaciones por usuario."""
 
     def __init__(self, master, chat_service):
         super().__init__(master)
         self.chat_service = chat_service
         self.title("Asistente IESPRO-Taller")
-        self.geometry("520x640")
-        self.minsize(420, 480)
+        self.geometry("780x640")
+        self.minsize(640, 480)
         self.configure(bg=COLORS["chat_bg"])
         self._busy = False
+        self._conv_ids: list[int] = []
+        self._switching = False
 
         self.transient(master)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
+        self.chat_service.ensure_conversation()
+        self._refresh_conversation_list()
         self._load_history()
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=COLORS["header"], height=72)
+        header = tk.Frame(self, bg=COLORS["header"], height=64)
         header.pack(fill="x")
         header.pack_propagate(False)
 
-        title_row = tk.Frame(header, bg=COLORS["header"])
-        title_row.pack(fill="x", padx=16, pady=(10, 0))
-
         tk.Label(
-            title_row,
+            header,
             text="Asistente del taller",
             bg=COLORS["header"],
             fg="white",
             font=("Helvetica", 15, "bold"),
-        ).pack(side="left")
-
-        new_btn = tk.Button(
-            title_row,
-            text="Nueva conversación",
-            bg="#334155",
-            fg="white",
-            activebackground="#475569",
-            activeforeground="white",
-            relief="flat",
-            font=("Helvetica", 9),
-            padx=8,
-            pady=4,
-            cursor="hand2",
-            command=self._new_conversation,
-        )
-        new_btn.pack(side="right")
+        ).pack(anchor="w", padx=16, pady=(12, 0))
 
         tk.Label(
             header,
-            text="Pregunta sobre citas, fallas, islas o vehículos",
+            text="Tus conversaciones se guardan por usuario. Usa + para una charla nueva.",
             bg=COLORS["header"],
             fg="#94a3b8",
             font=("Helvetica", 10),
         ).pack(anchor="w", padx=16, pady=(2, 8))
 
-        chat_wrap = tk.Frame(self, bg=COLORS["chat_bg"])
+        body = tk.Frame(self, bg=COLORS["chat_bg"])
+        body.pack(fill="both", expand=True)
+
+        # --- Sidebar ---
+        sidebar = tk.Frame(body, bg="#1e293b", width=200)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
+
+        side_head = tk.Frame(sidebar, bg="#1e293b", padx=10, pady=10)
+        side_head.pack(fill="x")
+
+        tk.Label(
+            side_head,
+            text="Conversaciones",
+            bg="#1e293b",
+            fg="#e2e8f0",
+            font=("Helvetica", 10, "bold"),
+        ).pack(side="left")
+
+        self.new_btn = tk.Button(
+            side_head,
+            text="+",
+            width=2,
+            height=1,
+            bg="#334155",
+            fg="white",
+            activebackground=COLORS["accent"],
+            activeforeground="white",
+            relief="flat",
+            font=("Helvetica", 14, "bold"),
+            cursor="hand2",
+            command=self._new_conversation,
+        )
+        self.new_btn.pack(side="right")
+
+        list_wrap = tk.Frame(sidebar, bg="#1e293b", padx=8, pady=(0, 8))
+        list_wrap.pack(fill="both", expand=True)
+
+        self.conv_listbox = tk.Listbox(
+            list_wrap,
+            activestyle="none",
+            selectmode="browse",
+            exportselection=False,
+            bg="#0f172a",
+            fg="#e2e8f0",
+            selectbackground=COLORS["accent"],
+            selectforeground="white",
+            highlightthickness=0,
+            borderwidth=0,
+            font=("Helvetica", 10),
+        )
+        conv_scroll = ttk.Scrollbar(list_wrap, orient="vertical", command=self.conv_listbox.yview)
+        self.conv_listbox.configure(yscrollcommand=conv_scroll.set)
+        self.conv_listbox.pack(side="left", fill="both", expand=True)
+        conv_scroll.pack(side="right", fill="y")
+        style_listbox(self.conv_listbox)
+
+        self.conv_listbox.bind("<<ListboxSelect>>", self._on_conversation_select)
+
+        # --- Chat area ---
+        chat_area = tk.Frame(body, bg=COLORS["chat_bg"])
+        chat_area.pack(side="left", fill="both", expand=True)
+
+        chat_wrap = tk.Frame(chat_area, bg=COLORS["chat_bg"])
         chat_wrap.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.canvas = tk.Canvas(chat_wrap, bg=COLORS["chat_bg"], highlightthickness=0)
@@ -141,18 +189,57 @@ class ChatWindow(tk.Toplevel):
         self.canvas.unbind("<Button-5>")
         self.destroy()
 
+    def _format_conv_label(self, conv: dict) -> str:
+        titulo = (conv.get("titulo") or "Conversación").strip()
+        if len(titulo) > 28:
+            titulo = titulo[:25] + "..."
+        num = conv.get("num_mensajes") or 0
+        return f"{titulo} ({num})"
+
+    def _refresh_conversation_list(self):
+        self._conv_ids = []
+        self.conv_listbox.delete(0, tk.END)
+
+        for conv in self.chat_service.list_conversations():
+            self._conv_ids.append(conv["id"])
+            self.conv_listbox.insert(tk.END, self._format_conv_label(conv))
+
+        current = self.chat_service.id_conversacion
+        if current in self._conv_ids:
+            idx = self._conv_ids.index(current)
+            self.conv_listbox.selection_clear(0, tk.END)
+            self.conv_listbox.selection_set(idx)
+            self.conv_listbox.see(idx)
+
+    def _on_conversation_select(self, _event=None):
+        if self._busy or self._switching:
+            return
+
+        sel = self.conv_listbox.curselection()
+        if not sel:
+            return
+
+        idx = sel[0]
+        if idx >= len(self._conv_ids):
+            return
+
+        conv_id = self._conv_ids[idx]
+        if conv_id == self.chat_service.id_conversacion:
+            return
+
+        self._switching = True
+        try:
+            if self.chat_service.switch_conversation(conv_id):
+                self._clear_messages()
+                self._load_history()
+        finally:
+            self._switching = False
+
     def _clear_messages(self):
         for widget in self.messages_frame.winfo_children():
             widget.destroy()
 
-    def _load_history(self):
-        self.chat_service.ensure_conversation()
-        messages = self.chat_service.get_ui_messages()
-
-        if not messages:
-            self._welcome()
-            return
-
+    def _render_messages(self, messages: list[dict]):
         for msg in messages:
             role = msg.get("role")
             contenido = plain_chat_text(msg.get("contenido") or "")
@@ -163,13 +250,20 @@ class ChatWindow(tk.Toplevel):
             elif role == "assistant":
                 route = msg.get("route") or "llm_direct"
                 label = ROUTE_LABELS.get(route, "Asistente")
-                error = route == "error"
-                self._bot_message(contenido, meta=label, error=error)
+                self._bot_message(contenido, meta=label, error=(route == "error"))
+
+    def _load_history(self):
+        messages = self.chat_service.get_ui_messages()
+        if not messages:
+            self._welcome()
+            return
+        self._render_messages(messages)
 
     def _new_conversation(self):
         if self._busy:
             return
         self.chat_service.start_new_conversation()
+        self._refresh_conversation_list()
         self._clear_messages()
         self._welcome()
 
@@ -178,6 +272,8 @@ class ChatWindow(tk.Toplevel):
             "Hola. Soy el asistente de IESPRO-Taller.\n\n"
             "Puedo consultar citas, vehículos, islas y mecánicos, "
             "o buscar fallas parecidas a las que ya atendimos.\n\n"
+            "Usa el botón + para una conversación nueva. "
+            "Recuerdo tus charlas anteriores de este usuario.\n\n"
             "Escribe tu pregunta abajo y pulsa Enviar.",
         )
 
@@ -185,8 +281,10 @@ class ChatWindow(tk.Toplevel):
         self._busy = busy
         if busy:
             self.send_btn.configure(state="disabled", bg=COLORS["muted"])
+            self.new_btn.configure(state="disabled")
         else:
             self.send_btn.configure(state="normal", bg=COLORS["accent"])
+            self.new_btn.configure(state="normal")
             self.input_entry.focus_force()
 
     def _send(self):
@@ -228,6 +326,7 @@ class ChatWindow(tk.Toplevel):
                 answer = "No pude obtener una respuesta. Intenta de nuevo."
             self._bot_message(answer, meta=label, error=(route == "error"))
 
+        self._refresh_conversation_list()
         self._set_busy(False)
 
     def _user_message(self, text):
@@ -240,7 +339,7 @@ class ChatWindow(tk.Toplevel):
             bg=COLORS["user_bubble"],
             fg=COLORS["user_text"],
             font=("Helvetica", 11),
-            wraplength=340,
+            wraplength=380,
             justify="left",
             padx=14,
             pady=10,
@@ -270,7 +369,7 @@ class ChatWindow(tk.Toplevel):
             bg="#fee2e2" if error else COLORS["bot_bubble"],
             fg=COLORS["bot_text"],
             font=("Helvetica", 11),
-            wraplength=360,
+            wraplength=400,
             justify="left",
             padx=14,
             pady=10,

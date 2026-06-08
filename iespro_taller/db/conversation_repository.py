@@ -84,3 +84,44 @@ class ConversationRepository:
         )
         rows.reverse()
         return [{"role": row["role"], "content": row["contenido"]} for row in rows]
+
+    def listar_conversaciones(
+        self,
+        id_usuario: int,
+        id_sucursal: int,
+        limite: int = 40,
+    ) -> list[dict]:
+        return fetch_all(
+            """
+            SELECT c.id, c.titulo, c.creado_en, c.actualizado_en,
+                   (SELECT COUNT(*) FROM mensajes_chat m WHERE m.id_conversacion = c.id) AS num_mensajes
+            FROM conversaciones c
+            WHERE c.id_usuario = %s AND c.id_sucursal = %s
+            ORDER BY c.actualizado_en DESC, c.id DESC
+            LIMIT %s
+            """,
+            (id_usuario, id_sucursal, limite),
+        )
+
+    def obtener_memoria_otras_conversaciones(
+        self,
+        id_usuario: int,
+        id_sucursal: int,
+        id_conversacion_actual: int,
+        limite_mensajes: int = 10,
+    ) -> list[dict]:
+        """Fragmentos de otras charlas del mismo usuario (para contexto cruzado)."""
+        return fetch_all(
+            """
+            SELECT c.id AS id_conversacion, c.titulo, m.role, m.contenido, m.creado_en
+            FROM mensajes_chat m
+            JOIN conversaciones c ON c.id = m.id_conversacion
+            WHERE c.id_usuario = %s
+              AND c.id_sucursal = %s
+              AND c.id != %s
+              AND m.role IN ('user', 'assistant')
+            ORDER BY m.id DESC
+            LIMIT %s
+            """,
+            (id_usuario, id_sucursal, id_conversacion_actual, limite_mensajes),
+        )
