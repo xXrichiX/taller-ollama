@@ -4,6 +4,7 @@ from typing import Any
 import ollama
 
 from config import DEFAULT_SUCURSAL_ID, OLLAMA_CHAT_MODEL
+from db.conversation_repository import ConversationRepository
 from services.chat_intents import (
     CAPABILITIES_ANSWER,
     INVALID_INPUT_ANSWER,
@@ -19,6 +20,8 @@ SUCURSAL_TOOLS = frozenset({
     "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
     "crear_cita_natural", "cambiar_estado_cita_natural",
 })
+
+OLLAMA_CONTEXT_LIMIT = 12
 
 PLAIN_TEXT_RULE = """
 FORMATO DE RESPUESTA (obligatorio):
@@ -47,9 +50,49 @@ Reglas:
 class ChatService:
     def __init__(self, id_sucursal: int = DEFAULT_SUCURSAL_ID):
         self.id_sucursal = id_sucursal
+        self.id_usuario: int | None = None
+        self.id_conversacion: int | None = None
         self.rag = RagService()
         self.tools = ToolsService(self.rag)
-        self.history: list[dict] = []
+        self.repo = ConversationRepository()
+
+    def set_user(self, id_usuario: int) -> None:
+        self.id_usuario = id_usuario
+
+    def ensure_conversation(self) -> int | None:
+        if not self.id_usuario:
+            return None
+
+        if self.id_conversacion:
+            return self.id_conversacion
+
+        reciente = self.repo.obtener_conversacion_reciente(self.id_usuario, self.id_sucursal)
+        if reciente:
+            self.id_conversacion = reciente["id"]
+            return self.id_conversacion
+
+        self.id_conversacion = self.repo.crear_conversacion(
+            self.id_usuario,
+            self.id_sucursal,
+            titulo="Asistente del taller",
+        )
+        return self.id_conversacion
+
+    def start_new_conversation(self) -> int | None:
+        if not self.id_usuario:
+            return None
+
+        self.id_conversacion = self.repo.crear_conversacion(
+            self.id_usuario,
+            self.id_sucursal,
+            titulo="Nueva conversación",
+        )
+        return self.id_conversacion
+
+    def get_ui_messages(self) -> list[dict]:
+        if not self.id_conversacion:
+            return []
+        return self.repo.obtener_mensajes(self.id_conversacion)
 
     def bootstrap(self) -> tuple[bool, str]:
         try:
@@ -58,54 +101,102 @@ class ChatService:
         except Exception as exc:
             return False, str(exc)
 
+    def _ollama_context(self) -> list[dict[str, str]]:
+        if not self.id_conversacion:
+            return []
+        return self.repo.obtener_mensajes_para_ollama(
+            self.id_conversacion,
+            limite=OLLAMA_CONTEXT_LIMIT,
+        )
+
+    def _maybe_set_titulo(self, question: str) -> None:
+        if not self.id_conversacion:
+            return
+
+        from db.connection import fetch_one
+
+        conv = fetch_one(
+            "SELECT titulo FROM conversaciones WHERE id = %s",
+            (self.id_conversacion,),
+        )
+        if not conv:
+            return
+
+        titulo = (conv.get("titulo") or "").strip()
+        if titulo in ("Asistente del taller", "Nueva conversación", ""):
+            limpio = question.strip().replace("\n", " ")
+            self.repo.actualizar_titulo(self.id_conversacion, limpio[:60] or "Conversación")
+
+    def _persist_exchange(self, question: str, answer: str, route: str) -> None:
+        if not self.id_conversacion:
+            return
+
+        self.repo.guardar_mensaje(self.id_conversacion, "user", question)
+        self.repo.guardar_mensaje(self.id_conversacion, "assistant", answer, route=route)
+        self._maybe_set_titulo(question)
+
+    def _result(
+        self,
+        question: str,
+        answer: str,
+        route: str,
+        *,
+        tool_calls: list | None = None,
+        raw: Any = None,
+        persist: bool = True,
+    ) -> dict[str, Any]:
+        answer = plain_chat_text(answer or "")
+        if persist and question:
+            self._persist_exchange(question, answer, route)
+        return {
+            "answer": answer,
+            "route": route,
+            "tool_calls": tool_calls or [],
+            "raw": raw,
+        }
+
     def ask(self, question: str) -> dict[str, Any]:
         question = (question or "").strip()
+        self.ensure_conversation()
+
         if not question:
-            return {
-                "answer": INVALID_INPUT_ANSWER,
-                "route": "help",
-                "tool_calls": [],
-                "raw": None,
-            }
+            return self._result(
+                "",
+                INVALID_INPUT_ANSWER,
+                "help",
+                persist=False,
+            )
 
         if is_invalid_input(question):
-            return {
-                "answer": INVALID_INPUT_ANSWER,
-                "route": "help",
-                "tool_calls": [],
-                "raw": None,
-            }
+            return self._result(question, INVALID_INPUT_ANSWER, "help")
 
         if is_capabilities_question(question):
-            return {
-                "answer": CAPABILITIES_ANSWER,
-                "route": "help",
-                "tool_calls": [],
-                "raw": None,
-            }
+            return self._result(question, CAPABILITIES_ANSWER, "help")
 
         sql_answer = run_sql_query(question, self.id_sucursal)
         if sql_answer:
-            return {
-                "answer": sql_answer,
-                "route": "sql",
-                "tool_calls": [],
-                "raw": None,
-            }
+            return self._result(question, sql_answer, "sql")
 
         q_lower = question.lower()
-        rag_keywords = ("similar", "parecido", "parecida", "falla", "síntoma", "sintoma", "chirrido", "ruido", "vibración", "vibracion", "como el", "como la")
+        rag_keywords = (
+            "similar", "parecido", "parecida", "falla", "síntoma", "sintoma",
+            "chirrido", "ruido", "vibración", "vibracion", "como el", "como la",
+        )
         if any(k in q_lower for k in rag_keywords):
-            rag_result = self.tools.execute("buscar_fallas_similares", {"descripcion": question, "limite": 5})
+            rag_result = self.tools.execute(
+                "buscar_fallas_similares",
+                {"descripcion": question, "limite": 5},
+            )
             answer = self._answer_from_rag(question, rag_result)
-            return {
-                "answer": answer,
-                "route": "rag",
-                "tool_calls": [{"name": "buscar_fallas_similares", "result": rag_result}],
-                "raw": None,
-            }
+            return self._result(
+                question,
+                answer,
+                "rag",
+                tool_calls=[{"name": "buscar_fallas_similares", "result": rag_result}],
+            )
 
         return self._ask_with_tools(question)
+
     def _answer_from_rag(self, question: str, rag_result: dict) -> str:
         matches = rag_result.get("matches", [])
         if not matches:
@@ -133,7 +224,7 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
     def _ask_with_tools(self, question: str) -> dict[str, Any]:
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT + f"\nSucursal activa: {self.id_sucursal}"},
-            *self.history[-6:],
+            *self._ollama_context(),
             {"role": "user", "content": question},
         ]
 
@@ -146,12 +237,11 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
                 tools=TOOL_DEFINITIONS,
             )
         except Exception as exc:
-            return {
-                "answer": f"Error con Ollama ({OLLAMA_CHAT_MODEL}): {exc}",
-                "route": "error",
-                "tool_calls": [],
-                "raw": None,
-            }
+            return self._result(
+                question,
+                f"Error con Ollama ({OLLAMA_CHAT_MODEL}): {exc}",
+                "error",
+            )
 
         msg = response.get("message", {})
         tool_calls = msg.get("tool_calls") or []
@@ -193,12 +283,10 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
             raw = response
             route = "llm_direct"
 
-        self.history.append({"role": "user", "content": question})
-        self.history.append({"role": "assistant", "content": answer})
-
-        return {
-            "answer": answer,
-            "route": route,
-            "tool_calls": tool_calls_log,
-            "raw": raw,
-        }
+        return self._result(
+            question,
+            answer,
+            route,
+            tool_calls=tool_calls_log,
+            raw=raw,
+        )

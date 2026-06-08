@@ -171,6 +171,28 @@ CREATE TABLE IF NOT EXISTS fallas_registradas (
   FOREIGN KEY (id_vehiculo) REFERENCES vehiculos(id)
 );
 
+CREATE TABLE IF NOT EXISTS conversaciones (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  id_usuario INT NOT NULL,
+  id_sucursal INT NOT NULL,
+  titulo VARCHAR(255),
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id),
+  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id)
+);
+
+CREATE TABLE IF NOT EXISTS mensajes_chat (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  id_conversacion BIGINT NOT NULL,
+  role ENUM('user','assistant','system') NOT NULL,
+  contenido TEXT NOT NULL,
+  route VARCHAR(32),
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_conversacion) REFERENCES conversaciones(id) ON DELETE CASCADE,
+  INDEX idx_mensajes_conversacion (id_conversacion, creado_en)
+);
+
 
 USE iespro_taller_app;
 

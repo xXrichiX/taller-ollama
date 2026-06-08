@@ -31,20 +31,39 @@ class ChatWindow(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self._build_ui()
-        self._welcome()
+        self._load_history()
 
     def _build_ui(self):
         header = tk.Frame(self, bg=COLORS["header"], height=72)
         header.pack(fill="x")
         header.pack_propagate(False)
 
+        title_row = tk.Frame(header, bg=COLORS["header"])
+        title_row.pack(fill="x", padx=16, pady=(10, 0))
+
         tk.Label(
-            header,
+            title_row,
             text="Asistente del taller",
             bg=COLORS["header"],
             fg="white",
             font=("Helvetica", 15, "bold"),
-        ).pack(anchor="w", padx=16, pady=(14, 0))
+        ).pack(side="left")
+
+        new_btn = tk.Button(
+            title_row,
+            text="Nueva conversación",
+            bg="#334155",
+            fg="white",
+            activebackground="#475569",
+            activeforeground="white",
+            relief="flat",
+            font=("Helvetica", 9),
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            command=self._new_conversation,
+        )
+        new_btn.pack(side="right")
 
         tk.Label(
             header,
@@ -52,7 +71,7 @@ class ChatWindow(tk.Toplevel):
             bg=COLORS["header"],
             fg="#94a3b8",
             font=("Helvetica", 10),
-        ).pack(anchor="w", padx=16)
+        ).pack(anchor="w", padx=16, pady=(2, 8))
 
         chat_wrap = tk.Frame(self, bg=COLORS["chat_bg"])
         chat_wrap.pack(fill="both", expand=True, padx=10, pady=10)
@@ -122,6 +141,38 @@ class ChatWindow(tk.Toplevel):
         self.canvas.unbind("<Button-5>")
         self.destroy()
 
+    def _clear_messages(self):
+        for widget in self.messages_frame.winfo_children():
+            widget.destroy()
+
+    def _load_history(self):
+        self.chat_service.ensure_conversation()
+        messages = self.chat_service.get_ui_messages()
+
+        if not messages:
+            self._welcome()
+            return
+
+        for msg in messages:
+            role = msg.get("role")
+            contenido = plain_chat_text(msg.get("contenido") or "")
+            if not contenido.strip():
+                continue
+            if role == "user":
+                self._user_message(contenido)
+            elif role == "assistant":
+                route = msg.get("route") or "llm_direct"
+                label = ROUTE_LABELS.get(route, "Asistente")
+                error = route == "error"
+                self._bot_message(contenido, meta=label, error=error)
+
+    def _new_conversation(self):
+        if self._busy:
+            return
+        self.chat_service.start_new_conversation()
+        self._clear_messages()
+        self._welcome()
+
     def _welcome(self):
         self._bot_message(
             "Hola. Soy el asistente de IESPRO-Taller.\n\n"
@@ -175,7 +226,7 @@ class ChatWindow(tk.Toplevel):
             answer = plain_chat_text(result.get("answer", "") or "")
             if not answer.strip():
                 answer = "No pude obtener una respuesta. Intenta de nuevo."
-            self._bot_message(answer, meta=label)
+            self._bot_message(answer, meta=label, error=(route == "error"))
 
         self._set_busy(False)
 

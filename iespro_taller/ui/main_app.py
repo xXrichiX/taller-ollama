@@ -46,6 +46,7 @@ class MainApp(tk.Tk):
         if user.get("id_sucursal"):
             self.id_sucursal = user["id_sucursal"]
             self.chat_service.id_sucursal = self.id_sucursal
+        self.chat_service.set_user(user["id"])
 
         for w in self.container.winfo_children():
             w.destroy()
@@ -101,6 +102,7 @@ class MainApp(tk.Tk):
             self.chat_window.lift()
             self.chat_window.focus_force()
             return
+        self.chat_service.ensure_conversation()
         self.chat_window = ChatWindow(self, self.chat_service)
     def _build_dashboard_tab(self):
         frame = ttk.Frame(padding=12)
