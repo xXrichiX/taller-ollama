@@ -252,35 +252,59 @@ class ChatService:
 
         return self._ask_with_tools(question)
 
-    def _answer_from_memory(self, question: str) -> dict[str, Any]:
-        actual = self._ollama_context()
-        memoria = self._memory_from_other_conversations()
+    def _format_recall_answer(self, question: str) -> str:
+        if not self.id_usuario or not self.id_conversacion:
+            return "No hay sesión activa para consultar el historial."
 
-        historial_actual = ""
+        otras = self.repo.listar_otras_conversaciones_con_mensajes(
+            self.id_usuario,
+            self.id_sucursal,
+            self.id_conversacion,
+        )
+        actual = self._ollama_context()
+
+        partes: list[str] = []
+
+        if otras:
+            partes.append("Sí, revisé tus conversaciones anteriores guardadas:")
+            for conv in otras:
+                titulo = (conv.get("titulo") or "Conversación").strip()[:60]
+                partes.append(f"\nConversación «{titulo}»:")
+                for msg in conv["mensajes"]:
+                    quien = "Tú" if msg["role"] == "user" else "Asistente"
+                    texto = plain_chat_text((msg.get("contenido") or "").strip())
+                    if len(texto) > 320:
+                        texto = texto[:317] + "..."
+                    if texto:
+                        partes.append(f"- {quien}: {texto}")
+
         if actual:
-            historial_actual = "Conversación actual:\n" + "\n".join(
-                f"- {'Usuario' if m['role'] == 'user' else 'Asistente'}: {m['content'][:180]}"
-                for m in actual[-8:]
+            previos = actual[:-1] if len(actual) > 1 else []
+            if previos:
+                partes.append("\nEn esta conversación, antes de tu última pregunta:")
+                for msg in previos[-6:]:
+                    quien = "Tú" if msg["role"] == "user" else "Asistente"
+                    texto = plain_chat_text((msg.get("content") or "").strip())
+                    if len(texto) > 320:
+                        texto = texto[:317] + "..."
+                    if texto:
+                        partes.append(f"- {quien}: {texto}")
+
+        if not partes:
+            return (
+                "Aún no tengo mensajes guardados en otras conversaciones contigo. "
+                "Cuando charlemos, quedarán guardados y podré recordarlos después."
             )
 
-        prompt = f"""Eres el asistente del taller IESPRO. Responde en texto plano en español, sin markdown.
-El usuario pregunta si recuerdas algo de charlas anteriores o de esta conversación.
-Usa SOLO la información de abajo. Si no hay datos suficientes, dilo con claridad.
+        partes.append(
+            "\nEsto es lo que tengo registrado en la base de datos del taller. "
+            "Si quieres retomar algo, dime el tema y seguimos desde ahí."
+        )
+        return "\n".join(partes)
 
-{historial_actual}
-{memoria}
-
-Pregunta del usuario: {question}
-
-Responde de forma breve y útil, citando lo que dijo o pidió antes si aplica."""
-
-        try:
-            response = ollama.generate(model=OLLAMA_CHAT_MODEL, prompt=prompt)
-            answer = plain_chat_text(response["response"])
-        except Exception as exc:
-            answer = f"No pude consultar el historial: {exc}"
-
-        return self._result(question, answer, "llm_direct")
+    def _answer_from_memory(self, question: str) -> dict[str, Any]:
+        answer = self._format_recall_answer(question)
+        return self._result(question, answer, "memory_recall")
 
     def _answer_from_rag(self, question: str, rag_result: dict) -> str:
         matches = rag_result.get("matches", [])

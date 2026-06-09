@@ -93,7 +93,7 @@ class ChatWindow(tk.Toplevel):
         )
         self.new_btn.pack(side="right")
 
-        list_wrap = tk.Frame(sidebar, bg="#1e293b", padx=8, pady=(0, 8))
+        list_wrap = tk.Frame(sidebar, bg="#1e293b", padx=8, pady=8)
         list_wrap.pack(fill="both", expand=True)
 
         self.conv_listbox = tk.Listbox(
@@ -197,6 +197,8 @@ class ChatWindow(tk.Toplevel):
         return f"{titulo} ({num})"
 
     def _refresh_conversation_list(self):
+        if not hasattr(self, "conv_listbox"):
+            return
         self._conv_ids = []
         self.conv_listbox.delete(0, tk.END)
 

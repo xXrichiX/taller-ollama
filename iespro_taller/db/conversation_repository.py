@@ -125,3 +125,55 @@ class ConversationRepository:
             """,
             (id_usuario, id_sucursal, id_conversacion_actual, limite_mensajes),
         )
+
+    def listar_otras_conversaciones_con_mensajes(
+        self,
+        id_usuario: int,
+        id_sucursal: int,
+        id_conversacion_actual: int,
+        limite_conversaciones: int = 5,
+        limite_mensajes_por_conv: int = 8,
+    ) -> list[dict]:
+        """Otras charlas del usuario con sus mensajes, de más reciente a más antigua."""
+        convs = fetch_all(
+            """
+            SELECT c.id, c.titulo
+            FROM conversaciones c
+            WHERE c.id_usuario = %s
+              AND c.id_sucursal = %s
+              AND c.id != %s
+              AND EXISTS (
+                  SELECT 1 FROM mensajes_chat m
+                  WHERE m.id_conversacion = c.id
+                    AND m.role IN ('user', 'assistant')
+              )
+            ORDER BY c.actualizado_en DESC, c.id DESC
+            LIMIT %s
+            """,
+            (id_usuario, id_sucursal, id_conversacion_actual, limite_conversaciones),
+        )
+
+        resultado: list[dict] = []
+        for conv in convs:
+            mensajes = fetch_all(
+                """
+                SELECT role, contenido
+                FROM (
+                    SELECT role, contenido, id
+                    FROM mensajes_chat
+                    WHERE id_conversacion = %s
+                      AND role IN ('user', 'assistant')
+                    ORDER BY id DESC
+                    LIMIT %s
+                ) recientes
+                ORDER BY id ASC
+                """,
+                (conv["id"], limite_mensajes_por_conv),
+            )
+            if mensajes:
+                resultado.append({
+                    "id": conv["id"],
+                    "titulo": conv.get("titulo") or "Conversación",
+                    "mensajes": mensajes,
+                })
+        return resultado

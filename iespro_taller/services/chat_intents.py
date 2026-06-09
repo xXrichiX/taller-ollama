@@ -31,8 +31,20 @@ def is_memory_recall_question(question: str) -> bool:
         "recuerdas", "recuerda lo", "conversacion anterior", "charla anterior",
         "lo que te dije", "lo que dije", "hablamos antes", "mencione antes",
         "mencioné antes", "en la otra conversacion", "otra conversacion",
+        "hablamos en", "de que hablamos", "de que hblab", "terior conversacion",
+        "conversacion previa", "conversacion pasada", "charla previa",
+        "que platicamos", "que charlamos", "que hablamos",
     )
-    return any(p in q for p in patterns)
+    if any(p in q for p in patterns):
+        return True
+    if "conversacion" in q or "charla" in q:
+        hints = (
+            "anterior", "terior", "previa", "pasada", "otra", "antes",
+            "hablamos", "hblab", "dije", "platic", "charlamos",
+        )
+        if any(h in q for h in hints):
+            return True
+    return False
 
 
 def _norm(text: str) -> str:
