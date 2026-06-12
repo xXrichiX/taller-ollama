@@ -6,7 +6,7 @@ from services import catalog_service, cita_service
 from services.chat_service import ChatService
 from ui.chat_window import ChatWindow
 from ui.login_window import LoginWindow
-from ui.theme import COLORS, apply_theme, style_listbox
+from ui.theme import COLORS, apply_theme, set_button_enabled, style_listbox
 
 
 class MainApp(tk.Tk):
@@ -65,18 +65,10 @@ class MainApp(tk.Tk):
             style="SubHeader.TLabel",
         ).pack(anchor="w")
 
-        chat_btn = tk.Button(
+        chat_btn = ttk.Button(
             header,
-            text="  Abrir asistente IA  ",
-            bg=COLORS["accent"],
-            fg="white",
-            activebackground=COLORS["accent_hover"],
-            activeforeground="white",
-            relief="flat",
-            font=("Helvetica", 11, "bold"),
-            padx=12,
-            pady=8,
-            cursor="hand2",
+            text="Abrir asistente IA",
+            style="Accent.TButton",
             command=self._open_chat,
         )
         chat_btn.pack(side="right")

@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from services.text_format import plain_chat_text
-from ui.theme import COLORS, style_listbox
+from ui.theme import COLORS, set_button_enabled, style_listbox
 
 ROUTE_LABELS = {
     "sql": "Datos del taller",
@@ -69,18 +69,10 @@ class ChatWindow(tk.Toplevel):
             font=("Helvetica", 10, "bold"),
         ).pack(side="left")
 
-        self.new_btn = tk.Button(
+        self.new_btn = ttk.Button(
             side_head,
             text="+",
-            width=2,
-            height=1,
-            bg="#334155",
-            fg="white",
-            activebackground=COLORS["accent"],
-            activeforeground="white",
-            relief="flat",
-            font=("Helvetica", 14, "bold"),
-            cursor="hand2",
+            style="Sidebar.TButton",
             command=self._new_conversation,
         )
         self.new_btn.pack(side="right")
@@ -153,18 +145,10 @@ class ChatWindow(tk.Toplevel):
         self.input_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 8))
         self.input_entry.bind("<Return>", lambda e: self._send())
 
-        self.send_btn = tk.Button(
+        self.send_btn = ttk.Button(
             bottom,
             text="Enviar",
-            bg=COLORS["accent"],
-            fg="white",
-            activebackground=COLORS["accent_hover"],
-            activeforeground="white",
-            relief="flat",
-            font=("Helvetica", 11, "bold"),
-            padx=16,
-            pady=8,
-            cursor="hand2",
+            style="Accent.TButton",
             command=self._send,
         )
         self.send_btn.pack(side="right")
@@ -271,12 +255,9 @@ class ChatWindow(tk.Toplevel):
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        if busy:
-            self.send_btn.configure(state="disabled", bg=COLORS["muted"])
-            self.new_btn.configure(state="disabled")
-        else:
-            self.send_btn.configure(state="normal", bg=COLORS["accent"])
-            self.new_btn.configure(state="normal")
+        set_button_enabled(self.send_btn, not busy)
+        set_button_enabled(self.new_btn, not busy)
+        if not busy:
             self.input_entry.focus_force()
 
     def _send(self):

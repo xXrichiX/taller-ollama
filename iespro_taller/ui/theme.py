@@ -50,6 +50,59 @@ def apply_theme(root):
     style.configure("CardAccent.TLabel", background=COLORS["card"], foreground=COLORS["accent"], font=("Helvetica", 22, "bold"))
     style.configure("Section.TLabel", background=COLORS["bg"], foreground=COLORS["text"], font=("Helvetica", 12, "bold"))
 
+    _configure_action_buttons(style)
+
+
+def _configure_action_buttons(style: ttk.Style) -> None:
+    """Botones con color real (tk.Button en macOS suele verse blanco/opaco)."""
+    style.configure(
+        "Accent.TButton",
+        background=COLORS["accent"],
+        foreground="#ffffff",
+        borderwidth=0,
+        focusthickness=0,
+        focuscolor=COLORS["accent"],
+        font=("Helvetica", 11, "bold"),
+        padding=(14, 8),
+    )
+    style.map(
+        "Accent.TButton",
+        background=[
+            ("pressed", COLORS["accent_hover"]),
+            ("active", COLORS["accent_hover"]),
+            ("disabled", "#94a3b8"),
+        ],
+        foreground=[("disabled", "#ffffff")],
+    )
+
+    style.configure(
+        "Sidebar.TButton",
+        background="#334155",
+        foreground="#ffffff",
+        borderwidth=0,
+        focusthickness=0,
+        focuscolor="#334155",
+        font=("Helvetica", 13, "bold"),
+        padding=(6, 2),
+        width=3,
+    )
+    style.map(
+        "Sidebar.TButton",
+        background=[
+            ("pressed", COLORS["accent_hover"]),
+            ("active", COLORS["accent"]),
+            ("disabled", "#475569"),
+        ],
+        foreground=[("disabled", "#e2e8f0")],
+    )
+
+
+def set_button_enabled(button: ttk.Button, enabled: bool) -> None:
+    if enabled:
+        button.state(["!disabled"])
+    else:
+        button.state(["disabled"])
+
 
 def style_listbox(listbox: tk.Listbox) -> None:
     listbox.configure(
