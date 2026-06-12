@@ -87,6 +87,60 @@ def is_capabilities_question(question: str) -> bool:
     return any(p in q for p in CAPABILITIES_PATTERNS)
 
 
+def is_greeting(question: str) -> bool:
+    """Saludo simple sin pedido concreto al taller."""
+    q = _norm(question)
+    q = re.sub(r"[^a-z\s]", "", q).strip()
+    if not q:
+        return False
+    if _is_action_request(question) or is_capabilities_question(question):
+        return False
+    if any(w in q for w in ("cita", "cliente", "placa", "lista", "cuant", "falla", "vehiculo")):
+        return False
+
+    saludos = (
+        "hola", "holaa", "holaaa", "holaaaa", "buenas", "buenos dias", "buen dia",
+        "hey", "que tal", "qué tal", "saludos", "buenas tardes", "buenas noches",
+        "hi", "hello", "qué onda", "que onda",
+    )
+    if q in saludos:
+        return True
+    if re.fullmatch(r"hol+a+", q):
+        return True
+    if len(q.split()) <= 3 and any(q.startswith(s) for s in ("hola", "buenas", "hey")):
+        return True
+    return False
+
+
+def is_casual_nonsense(question: str) -> bool:
+    """Risa, texto random o charla sin tema del taller."""
+    if _is_action_request(question) or is_capabilities_question(question):
+        return False
+
+    q = _norm(question)
+    compact = re.sub(r"[^a-z]", "", q)
+    if not compact:
+        return True
+
+    workshop = [h for h in WORKSHOP_HINTS if h not in ("hola", "gracias")]
+    if any(h in q for h in workshop):
+        return False
+
+    if re.search(r"jaja|jeje|jiji|haha", compact):
+        return True
+    if compact in ("lol", "xd", "xdd", "kk", "ok", "asdf", "asdfgh"):
+        return True
+    if re.fullmatch(r"(.)\1{4,}", compact):
+        return True
+
+    letters = compact
+    vowels = sum(1 for c in letters if c in "aeiou")
+    if len(letters) <= 10 and vowels <= 1 and " " not in q:
+        return True
+
+    return False
+
+
 def is_invalid_input(question: str) -> bool:
     raw = (question or "").strip()
     if not raw:
@@ -142,12 +196,21 @@ Acciones que ejecuto en el sistema:
 También puedo listar citas, clientes, vehículos, mecánicos e islas. Dime qué necesitas en español claro."""
 
 
-INVALID_INPUT_ANSWER = """No entendí tu mensaje.
+GREETING_ANSWER = """Hola. Soy el asistente de IESPRO-Taller.
 
-Por favor escribe en español algo sobre el taller. Por ejemplo:
+Puedo ayudarte con citas, clientes, vehículos, islas y mecánicos del taller.
+
+Dime qué necesitas, por ejemplo: ¿Cuántas citas hay? o lista los clientes."""
+
+
+FRIENDLY_FALLBACK_ANSWER = """No entendí bien eso, pero aquí estoy.
+
+Soy el asistente del taller. Puedo consultar datos, crear citas o buscar fallas parecidas.
+
+Prueba con algo como:
 - ¿Cuántas citas hay?
 - Lista los clientes
-- ¿Hay fallas parecidas a vibración en frenos?
-- Crea una cita para Roberto García, placa ABC-123, mecánico Carlos, isla 1, falla: ruido al frenar
+- Crea una cita para Roberto García, placa ABC-123, mecánico Carlos, isla 1, falla: ruido en frenos"""
 
-Si quieres saber qué puedo hacer, pregúntame: ¿Qué puedes hacer?"""
+
+INVALID_INPUT_ANSWER = FRIENDLY_FALLBACK_ANSWER

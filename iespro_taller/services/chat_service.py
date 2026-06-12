@@ -21,8 +21,12 @@ from services.tool_resilience import (
 from db.conversation_repository import ConversationRepository
 from services.chat_intents import (
     CAPABILITIES_ANSWER,
+    FRIENDLY_FALLBACK_ANSWER,
+    GREETING_ANSWER,
     INVALID_INPUT_ANSWER,
     is_capabilities_question,
+    is_casual_nonsense,
+    is_greeting,
     is_invalid_input,
     is_memory_recall_question,
 )
@@ -263,7 +267,13 @@ class ChatService:
             )
 
         if is_invalid_input(question):
-            return self._result(question, INVALID_INPUT_ANSWER, "help")
+            return self._result(question, FRIENDLY_FALLBACK_ANSWER, "help")
+
+        if is_greeting(question):
+            return self._result(question, GREETING_ANSWER, "help")
+
+        if is_casual_nonsense(question):
+            return self._result(question, FRIENDLY_FALLBACK_ANSWER, "help")
 
         if is_capabilities_question(question):
             return self._result(question, CAPABILITIES_ANSWER, "help")
