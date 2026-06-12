@@ -38,7 +38,7 @@ class ChatWindow(tk.Toplevel):
         self._load_history()
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=COLORS["header"], height=64)
+        header = tk.Frame(self, bg=COLORS["header"], height=48)
         header.pack(fill="x")
         header.pack_propagate(False)
 
@@ -48,15 +48,7 @@ class ChatWindow(tk.Toplevel):
             bg=COLORS["header"],
             fg="white",
             font=("Helvetica", 15, "bold"),
-        ).pack(anchor="w", padx=16, pady=(12, 0))
-
-        tk.Label(
-            header,
-            text="Tus conversaciones se guardan por usuario. Usa + para una charla nueva.",
-            bg=COLORS["header"],
-            fg="#94a3b8",
-            font=("Helvetica", 10),
-        ).pack(anchor="w", padx=16, pady=(2, 8))
+        ).pack(anchor="w", padx=16, pady=12)
 
         body = tk.Frame(self, bg=COLORS["chat_bg"])
         body.pack(fill="both", expand=True)
@@ -191,10 +183,9 @@ class ChatWindow(tk.Toplevel):
 
     def _format_conv_label(self, conv: dict) -> str:
         titulo = (conv.get("titulo") or "Conversación").strip()
-        if len(titulo) > 28:
-            titulo = titulo[:25] + "..."
-        num = conv.get("num_mensajes") or 0
-        return f"{titulo} ({num})"
+        if len(titulo) > 32:
+            titulo = titulo[:29] + "..."
+        return titulo
 
     def _refresh_conversation_list(self):
         if not hasattr(self, "conv_listbox"):
@@ -248,11 +239,11 @@ class ChatWindow(tk.Toplevel):
             if not contenido.strip():
                 continue
             if role == "user":
-                self._user_message(contenido)
+                self._user_message(contenido, scroll=False)
             elif role == "assistant":
                 route = msg.get("route") or "llm_direct"
                 label = ROUTE_LABELS.get(route, "Asistente")
-                self._bot_message(contenido, meta=label, error=(route == "error"))
+                self._bot_message(contenido, meta=label, error=(route == "error"), scroll_to=None)
 
     def _load_history(self):
         messages = self.chat_service.get_ui_messages()
@@ -260,6 +251,7 @@ class ChatWindow(tk.Toplevel):
             self._welcome()
             return
         self._render_messages(messages)
+        self._scroll_bottom()
 
     def _new_conversation(self):
         if self._busy:
@@ -273,9 +265,8 @@ class ChatWindow(tk.Toplevel):
             "Hola. Soy el asistente de IESPRO-Taller.\n\n"
             "Puedo consultar citas, vehículos, islas y mecánicos, "
             "o buscar fallas parecidas a las que ya atendimos.\n\n"
-            "Usa el botón + para una conversación nueva. "
-            "Recuerdo tus charlas anteriores de este usuario.\n\n"
             "Escribe tu pregunta abajo y pulsa Enviar.",
+            scroll_to="top",
         )
 
     def _set_busy(self, busy: bool) -> None:
@@ -330,7 +321,7 @@ class ChatWindow(tk.Toplevel):
         self._refresh_conversation_list()
         self._set_busy(False)
 
-    def _user_message(self, text):
+    def _user_message(self, text, scroll=True):
         row = tk.Frame(self.messages_frame, bg=COLORS["chat_bg"])
         row.pack(fill="x", pady=6, padx=4)
 
@@ -346,9 +337,10 @@ class ChatWindow(tk.Toplevel):
             pady=10,
         )
         bubble.pack(side="right", anchor="e")
-        self._scroll_bottom()
+        if scroll:
+            self._scroll_bottom()
 
-    def _bot_message(self, text, meta=None, error=False):
+    def _bot_message(self, text, meta=None, error=False, scroll_to="bottom"):
         row = tk.Frame(self.messages_frame, bg=COLORS["chat_bg"])
         row.pack(fill="x", pady=6, padx=4)
 
@@ -378,8 +370,15 @@ class ChatWindow(tk.Toplevel):
             borderwidth=1,
         )
         bubble.pack(anchor="w")
-        self._scroll_bottom()
+        if scroll_to == "bottom":
+            self._scroll_bottom()
+        elif scroll_to == "top":
+            self._scroll_top()
         return row
+
+    def _scroll_top(self):
+        self.update_idletasks()
+        self.canvas.yview_moveto(0.0)
 
     def _scroll_bottom(self):
         self.update_idletasks()
