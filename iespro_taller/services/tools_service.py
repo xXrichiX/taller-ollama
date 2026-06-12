@@ -228,11 +228,24 @@ class ToolsService:
 
     def execute(self, name: str, arguments: dict) -> Any:
         if name not in self._handlers:
-            return {"error": f"Tool desconocida: {name}"}
+            return {
+                "ok": False,
+                "error": f"Tool desconocida: {name}",
+                "recoverable": False,
+            }
         try:
-            return self._handlers[name](arguments or {})
+            result = self._handlers[name](arguments or {})
+            if isinstance(result, dict) and result.get("error") and result.get("ok") is not False:
+                return {
+                    "ok": False,
+                    "error": str(result["error"]),
+                    "recoverable": True,
+                }
+            return result
         except Exception as exc:
-            return {"error": str(exc)}
+            from services.tool_resilience import sanitize_tool_result
+
+            return sanitize_tool_result(name, None, exc=exc)
 
     def _contar_citas(self, args: dict) -> dict:
         total = cita_service.count_citas(args.get("estado"), args.get("id_sucursal"))

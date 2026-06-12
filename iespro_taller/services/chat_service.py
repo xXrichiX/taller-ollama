@@ -1,9 +1,23 @@
 import json
+import logging
 from typing import Any
 
 import ollama
 
-from config import DEFAULT_SUCURSAL_ID, OLLAMA_CHAT_MODEL
+from config import (
+    DEFAULT_SUCURSAL_ID,
+    OLLAMA_CHAT_MODEL,
+    OLLAMA_CONTEXT_MAX_TOKENS,
+    OLLAMA_CONTEXT_MESSAGE_CAP,
+    OLLAMA_CONTEXT_RESERVED_TOKENS,
+)
+from services.context_window import estimate_tokens, trim_messages_for_context
+from services.tool_resilience import (
+    call_signature,
+    should_skip_followup_llm,
+    tool_failure_user_message,
+    tool_message_content,
+)
 from db.conversation_repository import ConversationRepository
 from services.chat_intents import (
     CAPABILITIES_ANSWER,
@@ -22,7 +36,7 @@ SUCURSAL_TOOLS = frozenset({
     "crear_cita_natural", "cambiar_estado_cita_natural",
 })
 
-OLLAMA_CONTEXT_LIMIT = 12
+logger = logging.getLogger(__name__)
 
 PLAIN_TEXT_RULE = """
 FORMATO DE RESPUESTA (obligatorio):
@@ -56,6 +70,7 @@ class ChatService:
         self.rag = RagService()
         self.tools = ToolsService(self.rag)
         self.repo = ConversationRepository()
+        self._last_context_meta: dict[str, Any] = {}
 
     def set_user(self, id_usuario: int) -> None:
         self.id_usuario = id_usuario
@@ -116,13 +131,33 @@ class ChatService:
         except Exception as exc:
             return False, str(exc)
 
-    def _ollama_context(self) -> list[dict[str, str]]:
+    def _ollama_context(self, question: str = "") -> list[dict[str, str]]:
         if not self.id_conversacion:
             return []
-        return self.repo.obtener_mensajes_para_ollama(
+
+        raw = self.repo.obtener_mensajes_para_ollama(
             self.id_conversacion,
-            limite=OLLAMA_CONTEXT_LIMIT,
+            limite=OLLAMA_CONTEXT_MESSAGE_CAP,
         )
+        reserved = (
+            OLLAMA_CONTEXT_RESERVED_TOKENS
+            + estimate_tokens(self._build_system_prompt())
+            + estimate_tokens(question)
+        )
+        trimmed, meta = trim_messages_for_context(
+            raw,
+            max_tokens=OLLAMA_CONTEXT_MAX_TOKENS,
+            reserved_tokens=reserved,
+        )
+        self._last_context_meta = meta
+        if meta.get("dropped_messages", 0) > 0:
+            logger.info(
+                "Contexto recortado: %s mensajes descartados, %s tokens usados, resumen=%s",
+                meta["dropped_messages"],
+                meta.get("used_tokens"),
+                meta.get("summarized"),
+            )
+        return trimmed
 
     def _memory_from_other_conversations(self) -> str:
         if not self.id_usuario or not self.id_conversacion:
@@ -337,11 +372,12 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
     def _ask_with_tools(self, question: str) -> dict[str, Any]:
         messages = [
             {"role": "system", "content": self._build_system_prompt()},
-            *self._ollama_context(),
+            *self._ollama_context(question),
             {"role": "user", "content": question},
         ]
 
         tool_calls_log = []
+        seen_signatures: set[str] = set()
 
         try:
             response = ollama.chat(
@@ -350,6 +386,7 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
                 tools=TOOL_DEFINITIONS,
             )
         except Exception as exc:
+            logger.exception("Error en ollama.chat")
             return self._result(
                 question,
                 f"Error con Ollama ({OLLAMA_CHAT_MODEL}): {exc}",
@@ -371,25 +408,43 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
                 if "id_sucursal" not in args and name in SUCURSAL_TOOLS:
                     args["id_sucursal"] = self.id_sucursal
 
-                result = self.tools.execute(name, args)
-                tool_calls_log.append({"name": name, "arguments": args, "result": result})
+                sig = call_signature(name, args)
+                if sig in seen_signatures:
+                    result = {
+                        "ok": False,
+                        "error": "Llamada duplicada omitida en este turno.",
+                        "recoverable": True,
+                    }
+                else:
+                    seen_signatures.add(sig)
+                    result = self.tools.execute(name, args)
 
+                tool_calls_log.append({"name": name, "arguments": args, "result": result})
                 messages.append({
                     "role": "tool",
-                    "content": json.dumps(result, ensure_ascii=False, default=str),
+                    "content": tool_message_content(name or "tool", result),
                 })
 
-            formatted = format_tool_calls_log(tool_calls_log)
-            if formatted:
-                answer = formatted
+            if should_skip_followup_llm(tool_calls_log):
+                answer = tool_failure_user_message(tool_calls_log)
                 raw = None
             else:
-                final = ollama.chat(
-                    model=OLLAMA_CHAT_MODEL,
-                    messages=messages + [{"role": "system", "content": PLAIN_TEXT_RULE}],
-                )
-                answer = plain_chat_text(final["message"]["content"]) or formatted
-                raw = final
+                formatted = format_tool_calls_log(tool_calls_log)
+                if formatted:
+                    answer = formatted
+                    raw = None
+                else:
+                    try:
+                        final = ollama.chat(
+                            model=OLLAMA_CHAT_MODEL,
+                            messages=messages + [{"role": "system", "content": PLAIN_TEXT_RULE}],
+                        )
+                        answer = plain_chat_text(final["message"]["content"]) or formatted
+                        raw = final
+                    except Exception as exc:
+                        logger.exception("Error en segunda llamada ollama.chat")
+                        answer = tool_failure_user_message(tool_calls_log) or str(exc)
+                        raw = None
             route = "function_calling"
         else:
             answer = plain_chat_text(msg.get("content", "No pude generar respuesta."))
