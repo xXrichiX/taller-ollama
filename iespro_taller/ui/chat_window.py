@@ -265,7 +265,6 @@ class ChatWindow(tk.Toplevel):
         if self._busy:
             return
         self.chat_service.start_new_conversation()
-        self._refresh_conversation_list()
         self._clear_messages()
         self._welcome()
 

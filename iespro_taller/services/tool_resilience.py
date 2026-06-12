@@ -62,18 +62,37 @@ def tool_message_content(name: str, result: Any) -> str:
 
 
 def tool_failure_user_message(tool_calls_log: list[dict[str, Any]]) -> str:
-    """Mensaje directo al usuario cuando todas las tools fallan en el turno."""
-    lines = ["No pude completar la acción en el sistema:"]
+    """Mensaje amigable al usuario cuando todas las tools fallan en el turno."""
+    from services.tool_response_format import format_tool_result
+
+    errors: list[str] = []
     for entry in tool_calls_log:
-        name = entry.get("name") or "herramienta"
-        result = entry.get("result")
-        if isinstance(result, dict):
-            err = result.get("error") or "Error desconocido"
-        else:
-            err = "Error desconocido"
-        lines.append(f"- {name}: {err}")
-    lines.append("Revisa los datos (placa, cliente, isla) e inténtalo de nuevo.")
-    return "\n".join(lines)
+        text = format_tool_result(entry.get("name", ""), entry.get("result"))
+        if text:
+            errors.append(text.strip())
+
+    if not errors:
+        return (
+            "No pude hacer eso todavía. "
+            "Dime cliente, placa, mecánico, isla y qué falla tiene el vehículo."
+        )
+
+    detalle = errors[0] if len(errors) == 1 else "\n".join(f"- {e}" for e in errors)
+    combined = " ".join(errors).lower()
+
+    if any(k in combined for k in ("placa", "modelo", "vehículo", "vehiculo", "cliente")):
+        return (
+            "Claro, te ayudo a agendar la cita, pero me faltan algunos datos.\n\n"
+            f"{detalle}\n\n"
+            "Puedes decirlo así:\n"
+            "Crea una cita para Roberto García, placa ABC-123, mecánico Carlos, "
+            "isla 1, falla: ruido en frenos."
+        )
+
+    if "cita" in combined:
+        return f"No pude actualizar la cita. {detalle}\n\nIndica la placa o el id de la cita."
+
+    return detalle
 
 
 def should_skip_followup_llm(tool_calls_log: list[dict[str, Any]]) -> bool:

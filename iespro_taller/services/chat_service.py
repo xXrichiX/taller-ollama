@@ -67,6 +67,7 @@ class ChatService:
         self.id_sucursal = id_sucursal
         self.id_usuario: int | None = None
         self.id_conversacion: int | None = None
+        self._pending_new_conversation = False
         self.rag = RagService()
         self.tools = ToolsService(self.rag)
         self.repo = ConversationRepository()
@@ -80,6 +81,15 @@ class ChatService:
             return None
 
         if self.id_conversacion:
+            return self.id_conversacion
+
+        if self._pending_new_conversation:
+            self._pending_new_conversation = False
+            self.id_conversacion = self.repo.crear_conversacion(
+                self.id_usuario,
+                self.id_sucursal,
+                titulo="Nueva conversación",
+            )
             return self.id_conversacion
 
         reciente = self.repo.obtener_conversacion_reciente(self.id_usuario, self.id_sucursal)
@@ -98,12 +108,9 @@ class ChatService:
         if not self.id_usuario:
             return None
 
-        self.id_conversacion = self.repo.crear_conversacion(
-            self.id_usuario,
-            self.id_sucursal,
-            titulo="Nueva conversación",
-        )
-        return self.id_conversacion
+        self.id_conversacion = None
+        self._pending_new_conversation = True
+        return None
 
     def get_ui_messages(self) -> list[dict]:
         if not self.id_conversacion:
@@ -121,6 +128,7 @@ class ChatService:
         convs = {c["id"] for c in self.list_conversations()}
         if id_conversacion not in convs:
             return False
+        self._pending_new_conversation = False
         self.id_conversacion = id_conversacion
         return True
 
