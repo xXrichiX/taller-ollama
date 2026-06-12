@@ -53,8 +53,37 @@ def _norm(text: str) -> str:
     return text.lower().strip()
 
 
+def _is_action_request(question: str) -> bool:
+    """Pedido concreto al taller (crear cita, listar, etc.), no pregunta de capacidades."""
+    q = _norm(question)
+    markers = (
+        "crea una cita", "crear una cita", "creame una cita", "crear cita",
+        "agenda una cita", "agendar cita", "marca como", "marcar como",
+        "lista los", "lista las", "listar ", "listame", "cambia el estado",
+        "buscar fallas", "busca fallas",
+    )
+    if any(m in q for m in markers):
+        return True
+    if re.search(r"(me )?puedes crear\b", q) and any(
+        w in q for w in ("cita", "cliente", "vehiculo", "vehículo", "placa")
+    ):
+        return True
+    if re.search(r"(me )?puedes hacer\b", q) and any(
+        w in q for w in ("cita", "cliente", "vehiculo", "vehículo", "placa", "taller")
+    ):
+        return True
+    return False
+
+
 def is_capabilities_question(question: str) -> bool:
     q = _norm(question)
+    if _is_action_request(question):
+        return False
+    # "¿qué hace la empresa/taller?" no es menú de ayuda del asistente
+    if any(p in q for p in ("que hace", "qué hace")) and any(
+        w in q for w in ("empresa", "taller", "iespro", "sistema")
+    ):
+        return False
     return any(p in q for p in CAPABILITIES_PATTERNS)
 
 
