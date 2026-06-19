@@ -96,6 +96,45 @@ def _configure_action_buttons(style: ttk.Style) -> None:
         foreground=[("disabled", "#e2e8f0")],
     )
 
+    style.configure(
+        "ChatGhost.TButton",
+        background=COLORS["card"],
+        foreground=COLORS["text"],
+        borderwidth=1,
+        relief="flat",
+        focusthickness=0,
+        focuscolor=COLORS["card"],
+        font=("Helvetica", 11, "bold"),
+        padding=(12, 8),
+    )
+    style.map(
+        "ChatGhost.TButton",
+        background=[
+            ("pressed", "#f1f5f9"),
+            ("active", "#f8fafc"),
+            ("disabled", "#f1f5f9"),
+        ],
+        foreground=[("disabled", COLORS["muted"])],
+        bordercolor=[("active", COLORS["accent"]), ("!active", COLORS["border"])],
+    )
+
+    style.configure(
+        "ChatScroll.TButton",
+        background=COLORS["card"],
+        foreground=COLORS["accent"],
+        borderwidth=1,
+        relief="flat",
+        focusthickness=0,
+        focuscolor=COLORS["card"],
+        font=("Helvetica", 10, "bold"),
+        padding=(10, 6),
+    )
+    style.map(
+        "ChatScroll.TButton",
+        background=[("pressed", "#eff6ff"), ("active", "#f8fafc")],
+        foreground=[("disabled", COLORS["muted"])],
+    )
+
 
 def set_button_enabled(button: ttk.Button, enabled: bool) -> None:
     if enabled:

@@ -28,6 +28,153 @@ STATUS_COLORS = {
 TYPEWRITER_MS = 16
 TYPEWRITER_CHARS = 2
 STREAM_CURSOR = "▌"
+COMPOSE_BTN = 32
+
+
+class RoundMicButton(tk.Canvas):
+    """Botón circular de micrófono con animación de ondas al escuchar."""
+
+    def __init__(self, master, command: Callable[[], None] | None = None, *, bg: str = "#ffffff"):
+        self._size = COMPOSE_BTN
+        super().__init__(
+            master,
+            width=self._size,
+            height=self._size,
+            highlightthickness=0,
+            bg=bg,
+            cursor="hand2",
+        )
+        self._command = command
+        self._enabled = True
+        self._listening = False
+        self._anim_job: str | None = None
+        self._anim_tick = 0
+        self.bind("<Button-1>", self._on_click)
+        self.draw_idle()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        self.configure(cursor="hand2" if enabled else "arrow")
+        if self._listening and not enabled:
+            self.stop_listening()
+        elif not self._listening:
+            self.draw_idle()
+
+    def _draw_mic_icon(self, cx: int, cy: int, color: str, *, scale: float = 1.0) -> None:
+        w = max(1, int(1.5 * scale))
+        body_w = int(4 * scale)
+        body_h = int(7 * scale)
+        top = int(cy - 8 * scale)
+        bottom = top + body_h
+        left = int(cx - body_w / 2)
+        right = int(cx + body_w / 2)
+        self.create_oval(left, top, right, top + body_w, fill=color, outline=color)
+        self.create_rectangle(left, top + body_w // 2, right, bottom, fill=color, outline=color)
+        self.create_arc(
+            int(cx - 6 * scale),
+            int(cy - 4 * scale),
+            int(cx + 6 * scale),
+            int(cy + 6 * scale),
+            start=0,
+            extent=180,
+            style="arc",
+            width=w,
+            outline=color,
+        )
+        stem_y = int(cy + 8 * scale)
+        self.create_line(cx, int(cy + 5 * scale), cx, stem_y, fill=color, width=w, capstyle="round")
+        self.create_line(
+            int(cx - 4 * scale),
+            stem_y,
+            int(cx + 4 * scale),
+            stem_y,
+            fill=color,
+            width=w,
+            capstyle="round",
+        )
+
+    def draw_idle(self) -> None:
+        self.delete("all")
+        s = self._size
+        pad = 1
+        self.create_oval(pad, pad, s - pad, s - pad, fill="#f8fafc", outline="#e2e8f0", width=1)
+        color = "#64748b" if self._enabled else "#94a3b8"
+        self._draw_mic_icon(s // 2, s // 2 + 1, color, scale=0.95)
+
+    def start_listening(self) -> None:
+        self._listening = True
+        self._anim_tick = 0
+        self._animate()
+
+    def stop_listening(self) -> None:
+        self._listening = False
+        if self._anim_job:
+            self.after_cancel(self._anim_job)
+            self._anim_job = None
+        self.draw_idle()
+
+    def _animate(self) -> None:
+        if not self._listening:
+            return
+        self._anim_tick += 1
+        self.delete("all")
+        s = self._size
+        cx = cy = s // 2
+        pulse = 13 + (self._anim_tick % 4)
+        self.create_oval(cx - pulse, cy - pulse, cx + pulse, cy + pulse, fill="#dbeafe", outline="")
+        self.create_oval(1, 1, s - 1, s - 1, fill=COLORS["accent"], outline="")
+        self._draw_mic_icon(cx, cy + 1, "white", scale=0.8)
+        self._anim_job = self.after(140, self._animate)
+
+    def _on_click(self, _event=None) -> None:
+        if self._enabled and self._command:
+            self._command()
+
+
+class RoundSendButton(tk.Canvas):
+    """Botón circular azul con flecha de enviar."""
+
+    def __init__(self, master, command: Callable[[], None] | None = None, *, bg: str = "#ffffff"):
+        self._size = COMPOSE_BTN
+        super().__init__(
+            master,
+            width=self._size,
+            height=self._size,
+            highlightthickness=0,
+            bg=bg,
+            cursor="hand2",
+        )
+        self._command = command
+        self._enabled = True
+        self.bind("<Button-1>", self._on_click)
+        self.draw()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        self.configure(cursor="hand2" if enabled else "arrow")
+        self.draw()
+
+    def draw(self) -> None:
+        self.delete("all")
+        s = self._size
+        fill = COLORS["accent"] if self._enabled else "#94a3b8"
+        cx = cy = s // 2
+        self.create_oval(1, 1, s - 1, s - 1, fill=fill, outline="")
+        self.create_line(cx, cy + 4, cx, cy - 4, fill="white", width=2, capstyle="round")
+        self.create_polygon(
+            cx - 4,
+            cy - 1,
+            cx + 4,
+            cy - 1,
+            cx,
+            cy - 7,
+            fill="white",
+            outline="white",
+        )
+
+    def _on_click(self, _event=None) -> None:
+        if self._enabled and self._command:
+            self._command()
 
 
 class TypewriterStream:
@@ -101,6 +248,7 @@ class ChatWindow(tk.Toplevel):
         self._canvas_window_id: int | None = None
         self._chat_scroll_active = False
         self._chat_scroll_area: tk.Misc | None = None
+        self._stick_to_bottom = True
 
         self.transient(master)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -192,56 +340,146 @@ class ChatWindow(tk.Toplevel):
         chat_wrap.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.canvas = tk.Canvas(chat_wrap, bg=COLORS["chat_bg"], highlightthickness=0)
-        scroll = ttk.Scrollbar(chat_wrap, orient="vertical", command=self.canvas.yview)
+        self._chat_scrollbar = ttk.Scrollbar(chat_wrap, orient="vertical", command=self._on_scrollbar_drag)
         self.messages_frame = tk.Frame(self.canvas, bg=COLORS["chat_bg"])
 
         self._canvas_window_id = self.canvas.create_window((0, 0), window=self.messages_frame, anchor="nw")
-        self.canvas.configure(yscrollcommand=scroll.set)
+        self.canvas.configure(yscrollcommand=self._on_canvas_yview)
 
         self.messages_frame.bind("<Configure>", self._on_messages_frame_configure)
         self.canvas.bind("<Configure>", self._on_canvas_configure)
 
         self.canvas.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        self._chat_scrollbar.pack(side="right", fill="y")
 
         self._chat_scroll_area = chat_wrap
         self.after_idle(self._activate_chat_scroll)
 
-        bottom = tk.Frame(self, bg=COLORS["card"], padx=12, pady=12)
-        bottom.pack(fill="x", side="bottom")
+        bottom_outer = tk.Frame(self, bg=COLORS["chat_bg"])
+        bottom_outer.pack(fill="x", side="bottom")
 
-        self.input_var = tk.StringVar()
-        self.input_entry = tk.Entry(
+        tk.Frame(bottom_outer, bg="#cbd5e1", height=1).pack(fill="x")
+
+        bottom = tk.Frame(bottom_outer, bg=COLORS["chat_bg"], padx=28, pady=10)
+        bottom.pack(fill="x")
+
+        compose = tk.Frame(
             bottom,
-            textvariable=self.input_var,
-            font=("Helvetica", 12),
-            relief="flat",
-            bg="#f8fafc",
-            fg=COLORS["text"],
-            insertbackground=COLORS["text"],
+            bg="#ffffff",
             highlightthickness=1,
-            highlightbackground=COLORS["border"],
+            highlightbackground="#d1d5db",
             highlightcolor=COLORS["accent"],
         )
-        self.input_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 8))
+        compose.pack(fill="x")
+
+        input_row = tk.Frame(compose, bg="#ffffff")
+        input_row.pack(fill="x", padx=6, pady=5)
+
+        self._input_placeholder = "Mensaje..."
+        self._placeholder_active = False
+        self.input_var = tk.StringVar()
+        self.input_entry = tk.Entry(
+            input_row,
+            textvariable=self.input_var,
+            font=("Helvetica", 11),
+            relief="flat",
+            bd=0,
+            bg="#ffffff",
+            fg=COLORS["text"],
+            insertbackground=COLORS["accent"],
+            highlightthickness=0,
+        )
+        self.input_entry.pack(side="left", fill="x", expand=True, padx=(8, 4), pady=4)
         self.input_entry.bind("<Return>", lambda e: self._send())
+        self.input_entry.bind("<FocusIn>", self._on_input_focus_in)
+        self.input_entry.bind("<FocusOut>", self._on_input_focus_out)
+        self.input_var.trace_add("write", self._on_input_changed)
 
-        self.voice_btn = ttk.Button(
-            bottom,
-            text="Voz",
-            command=self._start_voice,
-        )
-        self.voice_btn.pack(side="right", padx=(0, 8))
+        self.action_slot = tk.Frame(input_row, bg="#ffffff", width=COMPOSE_BTN, height=COMPOSE_BTN)
+        self.action_slot.pack(side="right", padx=(0, 2))
+        self.action_slot.pack_propagate(False)
 
-        self.send_btn = ttk.Button(
-            bottom,
-            text="Enviar",
-            style="Accent.TButton",
-            command=self._send,
-        )
-        self.send_btn.pack(side="right")
+        self.mic_btn = RoundMicButton(self.action_slot, command=self._start_voice, bg="#ffffff")
+        self.mic_btn.pack()
+
+        self.send_btn = RoundSendButton(self.action_slot, command=self._send, bg="#ffffff")
+
+        self._show_input_placeholder()
+        self._update_compose_actions()
 
         self.after(100, lambda: self.input_entry.focus_force())
+
+    def _on_input_changed(self, *_args) -> None:
+        if self._placeholder_active:
+            return
+        self.after_idle(self._update_compose_actions)
+
+    def _update_compose_actions(self) -> None:
+        if not hasattr(self, "mic_btn"):
+            return
+        has_text = bool(self._get_input_text())
+        if has_text:
+            self.mic_btn.pack_forget()
+            self.send_btn.pack()
+        else:
+            self.send_btn.pack_forget()
+            if not self.mic_btn._listening:
+                self.mic_btn.pack()
+
+    def _set_compose_enabled(self, enabled: bool) -> None:
+        self.mic_btn.set_enabled(enabled)
+        self.send_btn.set_enabled(enabled)
+
+    def _show_input_placeholder(self) -> None:
+        if self.input_var.get().strip():
+            return
+        self._placeholder_active = True
+        self.input_var.set(self._input_placeholder)
+        self.input_entry.configure(fg=COLORS["muted"])
+
+    def _on_input_focus_in(self, _event=None) -> None:
+        if self._placeholder_active:
+            self.input_var.set("")
+            self.input_entry.configure(fg=COLORS["text"])
+            self._placeholder_active = False
+
+    def _on_input_focus_out(self, _event=None) -> None:
+        if not self.input_var.get().strip():
+            self._show_input_placeholder()
+        self._update_compose_actions()
+
+    def _get_input_text(self) -> str:
+        text = self.input_var.get().strip()
+        if self._placeholder_active or text == self._input_placeholder:
+            return ""
+        return text
+
+    def _on_canvas_yview(self, first: str, last: str) -> None:
+        self._chat_scrollbar.set(first, last)
+        self.after_idle(self._sync_stick_to_bottom)
+
+    def _on_scrollbar_drag(self, *args) -> None:
+        self.canvas.yview(*args)
+        self.after_idle(self._sync_stick_to_bottom)
+
+    def _is_near_bottom(self, threshold: float = 0.05) -> bool:
+        try:
+            _top, bottom = self.canvas.yview()
+        except tk.TclError:
+            return True
+        return bottom >= (1.0 - threshold)
+
+    def _sync_stick_to_bottom(self) -> None:
+        if not self.winfo_exists():
+            return
+        if self._is_near_bottom():
+            self._stick_to_bottom = True
+        else:
+            self._stick_to_bottom = False
+
+    def _scroll_bottom_if_sticky(self) -> None:
+        if self._stick_to_bottom:
+            self._scroll_bottom(force=True)
 
     def _activate_chat_scroll(self, _event=None) -> None:
         if self._chat_scroll_active:
@@ -278,6 +516,9 @@ class ChatWindow(tk.Toplevel):
     def _scroll_units(self, amount: int) -> None:
         if self.winfo_exists():
             self.canvas.yview_scroll(amount, "units")
+            if amount < 0:
+                self._stick_to_bottom = False
+            self.after_idle(self._sync_stick_to_bottom)
 
     def _on_canvas_configure(self, event) -> None:
         if self._canvas_window_id is not None and event.width > 1:
@@ -337,6 +578,7 @@ class ChatWindow(tk.Toplevel):
         return "break"
 
     def _on_close(self):
+        self.mic_btn.stop_listening()
         self._deactivate_chat_scroll()
         self.destroy()
 
@@ -391,8 +633,9 @@ class ChatWindow(tk.Toplevel):
     def _clear_messages(self):
         for widget in self.messages_frame.winfo_children():
             widget.destroy()
+        self._stick_to_bottom = True
         self._update_scroll_region()
-        self._scroll_top()
+        self._scroll_top(force=True)
 
     def _render_messages(self, messages: list[dict]):
         for msg in messages:
@@ -408,6 +651,7 @@ class ChatWindow(tk.Toplevel):
                 self._bot_message(contenido, meta=label, error=(route == "error"), scroll_to=None)
 
     def _load_history(self):
+        self._stick_to_bottom = True
         messages = self.chat_service.get_ui_messages()
         if not messages:
             self._welcome()
@@ -415,7 +659,7 @@ class ChatWindow(tk.Toplevel):
             return
         self._render_messages(messages)
         self._update_scroll_region()
-        self._scroll_bottom()
+        self._scroll_bottom(force=True)
 
     def _new_conversation(self):
         if self._busy:
@@ -436,11 +680,13 @@ class ChatWindow(tk.Toplevel):
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        set_button_enabled(self.send_btn, not busy)
         set_button_enabled(self.new_btn, not busy)
-        set_button_enabled(self.voice_btn, not busy)
+        self._set_compose_enabled(not busy)
         if not busy:
             self.input_entry.focus_force()
+            if not self.input_var.get().strip():
+                self._show_input_placeholder()
+            self._update_compose_actions()
 
     def _set_agent_status(self, phase: str, label: str) -> None:
         self.status_var.set(label)
@@ -451,6 +697,7 @@ class ChatWindow(tk.Toplevel):
             return
 
         self._set_busy(True)
+        self.mic_btn.start_listening()
         self._set_agent_status("thinking", "Escuchando micrófono...")
 
         def worker():
@@ -462,9 +709,13 @@ class ChatWindow(tk.Toplevel):
         threading.Thread(target=worker, daemon=True).start()
 
     def _finish_voice(self, ok: bool, text: str):
+        self.mic_btn.stop_listening()
         if ok:
+            self._placeholder_active = False
             self.input_var.set(text)
+            self.input_entry.configure(fg=COLORS["text"])
             self._set_agent_status("ready", "Voz transcrita. Revisa y envía.")
+            self._update_compose_actions()
         else:
             self._set_agent_status("ready", text[:120])
         self._set_busy(False)
@@ -473,11 +724,15 @@ class ChatWindow(tk.Toplevel):
         if self._busy:
             return
 
-        question = self.input_var.get().strip()
+        question = self._get_input_text()
         if not question:
             return
 
         self.input_var.set("")
+        self._placeholder_active = False
+        self.input_entry.configure(fg=COLORS["text"])
+        self._stick_to_bottom = True
+        self._update_compose_actions()
         self._user_message(question)
         self._set_busy(True)
         self._set_agent_status("thinking", "Pensando...")
@@ -486,7 +741,7 @@ class ChatWindow(tk.Toplevel):
         typewriter = TypewriterStream(
             self,
             lambda text: self._set_stream_bubble_text(stream_msg, text),
-            self._scroll_bottom,
+            self._scroll_bottom_if_sticky,
         )
 
         def on_status(phase: str, label: str):
@@ -523,6 +778,7 @@ class ChatWindow(tk.Toplevel):
         line_count = int(bubble.index("end-1c").split(".")[0])
         bubble.configure(height=max(1, line_count))
         self._update_scroll_region()
+        self._scroll_bottom_if_sticky()
 
     def _update_stream_status(self, stream_msg, phase: str, label: str):
         if stream_msg.get("meta_label"):
@@ -562,6 +818,7 @@ class ChatWindow(tk.Toplevel):
             self._set_agent_status("ready", "Listo")
 
         self._refresh_conversation_list()
+        self._scroll_bottom_if_sticky()
         self._set_busy(False)
 
     def _user_message(self, text, scroll=True):
@@ -583,7 +840,7 @@ class ChatWindow(tk.Toplevel):
         self._bind_scroll_events(row)
         if scroll:
             self._update_scroll_region()
-            self._scroll_bottom()
+            self._scroll_bottom(force=True)
 
     def _bot_message(self, text, meta=None, error=False, scroll_to="bottom", streaming=False):
         row = tk.Frame(self.messages_frame, bg=COLORS["chat_bg"])
@@ -655,10 +912,10 @@ class ChatWindow(tk.Toplevel):
 
         if scroll_to == "bottom":
             self._update_scroll_region()
-            self._scroll_bottom()
+            self._scroll_bottom(force=True)
         elif scroll_to == "top":
             self._update_scroll_region()
-            self._scroll_top()
+            self._scroll_top(force=True)
         self._bind_scroll_events(row)
         return {
             "row": row,
@@ -667,10 +924,17 @@ class ChatWindow(tk.Toplevel):
             "bubble_text": bubble_text,
         }
 
-    def _scroll_top(self):
+    def _scroll_top(self, force: bool = False) -> None:
         self._update_scroll_region()
         self.canvas.yview_moveto(0.0)
+        if force:
+            self._stick_to_bottom = False
+            self.after_idle(self._sync_stick_to_bottom)
 
-    def _scroll_bottom(self):
+    def _scroll_bottom(self, force: bool = False) -> None:
+        if not force and not self._stick_to_bottom:
+            return
         self._update_scroll_region()
         self.canvas.yview_moveto(1.0)
+        if force:
+            self._stick_to_bottom = True
