@@ -97,9 +97,9 @@ class RoundMicButton(tk.Canvas):
         self.delete("all")
         s = self._size
         pad = 1
-        self.create_oval(pad, pad, s - pad, s - pad, fill="#f8fafc", outline="#e2e8f0", width=1)
-        color = "#64748b" if self._enabled else "#94a3b8"
-        self._draw_mic_icon(s // 2, s // 2 + 1, color, scale=0.95)
+        fill = COLORS["accent"] if self._enabled else "#94a3b8"
+        self.create_oval(pad, pad, s - pad, s - pad, fill=fill, outline="")
+        self._draw_mic_icon(s // 2, s // 2 + 1, "white", scale=0.88)
 
     def start_listening(self) -> None:
         self._listening = True
@@ -120,11 +120,56 @@ class RoundMicButton(tk.Canvas):
         self.delete("all")
         s = self._size
         cx = cy = s // 2
-        pulse = 13 + (self._anim_tick % 4)
+        pulse = 14 + (self._anim_tick % 4)
         self.create_oval(cx - pulse, cy - pulse, cx + pulse, cy + pulse, fill="#dbeafe", outline="")
         self.create_oval(1, 1, s - 1, s - 1, fill=COLORS["accent"], outline="")
-        self._draw_mic_icon(cx, cy + 1, "white", scale=0.8)
+        self._draw_mic_icon(cx, cy + 1, "white", scale=0.88)
         self._anim_job = self.after(140, self._animate)
+
+    def _on_click(self, _event=None) -> None:
+        if self._enabled and self._command:
+            self._command()
+
+
+class RoundStopButton(tk.Canvas):
+    """Botón cuadrado rojo con icono de stop (detener grabación)."""
+
+    def __init__(self, master, command: Callable[[], None] | None = None, *, bg: str = "#ffffff"):
+        self._size = COMPOSE_BTN
+        super().__init__(
+            master,
+            width=self._size,
+            height=self._size,
+            highlightthickness=0,
+            bg=bg,
+            cursor="hand2",
+        )
+        self._command = command
+        self._enabled = True
+        self.bind("<Button-1>", self._on_click)
+        self.draw()
+
+    def set_enabled(self, enabled: bool) -> None:
+        self._enabled = enabled
+        self.configure(cursor="hand2" if enabled else "arrow")
+        self.draw()
+
+    def draw(self) -> None:
+        self.delete("all")
+        s = self._size
+        pad = 2
+        fill = "#ef4444" if self._enabled else "#fca5a5"
+        self.create_rectangle(pad, pad, s - pad, s - pad, fill=fill, outline="")
+        inner = 9
+        cx = cy = s // 2
+        self.create_rectangle(
+            cx - inner // 2,
+            cy - inner // 2,
+            cx + inner // 2,
+            cy + inner // 2,
+            fill="white",
+            outline="white",
+        )
 
     def _on_click(self, _event=None) -> None:
         if self._enabled and self._command:
@@ -243,6 +288,8 @@ class ChatWindow(tk.Toplevel):
         self.minsize(640, 480)
         self.configure(bg=COLORS["chat_bg"])
         self._busy = False
+        self._voice_active = False
+        self._voice_session = None
         self._conv_ids: list[int] = []
         self._switching = False
         self._canvas_window_id: int | None = None
@@ -402,6 +449,8 @@ class ChatWindow(tk.Toplevel):
         self.mic_btn = RoundMicButton(self.action_slot, command=self._start_voice, bg="#ffffff")
         self.mic_btn.pack()
 
+        self.stop_btn = RoundStopButton(self.action_slot, command=self._stop_voice, bg="#ffffff")
+
         self.send_btn = RoundSendButton(self.action_slot, command=self._send, bg="#ffffff")
 
         self._show_input_placeholder()
@@ -417,18 +466,25 @@ class ChatWindow(tk.Toplevel):
     def _update_compose_actions(self) -> None:
         if not hasattr(self, "mic_btn"):
             return
+        if self._voice_active:
+            self.mic_btn.pack_forget()
+            self.send_btn.pack_forget()
+            self.stop_btn.pack()
+            return
+        self.stop_btn.pack_forget()
         has_text = bool(self._get_input_text())
         if has_text:
             self.mic_btn.pack_forget()
             self.send_btn.pack()
         else:
             self.send_btn.pack_forget()
-            if not self.mic_btn._listening:
-                self.mic_btn.pack()
+            self.mic_btn.pack()
 
     def _set_compose_enabled(self, enabled: bool) -> None:
         self.mic_btn.set_enabled(enabled)
         self.send_btn.set_enabled(enabled)
+        if hasattr(self, "stop_btn") and not self._voice_active:
+            self.stop_btn.set_enabled(enabled)
 
     def _show_input_placeholder(self) -> None:
         if self.input_var.get().strip():
@@ -578,6 +634,10 @@ class ChatWindow(tk.Toplevel):
         return "break"
 
     def _on_close(self):
+        if self._voice_active and self._voice_session:
+            self._voice_active = False
+            self._voice_session.stop()
+            self._voice_session = None
         self.mic_btn.stop_listening()
         self._deactivate_chat_scroll()
         self.destroy()
@@ -662,7 +722,7 @@ class ChatWindow(tk.Toplevel):
         self._scroll_bottom(force=True)
 
     def _new_conversation(self):
-        if self._busy:
+        if self._busy or self._voice_active:
             return
         self.chat_service.start_new_conversation()
         self._clear_messages()
@@ -680,8 +740,11 @@ class ChatWindow(tk.Toplevel):
 
     def _set_busy(self, busy: bool) -> None:
         self._busy = busy
-        set_button_enabled(self.new_btn, not busy)
-        self._set_compose_enabled(not busy)
+        set_button_enabled(self.new_btn, not busy and not self._voice_active)
+        if not self._voice_active:
+            self._set_compose_enabled(not busy)
+        elif hasattr(self, "stop_btn"):
+            self.stop_btn.set_enabled(True)
         if not busy:
             self.input_entry.focus_force()
             if not self.input_var.get().strip():
@@ -693,32 +756,75 @@ class ChatWindow(tk.Toplevel):
         self.status_label.configure(fg=STATUS_COLORS.get(phase, STATUS_COLORS["ready"]))
 
     def _start_voice(self):
-        if self._busy:
+        if self._busy or self._voice_active:
             return
 
-        self._set_busy(True)
-        self.mic_btn.start_listening()
-        self._set_agent_status("thinking", "Escuchando micrófono...")
+        self._voice_active = True
+        self._placeholder_active = False
+        if self.input_var.get().strip() in ("", self._input_placeholder):
+            self.input_var.set("")
+        self.input_entry.configure(fg=COLORS["text"])
+        self._update_compose_actions()
+        self._set_agent_status("thinking", "Escuchando... habla ahora")
 
-        def worker():
-            from services.voice_service import transcribe_from_microphone
+        from services.voice_service import RealtimeVoiceSession
 
-            ok, text = transcribe_from_microphone()
-            self.after(0, lambda: self._finish_voice(ok, text))
+        self._voice_session = RealtimeVoiceSession(
+            on_partial=lambda text: self.after(0, lambda t=text: self._apply_voice_partial(t)),
+            on_error=lambda msg: self.after(0, lambda m=msg: self._handle_voice_error(m)),
+        )
+        self._voice_session.start()
 
-        threading.Thread(target=worker, daemon=True).start()
+    def _apply_voice_partial(self, text: str) -> None:
+        if not self._voice_active or not text:
+            return
+        self._placeholder_active = False
+        self.input_var.set(text)
+        self.input_entry.configure(fg=COLORS["text"])
 
-    def _finish_voice(self, ok: bool, text: str):
-        self.mic_btn.stop_listening()
-        if ok:
+    def _stop_voice(self) -> None:
+        if not self._voice_active:
+            return
+
+        self._voice_active = False
+        session = self._voice_session
+        self._voice_session = None
+
+        transcript = session.stop() if session else ""
+        final = (transcript or self._get_input_text()).strip()
+
+        if final:
             self._placeholder_active = False
-            self.input_var.set(text)
+            self.input_var.set(final)
             self.input_entry.configure(fg=COLORS["text"])
             self._set_agent_status("ready", "Voz transcrita. Revisa y envía.")
-            self._update_compose_actions()
         else:
-            self._set_agent_status("ready", text[:120])
-        self._set_busy(False)
+            self._set_agent_status("ready", "Listo")
+            if not self.input_var.get().strip():
+                self._show_input_placeholder()
+
+        self._update_compose_actions()
+        self.input_entry.focus_force()
+
+    def _handle_voice_error(self, msg: str) -> None:
+        partial = self._get_input_text()
+        if self._voice_active:
+            self._voice_active = False
+            if self._voice_session:
+                self._voice_session.stop()
+                self._voice_session = None
+
+        if partial:
+            self._placeholder_active = False
+            self.input_var.set(partial)
+            self.input_entry.configure(fg=COLORS["text"])
+            self._set_agent_status("ready", "Texto parcial conservado.")
+        else:
+            self._set_agent_status("ready", msg[:120])
+            if not self.input_var.get().strip():
+                self._show_input_placeholder()
+
+        self._update_compose_actions()
 
     def _send(self):
         if self._busy:
