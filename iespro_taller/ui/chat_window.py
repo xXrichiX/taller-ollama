@@ -1,3 +1,4 @@
+import sys
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -99,6 +100,7 @@ class ChatWindow(tk.Toplevel):
         self._switching = False
         self._canvas_window_id: int | None = None
         self._chat_scroll_active = False
+        self._chat_scroll_area: tk.Misc | None = None
 
         self.transient(master)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -202,10 +204,8 @@ class ChatWindow(tk.Toplevel):
         self.canvas.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
 
-        chat_wrap.bind("<Enter>", self._activate_chat_scroll)
-        chat_wrap.bind("<Leave>", self._deactivate_chat_scroll)
-        self._bind_scroll_events(chat_wrap)
-        self._bind_scroll_events(self.messages_frame)
+        self._chat_scroll_area = chat_wrap
+        self.after_idle(self._activate_chat_scroll)
 
         bottom = tk.Frame(self, bg=COLORS["card"], padx=12, pady=12)
         bottom.pack(fill="x", side="bottom")
@@ -248,8 +248,8 @@ class ChatWindow(tk.Toplevel):
             return
         self._chat_scroll_active = True
         self.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
-        self.bind_all("<Button-4>", lambda e: self._scroll_units(-3), add="+")
-        self.bind_all("<Button-5>", lambda e: self._scroll_units(3), add="+")
+        self.bind_all("<Button-4>", self._on_mousewheel, add="+")
+        self.bind_all("<Button-5>", self._on_mousewheel, add="+")
 
     def _deactivate_chat_scroll(self, _event=None) -> None:
         if not self._chat_scroll_active:
@@ -259,10 +259,21 @@ class ChatWindow(tk.Toplevel):
         self.unbind_all("<Button-4>")
         self.unbind_all("<Button-5>")
 
+    def _is_in_chat_scroll_area(self, widget: tk.Misc | None) -> bool:
+        while widget is not None:
+            if widget in (self.canvas, self.messages_frame, self._chat_scroll_area):
+                return True
+            if widget is self.conv_listbox:
+                return False
+            widget = widget.master
+        return False
+
     def _bind_scroll_events(self, widget: tk.Misc) -> None:
         widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
-        widget.bind("<Button-4>", lambda e: self._scroll_units(-3), add="+")
-        widget.bind("<Button-5>", lambda e: self._scroll_units(3), add="+")
+        widget.bind("<Button-4>", self._on_mousewheel, add="+")
+        widget.bind("<Button-5>", self._on_mousewheel, add="+")
+        for child in widget.winfo_children():
+            self._bind_scroll_events(child)
 
     def _scroll_units(self, amount: int) -> None:
         if self.winfo_exists():
@@ -277,24 +288,52 @@ class ChatWindow(tk.Toplevel):
 
     def _update_scroll_region(self) -> None:
         self.update_idletasks()
+        canvas_width = max(self.canvas.winfo_width(), 1)
+        frame_height = self.messages_frame.winfo_reqheight()
+        if frame_height > 1:
+            self.canvas.configure(scrollregion=(0, 0, canvas_width, frame_height))
+            return
         bbox = self.canvas.bbox("all")
         if bbox:
             self.canvas.configure(scrollregion=bbox)
         else:
-            self.canvas.configure(scrollregion=(0, 0, 0, 0))
+            self.canvas.configure(scrollregion=(0, 0, canvas_width, 1))
 
     def _on_mousewheel(self, event):
         if not self.winfo_exists():
+            return "break"
+
+        try:
+            px, py = self.winfo_pointerxy()
+            widget = self.winfo_containing(px, py)
+        except tk.TclError:
+            widget = getattr(event, "widget", None)
+
+        if not self._is_in_chat_scroll_area(widget):
             return
-        if event.delta:
-            if abs(event.delta) >= 120:
-                delta = -int(event.delta / 120)
-            else:
-                delta = -1 if event.delta > 0 else 1
+
+        if getattr(event, "num", None) == 4:
+            self._scroll_units(-1)
+            return "break"
+        if getattr(event, "num", None) == 5:
+            self._scroll_units(1)
+            return "break"
+
+        delta = getattr(event, "delta", 0)
+        if not delta:
+            return "break"
+
+        if sys.platform == "darwin":
+            step = int(-delta)
+        elif abs(delta) >= 120:
+            step = int(-delta / 120)
         else:
-            delta = 0
-        if delta:
-            self.canvas.yview_scroll(delta, "units")
+            step = int(-delta)
+
+        if step == 0:
+            step = -1 if delta > 0 else 1
+
+        self.canvas.yview_scroll(step, "units")
         return "break"
 
     def _on_close(self):
@@ -541,6 +580,7 @@ class ChatWindow(tk.Toplevel):
             pady=10,
         )
         bubble.pack(side="right", anchor="e")
+        self._bind_scroll_events(row)
         if scroll:
             self._update_scroll_region()
             self._scroll_bottom()
@@ -619,6 +659,7 @@ class ChatWindow(tk.Toplevel):
         elif scroll_to == "top":
             self._update_scroll_region()
             self._scroll_top()
+        self._bind_scroll_events(row)
         return {
             "row": row,
             "meta_label": meta_label,
