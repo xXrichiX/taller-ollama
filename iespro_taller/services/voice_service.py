@@ -21,7 +21,7 @@ from urllib.request import urlretrieve
 
 SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
-PYAUDIO_CHUNK = 4000
+MIC_CHUNK = 4000
 FALLBACK_CHUNK_BYTES = SAMPLE_RATE * SAMPLE_WIDTH
 
 MODEL_NAME = "vosk-model-small-es-0.42"
@@ -130,28 +130,107 @@ def _create_vosk_processor() -> VoskStreamProcessor | None:
         return None
 
 
+def _mic_error_message() -> str:
+    return (
+        "Voz no disponible. Instala: pip install sounddevice "
+        "(incluido en requirements.txt). En Mac alternativa: brew install portaudio && pip install pyaudio"
+    )
+
+
+def _stream_mic_chunks(stop_event: threading.Event, on_chunk: Callable[[bytes], None]) -> bool:
+    """Captura PCM del micrófono. Usa sounddevice (Windows/Python 3.14+) o pyaudio como respaldo."""
+    try:
+        import sounddevice as sd
+
+        with sd.RawInputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="int16",
+            blocksize=MIC_CHUNK,
+        ) as stream:
+            while not stop_event.is_set():
+                data, _overflowed = stream.read(MIC_CHUNK)
+                if stop_event.is_set():
+                    break
+                on_chunk(bytes(data))
+        return True
+    except ImportError:
+        pass
+    except Exception:
+        pass
+
+    try:
+        import pyaudio
+
+        pa = pyaudio.PyAudio()
+        stream = None
+        try:
+            stream = pa.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=SAMPLE_RATE,
+                input=True,
+                frames_per_buffer=MIC_CHUNK,
+            )
+            stream.start_stream()
+            while not stop_event.is_set():
+                data = stream.read(MIC_CHUNK, exception_on_overflow=False)
+                if stop_event.is_set():
+                    break
+                on_chunk(data)
+            return True
+        finally:
+            if stream is not None:
+                stream.stop_stream()
+                stream.close()
+            pa.terminate()
+    except ImportError:
+        return False
+    except Exception:
+        return False
+
+
+def _record_blocking(seconds: float = 12.0) -> bytes | None:
+    try:
+        import sounddevice as sd
+
+        frames = int(seconds * SAMPLE_RATE)
+        recording = sd.rec(frames, samplerate=SAMPLE_RATE, channels=1, dtype="int16")
+        sd.wait()
+        return recording.tobytes()
+    except ImportError:
+        pass
+    except Exception:
+        return None
+
+    try:
+        import speech_recognition as sr
+
+        recognizer = sr.Recognizer()
+        with sr.Microphone(sample_rate=SAMPLE_RATE) as source:
+            recognizer.adjust_for_ambient_noise(source, duration=0.4)
+            audio = recognizer.listen(source, timeout=10, phrase_time_limit=int(seconds))
+        return audio.get_raw_data(convert_rate=SAMPLE_RATE, convert_width=2)
+    except Exception:
+        return None
+
+
 def transcribe_from_microphone() -> tuple[bool, str]:
     """
     Graba audio del micrófono y transcribe a texto en español (modo bloqueante).
-    Requiere: pip install SpeechRecognition pyaudio
+    Requiere: pip install sounddevice (o pyaudio en Mac)
     """
     try:
         import speech_recognition as sr
     except ImportError:
-        return False, (
-            "Voz no disponible. Instala: pip install SpeechRecognition pyaudio "
-            "(y brew install portaudio en Mac)"
-        )
+        return False, _mic_error_message()
+
+    pcm = _record_blocking(12.0)
+    if not pcm:
+        return False, _mic_error_message()
 
     recognizer = sr.Recognizer()
-    try:
-        with sr.Microphone() as source:
-            recognizer.adjust_for_ambient_noise(source, duration=0.4)
-            audio = recognizer.listen(source, timeout=10, phrase_time_limit=25)
-    except sr.WaitTimeoutError:
-        return False, "No escuché nada. Intenta de nuevo hablando más cerca del micrófono."
-    except Exception as exc:
-        return False, f"No pude acceder al micrófono: {exc}"
+    audio = sr.AudioData(pcm, SAMPLE_RATE, SAMPLE_WIDTH)
 
     if _whisper_available():
         try:
@@ -365,33 +444,13 @@ class RealtimeVoiceSession:
         await loop.run_in_executor(None, self._capture_blocking, ws, loop)
 
     def _capture_blocking(self, ws, loop) -> None:
-        try:
-            import pyaudio
-        except ImportError:
-            self._on_error("Voz no disponible. Instala pyaudio (brew install portaudio).")
-            return
+        def send_pcm(pcm: bytes) -> None:
+            asyncio.run_coroutine_threadsafe(ws.send(pcm), loop).result(timeout=2)
 
-        pa = pyaudio.PyAudio()
-        stream = None
         try:
-            stream = pa.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=SAMPLE_RATE,
-                input=True,
-                frames_per_buffer=PYAUDIO_CHUNK,
-            )
-            stream.start_stream()
-            while not self._stop.is_set():
-                data = stream.read(PYAUDIO_CHUNK, exception_on_overflow=False)
-                if self._stop.is_set():
-                    break
-                asyncio.run_coroutine_threadsafe(ws.send(data), loop).result(timeout=2)
+            ok = _stream_mic_chunks(self._stop, send_pcm)
+            if not ok and not self._stop.is_set():
+                self._on_error(_mic_error_message())
         except Exception as exc:
             if not self._stop.is_set():
                 self._on_error(f"No pude usar el micrófono: {exc}")
-        finally:
-            if stream is not None:
-                stream.stop_stream()
-                stream.close()
-            pa.terminate()
