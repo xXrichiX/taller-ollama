@@ -12,6 +12,15 @@ ROUTE_LABELS = {
     "help": "Ayuda",
     "llm_direct": "Asistente",
     "error": "Error",
+    "blocked": "Seguridad",
+    "memory_recall": "Memoria",
+}
+
+STATUS_COLORS = {
+    "thinking": "#93c5fd",
+    "searching": "#fbbf24",
+    "acting": "#34d399",
+    "ready": "#94a3b8",
 }
 
 
@@ -38,7 +47,7 @@ class ChatWindow(tk.Toplevel):
         self._load_history()
 
     def _build_ui(self):
-        header = tk.Frame(self, bg=COLORS["header"], height=48)
+        header = tk.Frame(self, bg=COLORS["header"], height=64)
         header.pack(fill="x")
         header.pack_propagate(False)
 
@@ -48,7 +57,17 @@ class ChatWindow(tk.Toplevel):
             bg=COLORS["header"],
             fg="white",
             font=("Helvetica", 15, "bold"),
-        ).pack(anchor="w", padx=16, pady=12)
+        ).pack(anchor="w", padx=16, pady=(10, 0))
+
+        self.status_var = tk.StringVar(value="Listo")
+        self.status_label = tk.Label(
+            header,
+            textvariable=self.status_var,
+            bg=COLORS["header"],
+            fg=STATUS_COLORS["ready"],
+            font=("Helvetica", 10),
+        )
+        self.status_label.pack(anchor="w", padx=16, pady=(0, 10))
 
         body = tk.Frame(self, bg=COLORS["chat_bg"])
         body.pack(fill="both", expand=True)
@@ -144,6 +163,13 @@ class ChatWindow(tk.Toplevel):
         )
         self.input_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 8))
         self.input_entry.bind("<Return>", lambda e: self._send())
+
+        self.voice_btn = ttk.Button(
+            bottom,
+            text="Voz",
+            command=self._start_voice,
+        )
+        self.voice_btn.pack(side="right", padx=(0, 8))
 
         self.send_btn = ttk.Button(
             bottom,
@@ -257,8 +283,36 @@ class ChatWindow(tk.Toplevel):
         self._busy = busy
         set_button_enabled(self.send_btn, not busy)
         set_button_enabled(self.new_btn, not busy)
+        set_button_enabled(self.voice_btn, not busy)
         if not busy:
             self.input_entry.focus_force()
+
+    def _set_agent_status(self, phase: str, label: str) -> None:
+        self.status_var.set(label)
+        self.status_label.configure(fg=STATUS_COLORS.get(phase, STATUS_COLORS["ready"]))
+
+    def _start_voice(self):
+        if self._busy:
+            return
+
+        self._set_busy(True)
+        self._set_agent_status("thinking", "Escuchando micrófono...")
+
+        def worker():
+            from services.voice_service import transcribe_from_microphone
+
+            ok, text = transcribe_from_microphone()
+            self.after(0, lambda: self._finish_voice(ok, text))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_voice(self, ok: bool, text: str):
+        if ok:
+            self.input_var.set(text)
+            self._set_agent_status("ready", "Voz transcrita. Revisa y envía.")
+        else:
+            self._set_agent_status("ready", text[:120])
+        self._set_busy(False)
 
     def _send(self):
         if self._busy:
@@ -271,33 +325,75 @@ class ChatWindow(tk.Toplevel):
         self.input_var.set("")
         self._user_message(question)
         self._set_busy(True)
+        self._set_agent_status("thinking", "Pensando...")
 
-        thinking = self._bot_message("Un momento...", meta="Pensando")
+        stream_msg = self._bot_message("", meta="Pensando...", scroll_to="bottom")
+        accumulated: list[str] = []
+
+        def on_status(phase: str, label: str):
+            self.after(0, lambda: self._update_stream_status(stream_msg, phase, label))
+
+        def on_token(chunk: str):
+            accumulated.append(chunk)
+            text = "".join(accumulated)
+            self.after(0, lambda: self._update_stream_text(stream_msg, text))
 
         def worker():
             try:
-                result = self.chat_service.ask(question)
+                result = self.chat_service.ask_stream(
+                    question,
+                    on_status=on_status,
+                    on_token=on_token,
+                )
                 err = None
             except Exception as exc:
                 result = None
                 err = exc
 
-            self.after(0, lambda: self._finish_send(thinking, result, err))
+            self.after(0, lambda: self._finish_send(stream_msg, result, err, "".join(accumulated)))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish_send(self, thinking, result, err):
-        thinking.destroy()
+    def _update_stream_status(self, stream_msg, phase: str, label: str):
+        if stream_msg.get("meta_label"):
+            stream_msg["meta_label"].configure(text=label)
+        self._set_agent_status(phase, label)
+
+    def _update_stream_text(self, stream_msg, text: str):
+        if stream_msg.get("bubble_label"):
+            stream_msg["bubble_label"].configure(text=text)
+        self._scroll_bottom()
+
+    def _finish_send(self, stream_msg, result, err, streamed_text: str):
 
         if err is not None:
-            self._bot_message(f"No pude responder: {err}", meta="Error", error=True)
+            if stream_msg.get("bubble_label"):
+                stream_msg["bubble_label"].configure(text=f"No pude responder: {err}")
+            if stream_msg.get("meta_label"):
+                stream_msg["meta_label"].configure(text="Error")
+            self._set_agent_status("ready", "Error al responder")
         else:
             route = result.get("route", "llm_direct")
             label = ROUTE_LABELS.get(route, "Asistente")
-            answer = plain_chat_text(result.get("answer", "") or "")
+            answer = plain_chat_text(streamed_text or result.get("answer", "") or "")
             if not answer.strip():
                 answer = "No pude obtener una respuesta. Intenta de nuevo."
-            self._bot_message(answer, meta=label, error=(route == "error"))
+            if stream_msg.get("bubble_label"):
+                stream_msg["bubble_label"].configure(text=answer)
+            metrics = result.get("metrics") or {}
+            meta = label
+            if metrics:
+                meta = (
+                    f"{label} · TTFT {metrics.get('ttft_ms', '-')}ms · "
+                    f"Latencia {metrics.get('total_latency_ms', '-')}ms · "
+                    f"TPS {metrics.get('tokens_per_second', '-')}"
+                )
+            if stream_msg.get("meta_label"):
+                stream_msg["meta_label"].configure(
+                    text=meta,
+                    fg=COLORS["muted"] if route != "error" else "#dc2626",
+                )
+            self._set_agent_status("ready", "Listo")
 
         self._refresh_conversation_list()
         self._set_busy(False)
@@ -329,13 +425,16 @@ class ChatWindow(tk.Toplevel):
         inner.pack(side="left", anchor="w")
 
         if meta:
-            tk.Label(
+            meta_label = tk.Label(
                 inner,
                 text=meta,
                 bg=COLORS["chat_bg"],
                 fg=COLORS["muted"] if not error else "#dc2626",
                 font=("Helvetica", 8, "bold"),
-            ).pack(anchor="w", padx=4)
+            )
+            meta_label.pack(anchor="w", padx=4)
+        else:
+            meta_label = None
 
         bubble = tk.Label(
             inner,
@@ -355,7 +454,7 @@ class ChatWindow(tk.Toplevel):
             self._scroll_bottom()
         elif scroll_to == "top":
             self._scroll_top()
-        return row
+        return {"row": row, "meta_label": meta_label, "bubble_label": bubble}
 
     def _scroll_top(self):
         self.update_idletasks()

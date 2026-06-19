@@ -1,6 +1,7 @@
 import json
 import logging
-from typing import Any
+import time
+from typing import Any, Callable
 
 import ollama
 
@@ -19,6 +20,8 @@ from services.tool_resilience import (
     tool_message_content,
 )
 from db.conversation_repository import ConversationRepository
+from db.observability_repository import ObservabilityRepository
+from services.guardrails import BLOCKED_MESSAGE, validate_user_prompt
 from services.chat_intents import (
     CAPABILITIES_ANSWER,
     FRIENDLY_FALLBACK_ANSWER,
@@ -75,7 +78,12 @@ class ChatService:
         self.rag = RagService()
         self.tools = ToolsService(self.rag)
         self.repo = ConversationRepository()
+        self.obs_repo = ObservabilityRepository()
         self._last_context_meta: dict[str, Any] = {}
+        try:
+            self.obs_repo.ensure_table()
+        except Exception:
+            logger.exception("No se pudo inicializar tabla de observabilidad")
 
     def set_user(self, id_usuario: int) -> None:
         self.id_usuario = id_usuario
@@ -255,35 +263,125 @@ class ChatService:
         }
 
     def ask(self, question: str) -> dict[str, Any]:
+        return self.ask_stream(question)
+
+    def ask_stream(
+        self,
+        question: str,
+        on_status: Callable[[str, str], None] | None = None,
+        on_token: Callable[[str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Procesa una pregunta con guardrails, estados, streaming y observabilidad."""
+        start = time.perf_counter()
+        first_token_at: float | None = None
+        token_count = 0
         question = (question or "").strip()
         self.ensure_conversation()
+        session_id = str(self.id_conversacion or "sin-sesion")
+
+        def emit_status(phase: str, label: str) -> None:
+            if on_status:
+                on_status(phase, label)
+
+        def emit_token(chunk: str) -> None:
+            nonlocal first_token_at, token_count
+            if not chunk:
+                return
+            if first_token_at is None:
+                first_token_at = time.perf_counter()
+            token_count += 1
+            if on_token:
+                on_token(chunk)
+
+        def stream_answer(text: str) -> str:
+            answer = plain_chat_text(text or "")
+            for word in answer.split(" "):
+                emit_token(word + " ")
+            return answer
+
+        def finalize(
+            answer: str,
+            route: str,
+            *,
+            tool_calls: list | None = None,
+            was_blocked: bool = False,
+            persist: bool = True,
+        ) -> dict[str, Any]:
+            total_ms = int((time.perf_counter() - start) * 1000)
+            ttft_ms = int((first_token_at - start) * 1000) if first_token_at else None
+            generation_s = max((time.perf_counter() - (first_token_at or start)), 0.001)
+            tps = round(token_count / generation_s, 2) if first_token_at and token_count else None
+            tools_obs = self._format_tools_observability(tool_calls or [])
+
+            try:
+                self.obs_repo.insert_log(
+                    session_id=session_id,
+                    user_prompt=question,
+                    system_response=answer,
+                    ttft_ms=ttft_ms,
+                    total_latency_ms=total_ms,
+                    tokens_per_second=tps,
+                    was_blocked=was_blocked,
+                    tools_executed=tools_obs,
+                )
+            except Exception:
+                logger.exception("No se pudo guardar log de observabilidad")
+
+            result = self._result(
+                question,
+                answer,
+                route,
+                tool_calls=tool_calls,
+                persist=persist and bool(question) and not was_blocked,
+            )
+            result["metrics"] = {
+                "ttft_ms": ttft_ms,
+                "total_latency_ms": total_ms,
+                "tokens_per_second": tps,
+                "was_blocked": was_blocked,
+            }
+            return result
 
         if not question:
-            return self._result(
-                "",
-                INVALID_INPUT_ANSWER,
-                "help",
-                persist=False,
-            )
+            emit_status("thinking", "Pensando...")
+            answer = stream_answer(INVALID_INPUT_ANSWER)
+            return finalize(answer, "help", persist=False)
+
+        guard = validate_user_prompt(question)
+        if guard.blocked:
+            emit_status("thinking", "Validando entrada...")
+            answer = stream_answer(BLOCKED_MESSAGE)
+            return finalize(answer, "blocked", was_blocked=True)
+
+        emit_status("thinking", "Pensando...")
 
         if is_invalid_input(question):
-            return self._result(question, FRIENDLY_FALLBACK_ANSWER, "help")
+            answer = stream_answer(FRIENDLY_FALLBACK_ANSWER)
+            return finalize(answer, "help")
 
         if is_greeting(question):
-            return self._result(question, GREETING_ANSWER, "help")
+            answer = stream_answer(GREETING_ANSWER)
+            return finalize(answer, "help")
 
         if is_casual_nonsense(question):
-            return self._result(question, FRIENDLY_FALLBACK_ANSWER, "help")
+            answer = stream_answer(FRIENDLY_FALLBACK_ANSWER)
+            return finalize(answer, "help")
 
         if is_capabilities_question(question):
-            return self._result(question, CAPABILITIES_ANSWER, "help")
+            answer = stream_answer(CAPABILITIES_ANSWER)
+            return finalize(answer, "help")
 
         if is_memory_recall_question(question):
-            return self._answer_from_memory(question)
+            emit_status("searching", "Buscando en conversaciones anteriores...")
+            answer = stream_answer(self._format_recall_answer(question))
+            return finalize(answer, "memory_recall")
 
+        emit_status("searching", "Consultando base de datos...")
         sql_answer = run_sql_query(question, self.id_sucursal)
         if sql_answer:
-            return self._result(question, sql_answer, "sql")
+            emit_status("thinking", "Preparando respuesta...")
+            answer = stream_answer(sql_answer)
+            return finalize(answer, "sql")
 
         q_lower = question.lower()
         rag_keywords = (
@@ -291,19 +389,195 @@ class ChatService:
             "chirrido", "ruido", "vibración", "vibracion", "como el", "como la",
         )
         if any(k in q_lower for k in rag_keywords):
+            emit_status("searching", "Buscando fallas similares en el historial...")
             rag_result = self.tools.execute(
                 "buscar_fallas_similares",
                 {"descripcion": question, "limite": 5},
             )
-            answer = self._answer_from_rag(question, rag_result)
-            return self._result(
-                question,
+            emit_status("thinking", "Analizando casos encontrados...")
+            answer = self._answer_from_rag_stream(question, rag_result, emit_token)
+            return finalize(
                 answer,
                 "rag",
-                tool_calls=[{"name": "buscar_fallas_similares", "result": rag_result}],
+                tool_calls=[{"name": "buscar_fallas_similares", "arguments": {"descripcion": question}, "result": rag_result}],
             )
 
-        return self._ask_with_tools(question)
+        return self._ask_with_tools_stream(question, emit_status, emit_token, finalize)
+
+    @staticmethod
+    def _format_tools_observability(tool_calls_log: list[dict]) -> list[dict[str, Any]]:
+        formatted: list[dict[str, Any]] = []
+        for entry in tool_calls_log:
+            result = entry.get("result")
+            status = "SUCCESS"
+            if isinstance(result, dict):
+                if result.get("ok") is False or result.get("error"):
+                    status = "ERROR"
+            item: dict[str, Any] = {
+                "name": entry.get("name"),
+                "parameters": entry.get("arguments", {}),
+                "status": status,
+            }
+            if status == "ERROR" and isinstance(result, dict):
+                item["error"] = result.get("error") or result.get("message") or "Error en tool"
+            formatted.append(item)
+        return formatted
+
+    def _answer_from_rag_stream(
+        self,
+        question: str,
+        rag_result: dict,
+        emit_token: Callable[[str], None],
+    ) -> str:
+        matches = rag_result.get("matches", [])
+        if not matches:
+            text = "No encontré fallas históricas similares en la base vectorial."
+            for word in text.split(" "):
+                emit_token(word + " ")
+            return text
+
+        context = "\n".join(
+            f"- Cita {m.get('id_cita') or 'N/A'} | Placa {m.get('placa')} | Similitud(dist)={m.get('distancia')}: {m.get('texto')}"
+            for m in matches
+        )
+        memoria = self._memory_from_other_conversations()
+        prompt = f"""Eres el asistente del taller IESPRO. Responde SOLO en texto plano en español.
+NO uses asteriscos, markdown ni encabezados con #.
+
+Pregunta: {question}
+{memoria}
+
+Fallas similares encontradas en el historial:
+{context}
+
+Explica si la falla es parecida a casos anteriores (menciona placa y cita si aplica) y qué conviene revisar.
+Si la pregunta alude a algo de una conversación anterior del usuario, usa la memoria de arriba.
+No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
+
+        parts: list[str] = []
+        stream = ollama.generate(model=OLLAMA_CHAT_MODEL, prompt=prompt, stream=True)
+        for chunk in stream:
+            token = chunk.get("response", "")
+            if token:
+                parts.append(token)
+                emit_token(token)
+        return plain_chat_text("".join(parts))
+
+    def _ask_with_tools_stream(
+        self,
+        question: str,
+        emit_status: Callable[[str, str], None],
+        emit_token: Callable[[str], None],
+        finalize: Callable[..., dict[str, Any]],
+    ) -> dict[str, Any]:
+        messages = [
+            {"role": "system", "content": self._build_system_prompt()},
+            *self._ollama_context(question),
+            {"role": "user", "content": question},
+        ]
+
+        tool_calls_log: list[dict] = []
+        seen_signatures: set[str] = set()
+
+        emit_status("thinking", "Pensando...")
+        try:
+            response = ollama.chat(
+                model=OLLAMA_CHAT_MODEL,
+                messages=messages,
+                tools=TOOL_DEFINITIONS,
+            )
+        except Exception as exc:
+            logger.exception("Error en ollama.chat")
+            answer = f"Error con Ollama ({OLLAMA_CHAT_MODEL}): {exc}"
+            for word in answer.split(" "):
+                emit_token(word + " ")
+            return finalize(answer, "error")
+
+        msg = response.get("message", {})
+        tool_calls = msg.get("tool_calls") or []
+
+        if tool_calls:
+            messages.append(msg)
+            for call in tool_calls:
+                fn = call.get("function", {})
+                name = fn.get("name") or "acción"
+                args = fn.get("arguments", {})
+                if isinstance(args, str):
+                    args = json.loads(args) if args else {}
+
+                emit_status("acting", self._tool_status_label(name))
+
+                if "id_sucursal" not in args and name in SUCURSAL_TOOLS:
+                    args["id_sucursal"] = self.id_sucursal
+
+                sig = call_signature(name, args)
+                if sig in seen_signatures:
+                    result = {
+                        "ok": False,
+                        "error": "Llamada duplicada omitida en este turno.",
+                        "recoverable": True,
+                    }
+                else:
+                    seen_signatures.add(sig)
+                    result = self.tools.execute(name, args)
+
+                tool_calls_log.append({"name": name, "arguments": args, "result": result})
+                messages.append({
+                    "role": "tool",
+                    "content": tool_message_content(name or "tool", result),
+                })
+
+            if should_skip_followup_llm(tool_calls_log):
+                answer = tool_failure_user_message(tool_calls_log)
+                for word in answer.split(" "):
+                    emit_token(word + " ")
+                return finalize(answer, "function_calling", tool_calls=tool_calls_log)
+
+            formatted = format_tool_calls_log(tool_calls_log)
+            if formatted:
+                for word in formatted.split(" "):
+                    emit_token(word + " ")
+                return finalize(formatted, "function_calling", tool_calls=tool_calls_log)
+
+            emit_status("thinking", "Redactando respuesta final...")
+            try:
+                parts: list[str] = []
+                stream = ollama.chat(
+                    model=OLLAMA_CHAT_MODEL,
+                    messages=messages + [{"role": "system", "content": PLAIN_TEXT_RULE}],
+                    stream=True,
+                )
+                for chunk in stream:
+                    token = chunk.get("message", {}).get("content", "")
+                    if token:
+                        parts.append(token)
+                        emit_token(token)
+                answer = plain_chat_text("".join(parts)) or formatted
+            except Exception as exc:
+                logger.exception("Error en segunda llamada ollama.chat")
+                answer = tool_failure_user_message(tool_calls_log) or str(exc)
+                for word in answer.split(" "):
+                    emit_token(word + " ")
+            return finalize(answer, "function_calling", tool_calls=tool_calls_log)
+
+        emit_status("thinking", "Generando respuesta...")
+        content = plain_chat_text(msg.get("content", "No pude generar respuesta."))
+        for word in content.split(" "):
+            emit_token(word + " ")
+        return finalize(content, "llm_direct")
+
+    @staticmethod
+    def _tool_status_label(tool_name: str) -> str:
+        labels = {
+            "listar_citas": "Consultando citas del taller...",
+            "contar_citas": "Contando citas...",
+            "listar_islas": "Consultando islas de trabajo...",
+            "listar_mecanicos": "Consultando mecánicos...",
+            "buscar_fallas_similares": "Buscando fallas similares...",
+            "crear_cita_natural": "Agendando cita...",
+            "cambiar_estado_cita_natural": "Actualizando estado de cita...",
+        }
+        return labels.get(tool_name, f"Ejecutando {tool_name.replace('_', ' ')}...")
 
     def _format_recall_answer(self, question: str) -> str:
         if not self.id_usuario or not self.id_conversacion:
@@ -354,125 +628,3 @@ class ChatService:
             "Si quieres retomar algo, dime el tema y seguimos desde ahí."
         )
         return "\n".join(partes)
-
-    def _answer_from_memory(self, question: str) -> dict[str, Any]:
-        answer = self._format_recall_answer(question)
-        return self._result(question, answer, "memory_recall")
-
-    def _answer_from_rag(self, question: str, rag_result: dict) -> str:
-        matches = rag_result.get("matches", [])
-        if not matches:
-            return "No encontré fallas históricas similares en la base vectorial."
-
-        context = "\n".join(
-            f"- Cita {m.get('id_cita') or 'N/A'} | Placa {m.get('placa')} | Similitud(dist)={m.get('distancia')}: {m.get('texto')}"
-            for m in matches
-        )
-
-        memoria = self._memory_from_other_conversations()
-
-        prompt = f"""Eres el asistente del taller IESPRO. Responde SOLO en texto plano en español.
-NO uses asteriscos, markdown ni encabezados con #.
-
-Pregunta: {question}
-{memoria}
-
-Fallas similares encontradas en el historial:
-{context}
-
-Explica si la falla es parecida a casos anteriores (menciona placa y cita si aplica) y qué conviene revisar.
-Si la pregunta alude a algo de una conversación anterior del usuario, usa la memoria de arriba.
-No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
-
-        response = ollama.generate(model=OLLAMA_CHAT_MODEL, prompt=prompt)
-        return plain_chat_text(response["response"])
-
-    def _ask_with_tools(self, question: str) -> dict[str, Any]:
-        messages = [
-            {"role": "system", "content": self._build_system_prompt()},
-            *self._ollama_context(question),
-            {"role": "user", "content": question},
-        ]
-
-        tool_calls_log = []
-        seen_signatures: set[str] = set()
-
-        try:
-            response = ollama.chat(
-                model=OLLAMA_CHAT_MODEL,
-                messages=messages,
-                tools=TOOL_DEFINITIONS,
-            )
-        except Exception as exc:
-            logger.exception("Error en ollama.chat")
-            return self._result(
-                question,
-                f"Error con Ollama ({OLLAMA_CHAT_MODEL}): {exc}",
-                "error",
-            )
-
-        msg = response.get("message", {})
-        tool_calls = msg.get("tool_calls") or []
-
-        if tool_calls:
-            messages.append(msg)
-            for call in tool_calls:
-                fn = call.get("function", {})
-                name = fn.get("name")
-                args = fn.get("arguments", {})
-                if isinstance(args, str):
-                    args = json.loads(args) if args else {}
-
-                if "id_sucursal" not in args and name in SUCURSAL_TOOLS:
-                    args["id_sucursal"] = self.id_sucursal
-
-                sig = call_signature(name, args)
-                if sig in seen_signatures:
-                    result = {
-                        "ok": False,
-                        "error": "Llamada duplicada omitida en este turno.",
-                        "recoverable": True,
-                    }
-                else:
-                    seen_signatures.add(sig)
-                    result = self.tools.execute(name, args)
-
-                tool_calls_log.append({"name": name, "arguments": args, "result": result})
-                messages.append({
-                    "role": "tool",
-                    "content": tool_message_content(name or "tool", result),
-                })
-
-            if should_skip_followup_llm(tool_calls_log):
-                answer = tool_failure_user_message(tool_calls_log)
-                raw = None
-            else:
-                formatted = format_tool_calls_log(tool_calls_log)
-                if formatted:
-                    answer = formatted
-                    raw = None
-                else:
-                    try:
-                        final = ollama.chat(
-                            model=OLLAMA_CHAT_MODEL,
-                            messages=messages + [{"role": "system", "content": PLAIN_TEXT_RULE}],
-                        )
-                        answer = plain_chat_text(final["message"]["content"]) or formatted
-                        raw = final
-                    except Exception as exc:
-                        logger.exception("Error en segunda llamada ollama.chat")
-                        answer = tool_failure_user_message(tool_calls_log) or str(exc)
-                        raw = None
-            route = "function_calling"
-        else:
-            answer = plain_chat_text(msg.get("content", "No pude generar respuesta."))
-            raw = response
-            route = "llm_direct"
-
-        return self._result(
-            question,
-            answer,
-            route,
-            tool_calls=tool_calls_log,
-            raw=raw,
-        )

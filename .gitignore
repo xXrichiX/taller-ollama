@@ -1,11 +1,47 @@
+# Entornos Python
 .venv/
 venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Bytecode y cachés
 __pycache__/
 *.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Datos locales generados en runtime (no versionar)
 db_vectorial/
 iespro_taller/data/
+iespro_taller/.venv/
+
+# Secretos y configuración local
 .env
+.env.*
+*.local
+
+# Sistema / IDE
 .DS_Store
+Thumbs.db
 .cursor/
 .idea/
 .vscode/
+*.swp
+*.swo
+
+# Logs y temporales
+*.log
+*.tmp
+*.temp
+
+# Audio temporal de pruebas de voz
+*.wav
+*.mp3
+
+# Modelos Whisper descargados localmente (si se guardan en el proyecto)
+*.pt
+*.bin

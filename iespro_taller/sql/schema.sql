@@ -193,6 +193,21 @@ CREATE TABLE IF NOT EXISTS mensajes_chat (
   INDEX idx_mensajes_conversacion (id_conversacion, creado_en)
 );
 
+CREATE TABLE IF NOT EXISTS llm_observability_logs (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  session_id VARCHAR(120) NOT NULL,
+  timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  user_prompt TEXT NOT NULL,
+  system_response LONGTEXT,
+  ttft_ms INT,
+  total_latency_ms INT NOT NULL,
+  tokens_per_second DECIMAL(10,2),
+  was_blocked TINYINT(1) NOT NULL DEFAULT 0,
+  tools_executed JSON,
+  INDEX idx_obs_session (session_id),
+  INDEX idx_obs_timestamp (timestamp)
+);
+
 
 USE iespro_taller_app;
 
