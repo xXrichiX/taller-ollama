@@ -24,6 +24,29 @@ WORKSHOP_HINTS = (
     "charla", "mencione", "mencioné", "hablamos", "dije",
 )
 
+SUBSTANTIVE_WORKSHOP_HINTS = (
+    "cita", "citas", "cliente", "clientes", "vehiculo", "vehículo", "vehiculos",
+    "vehículos", "placa", "mecanico", "mecánico", "mecanicos", "mecánicos",
+    "isla", "islas", "falla", "fallas", "freno", "frenos", "ruido", "motor",
+    "aceite", "similar", "parecid", "chirrido", "vibracion", "vibración",
+    "roberto", "carlos", "abc", "listame", "listar", "lista las", "lista los",
+    "cuant", "cuánt", "total de", "busca fallas", "buscar fallas", "crea cita",
+    "crear cita", "agenda", "marca como", "marcar como", "cambia el estado",
+    "cambiar estado", "pendiente", "proceso", "completada", "cancelada",
+)
+
+MUTATING_TOOLS = frozenset({
+    "crear_cita_natural",
+    "cambiar_estado_cita_natural",
+    "cambiar_estado_cita",
+})
+
+ACKNOWLEDGMENT_PHRASES = (
+    "ok", "okay", "vale", "si", "sí", "ah si", "ah sí", "aja", "ajá",
+    "claro", "bueno", "genial", "perfecto", "entendido", "de acuerdo",
+    "gracias", "muchas gracias", "thx", "thanks",
+)
+
 
 def is_memory_recall_question(question: str) -> bool:
     q = _norm(question)
@@ -75,6 +98,61 @@ def _is_action_request(question: str) -> bool:
     return False
 
 
+def looks_like_workshop_request(question: str) -> bool:
+    """True solo si el mensaje parece pedir algo concreto del taller."""
+    if _is_action_request(question):
+        return True
+    q = _norm(question)
+    if any(h in q for h in SUBSTANTIVE_WORKSHOP_HINTS):
+        return True
+    if any(
+        p in q
+        for p in (
+            "cuantas citas", "cuántas citas", "cuantos clientes", "cuántos clientes",
+            "cuantos vehiculos", "cuántos vehículos", "total de citas",
+        )
+    ):
+        return True
+    return False
+
+
+def allows_mutating_tool(question: str, tool_name: str) -> bool:
+    """Evita crear o cambiar citas si el usuario no lo pidió con claridad."""
+    if tool_name not in MUTATING_TOOLS:
+        return True
+    if _is_action_request(question):
+        return True
+    q = _norm(question)
+    state_markers = (
+        "marca como", "marcar como", "cambia el estado", "cambiar estado",
+        "cambiar a", "pon en", "poner en", "actualiza la cita", "actualizar cita",
+    )
+    if any(m in q for m in state_markers):
+        return True
+    if "crea" in q or "crear" in q or "agenda" in q or "agendar" in q:
+        return True
+    return False
+
+
+def is_acknowledgment(question: str) -> bool:
+    """Respuestas cortas sin pedido (ah sí, ok, gracias)."""
+    if _is_action_request(question) or looks_like_workshop_request(question):
+        return False
+    q = re.sub(r"[^a-z\s]", "", _norm(question)).strip()
+    if not q:
+        return False
+    if q in ACKNOWLEDGMENT_PHRASES:
+        return True
+    words = q.split()
+    if len(words) <= 4 and q in ACKNOWLEDGMENT_PHRASES:
+        return True
+    if len(words) <= 3 and all(w in ("si", "sí", "ah", "ok", "ya", "bueno", "claro", "vale") for w in words):
+        return True
+    if len(words) == 2 and words[0] in ("ah", "oh") and words[1] in ("si", "sí", "ok", "ya", "claro"):
+        return True
+    return False
+
+
 def is_capabilities_question(question: str) -> bool:
     q = _norm(question)
     if _is_action_request(question):
@@ -116,21 +194,25 @@ def is_casual_nonsense(question: str) -> bool:
     """Risa, texto random o charla sin tema del taller."""
     if _is_action_request(question) or is_capabilities_question(question):
         return False
+    if is_memory_recall_question(question) or looks_like_workshop_request(question):
+        return False
+    if is_acknowledgment(question):
+        return False
 
     q = _norm(question)
     compact = re.sub(r"[^a-z]", "", q)
     if not compact:
         return True
 
-    workshop = [h for h in WORKSHOP_HINTS if h not in ("hola", "gracias")]
-    if any(h in q for h in workshop):
-        return False
-
     if re.search(r"jaja|jeje|jiji|haha", compact):
         return True
-    if compact in ("lol", "xd", "xdd", "kk", "ok", "asdf", "asdfgh"):
+    if compact in ("lol", "xd", "xdd", "kk", "asdf", "asdfgh"):
         return True
     if re.fullmatch(r"(.)\1{4,}", compact):
+        return True
+
+    words = q.split()
+    if len(words) >= 4:
         return True
 
     letters = compact
@@ -138,7 +220,7 @@ def is_casual_nonsense(question: str) -> bool:
     if len(letters) <= 10 and vowels <= 1 and " " not in q:
         return True
 
-    return False
+    return True
 
 
 def is_invalid_input(question: str) -> bool:
@@ -214,3 +296,7 @@ Prueba con algo como:
 
 
 INVALID_INPUT_ANSWER = FRIENDLY_FALLBACK_ANSWER
+
+ACKNOWLEDGMENT_ANSWER = """Entendido. ¿En qué más te ayudo con el taller?
+
+Puedo listar citas, contar pendientes, buscar fallas parecidas o agendar una cita."""

@@ -23,15 +23,19 @@ from db.conversation_repository import ConversationRepository
 from db.observability_repository import ObservabilityRepository
 from services.guardrails import BLOCKED_MESSAGE, validate_user_prompt
 from services.chat_intents import (
+    ACKNOWLEDGMENT_ANSWER,
     CAPABILITIES_ANSWER,
     FRIENDLY_FALLBACK_ANSWER,
     GREETING_ANSWER,
     INVALID_INPUT_ANSWER,
+    allows_mutating_tool,
+    is_acknowledgment,
     is_capabilities_question,
     is_casual_nonsense,
     is_greeting,
     is_invalid_input,
     is_memory_recall_question,
+    looks_like_workshop_request,
 )
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
@@ -363,6 +367,10 @@ class ChatService:
             answer = stream_answer(GREETING_ANSWER)
             return finalize(answer, "help")
 
+        if is_acknowledgment(question):
+            answer = stream_answer(ACKNOWLEDGMENT_ANSWER)
+            return finalize(answer, "help")
+
         if is_casual_nonsense(question):
             answer = stream_answer(FRIENDLY_FALLBACK_ANSWER)
             return finalize(answer, "help")
@@ -401,6 +409,10 @@ class ChatService:
                 "rag",
                 tool_calls=[{"name": "buscar_fallas_similares", "arguments": {"descripcion": question}, "result": rag_result}],
             )
+
+        if not looks_like_workshop_request(question):
+            answer = stream_answer(FRIENDLY_FALLBACK_ANSWER)
+            return finalize(answer, "help")
 
         return self._ask_with_tools_stream(question, emit_status, emit_token, finalize)
 
@@ -519,7 +531,17 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
                     }
                 else:
                     seen_signatures.add(sig)
-                    result = self.tools.execute(name, args)
+                    if not allows_mutating_tool(question, name):
+                        result = {
+                            "ok": False,
+                            "error": (
+                                "Necesito instrucciones claras para crear o cambiar citas "
+                                "(cliente, placa, mecánico, isla o estado)."
+                            ),
+                            "recoverable": True,
+                        }
+                    else:
+                        result = self.tools.execute(name, args)
 
                 tool_calls_log.append({"name": name, "arguments": args, "result": result})
                 messages.append({

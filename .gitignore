@@ -43,6 +43,5 @@ Thumbs.db
 *.wav
 *.mp3
 
-# Modelos Whisper descargados localmente (si se guardan en el proyecto)
-*.pt
-*.bin
+# Modelos Vosk descargados localmente
+iespro_taller/models/
