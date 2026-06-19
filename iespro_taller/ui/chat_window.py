@@ -1,6 +1,7 @@
 import threading
 import tkinter as tk
 from tkinter import ttk
+from typing import Callable
 
 from services.text_format import plain_chat_text
 from ui.theme import COLORS, set_button_enabled, style_listbox
@@ -23,6 +24,65 @@ STATUS_COLORS = {
     "ready": "#94a3b8",
 }
 
+TYPEWRITER_MS = 16
+TYPEWRITER_CHARS = 2
+STREAM_CURSOR = "▌"
+
+
+class TypewriterStream:
+    """Revela texto de izquierda a derecha, estilo ChatGPT."""
+
+    def __init__(self, window: tk.Misc, set_text: Callable[[str], None], scroll: Callable[[], None]):
+        self._window = window
+        self._set_text = set_text
+        self._scroll = scroll
+        self._target = ""
+        self._shown = ""
+        self._job: str | None = None
+        self._streaming = False
+
+    def append(self, chunk: str) -> None:
+        if not chunk:
+            return
+        self._target += chunk
+        if not self._streaming:
+            self._streaming = True
+            self._tick()
+
+    def _tick(self) -> None:
+        if len(self._shown) < len(self._target):
+            backlog = len(self._target) - len(self._shown)
+            step = TYPEWRITER_CHARS
+            if backlog > 40:
+                step = max(step, backlog // 4)
+            elif backlog > 12:
+                step = max(step, backlog // 6)
+            self._shown = self._target[: len(self._shown) + step]
+            self._set_text(self._shown + STREAM_CURSOR)
+            self._scroll()
+            self._job = self._window.after(TYPEWRITER_MS, self._tick)
+            return
+
+        if self._streaming:
+            self._set_text(self._shown + STREAM_CURSOR)
+            self._scroll()
+            self._job = self._window.after(TYPEWRITER_MS, self._tick)
+
+    def finish(self, final_text: str) -> str:
+        if self._job:
+            self._window.after_cancel(self._job)
+            self._job = None
+        self._target = final_text
+        self._shown = final_text
+        self._streaming = False
+        self._set_text(final_text)
+        self._scroll()
+        return final_text
+
+    @property
+    def target(self) -> str:
+        return self._target
+
 
 class ChatWindow(tk.Toplevel):
     """Ventana flotante de chat con historial de conversaciones por usuario."""
@@ -37,6 +97,8 @@ class ChatWindow(tk.Toplevel):
         self._busy = False
         self._conv_ids: list[int] = []
         self._switching = False
+        self._canvas_window_id: int | None = None
+        self._chat_scroll_active = False
 
         self.transient(master)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -131,19 +193,19 @@ class ChatWindow(tk.Toplevel):
         scroll = ttk.Scrollbar(chat_wrap, orient="vertical", command=self.canvas.yview)
         self.messages_frame = tk.Frame(self.canvas, bg=COLORS["chat_bg"])
 
-        self.messages_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")),
-        )
-        self.canvas.create_window((0, 0), window=self.messages_frame, anchor="nw")
+        self._canvas_window_id = self.canvas.create_window((0, 0), window=self.messages_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=scroll.set)
+
+        self.messages_frame.bind("<Configure>", self._on_messages_frame_configure)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
 
         self.canvas.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
 
-        self.canvas.bind("<MouseWheel>", self._on_mousewheel)
-        self.canvas.bind("<Button-4>", lambda e: self.canvas.yview_scroll(-3, "units"))
-        self.canvas.bind("<Button-5>", lambda e: self.canvas.yview_scroll(3, "units"))
+        chat_wrap.bind("<Enter>", self._activate_chat_scroll)
+        chat_wrap.bind("<Leave>", self._deactivate_chat_scroll)
+        self._bind_scroll_events(chat_wrap)
+        self._bind_scroll_events(self.messages_frame)
 
         bottom = tk.Frame(self, bg=COLORS["card"], padx=12, pady=12)
         bottom.pack(fill="x", side="bottom")
@@ -181,14 +243,62 @@ class ChatWindow(tk.Toplevel):
 
         self.after(100, lambda: self.input_entry.focus_force())
 
-    def _on_mousewheel(self, event):
+    def _activate_chat_scroll(self, _event=None) -> None:
+        if self._chat_scroll_active:
+            return
+        self._chat_scroll_active = True
+        self.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        self.bind_all("<Button-4>", lambda e: self._scroll_units(-3), add="+")
+        self.bind_all("<Button-5>", lambda e: self._scroll_units(3), add="+")
+
+    def _deactivate_chat_scroll(self, _event=None) -> None:
+        if not self._chat_scroll_active:
+            return
+        self._chat_scroll_active = False
+        self.unbind_all("<MouseWheel>")
+        self.unbind_all("<Button-4>")
+        self.unbind_all("<Button-5>")
+
+    def _bind_scroll_events(self, widget: tk.Misc) -> None:
+        widget.bind("<MouseWheel>", self._on_mousewheel, add="+")
+        widget.bind("<Button-4>", lambda e: self._scroll_units(-3), add="+")
+        widget.bind("<Button-5>", lambda e: self._scroll_units(3), add="+")
+
+    def _scroll_units(self, amount: int) -> None:
         if self.winfo_exists():
-            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            self.canvas.yview_scroll(amount, "units")
+
+    def _on_canvas_configure(self, event) -> None:
+        if self._canvas_window_id is not None and event.width > 1:
+            self.canvas.itemconfig(self._canvas_window_id, width=event.width)
+
+    def _on_messages_frame_configure(self, _event=None) -> None:
+        self._update_scroll_region()
+
+    def _update_scroll_region(self) -> None:
+        self.update_idletasks()
+        bbox = self.canvas.bbox("all")
+        if bbox:
+            self.canvas.configure(scrollregion=bbox)
+        else:
+            self.canvas.configure(scrollregion=(0, 0, 0, 0))
+
+    def _on_mousewheel(self, event):
+        if not self.winfo_exists():
+            return
+        if event.delta:
+            if abs(event.delta) >= 120:
+                delta = -int(event.delta / 120)
+            else:
+                delta = -1 if event.delta > 0 else 1
+        else:
+            delta = 0
+        if delta:
+            self.canvas.yview_scroll(delta, "units")
+        return "break"
 
     def _on_close(self):
-        self.canvas.unbind("<MouseWheel>")
-        self.canvas.unbind("<Button-4>")
-        self.canvas.unbind("<Button-5>")
+        self._deactivate_chat_scroll()
         self.destroy()
 
     def _format_conv_label(self, conv: dict) -> str:
@@ -235,12 +345,15 @@ class ChatWindow(tk.Toplevel):
             if self.chat_service.switch_conversation(conv_id):
                 self._clear_messages()
                 self._load_history()
+                self._refresh_conversation_list()
         finally:
             self._switching = False
 
     def _clear_messages(self):
         for widget in self.messages_frame.winfo_children():
             widget.destroy()
+        self._update_scroll_region()
+        self._scroll_top()
 
     def _render_messages(self, messages: list[dict]):
         for msg in messages:
@@ -259,8 +372,10 @@ class ChatWindow(tk.Toplevel):
         messages = self.chat_service.get_ui_messages()
         if not messages:
             self._welcome()
+            self._update_scroll_region()
             return
         self._render_messages(messages)
+        self._update_scroll_region()
         self._scroll_bottom()
 
     def _new_conversation(self):
@@ -269,6 +384,7 @@ class ChatWindow(tk.Toplevel):
         self.chat_service.start_new_conversation()
         self._clear_messages()
         self._welcome()
+        self._refresh_conversation_list()
 
     def _welcome(self):
         self._bot_message(
@@ -327,16 +443,18 @@ class ChatWindow(tk.Toplevel):
         self._set_busy(True)
         self._set_agent_status("thinking", "Pensando...")
 
-        stream_msg = self._bot_message("", meta="Pensando...", scroll_to="bottom")
-        accumulated: list[str] = []
+        stream_msg = self._bot_message("", meta="Pensando...", scroll_to="bottom", streaming=True)
+        typewriter = TypewriterStream(
+            self,
+            lambda text: self._set_stream_bubble_text(stream_msg, text),
+            self._scroll_bottom,
+        )
 
         def on_status(phase: str, label: str):
-            self.after(0, lambda: self._update_stream_status(stream_msg, phase, label))
+            self.after(0, lambda p=phase, l=label: self._update_stream_status(stream_msg, p, l))
 
         def on_token(chunk: str):
-            accumulated.append(chunk)
-            text = "".join(accumulated)
-            self.after(0, lambda: self._update_stream_text(stream_msg, text))
+            self.after(0, lambda c=chunk: typewriter.append(c))
 
         def worker():
             try:
@@ -350,44 +468,53 @@ class ChatWindow(tk.Toplevel):
                 result = None
                 err = exc
 
-            self.after(0, lambda: self._finish_send(stream_msg, result, err, "".join(accumulated)))
+            self.after(0, lambda: self._finish_send(stream_msg, result, err, typewriter))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _set_stream_bubble_text(self, stream_msg: dict, text: str) -> None:
+        bubble = stream_msg.get("bubble_text")
+        if bubble is None:
+            return
+        bubble.configure(state="normal")
+        bubble.delete("1.0", "end")
+        bubble.insert("1.0", text)
+        bubble.configure(state="disabled")
+        bubble.update_idletasks()
+        line_count = int(bubble.index("end-1c").split(".")[0])
+        bubble.configure(height=max(1, line_count))
+        self._update_scroll_region()
 
     def _update_stream_status(self, stream_msg, phase: str, label: str):
         if stream_msg.get("meta_label"):
             stream_msg["meta_label"].configure(text=label)
         self._set_agent_status(phase, label)
 
-    def _update_stream_text(self, stream_msg, text: str):
-        if stream_msg.get("bubble_label"):
-            stream_msg["bubble_label"].configure(text=text)
-        self._scroll_bottom()
-
-    def _finish_send(self, stream_msg, result, err, streamed_text: str):
+    def _finish_send(self, stream_msg, result, err, typewriter: TypewriterStream):
 
         if err is not None:
-            if stream_msg.get("bubble_label"):
-                stream_msg["bubble_label"].configure(text=f"No pude responder: {err}")
+            self._set_stream_bubble_text(stream_msg, f"No pude responder: {err}")
             if stream_msg.get("meta_label"):
                 stream_msg["meta_label"].configure(text="Error")
             self._set_agent_status("ready", "Error al responder")
         else:
             route = result.get("route", "llm_direct")
             label = ROUTE_LABELS.get(route, "Asistente")
-            answer = plain_chat_text(streamed_text or result.get("answer", "") or "")
+            answer = plain_chat_text(typewriter.target or result.get("answer", "") or "")
             if not answer.strip():
                 answer = "No pude obtener una respuesta. Intenta de nuevo."
-            if stream_msg.get("bubble_label"):
-                stream_msg["bubble_label"].configure(text=answer)
-            metrics = result.get("metrics") or {}
+            typewriter.finish(answer)
+            # Métricas de observabilidad (Semana 5): desactivadas en UI para demo limpia.
+            # Los datos siguen guardándose en MySQL (llm_observability_logs).
+            # Para volver a mostrarlas en cada respuesta, descomenta el bloque de abajo:
+            # metrics = result.get("metrics") or {}
             meta = label
-            if metrics:
-                meta = (
-                    f"{label} · TTFT {metrics.get('ttft_ms', '-')}ms · "
-                    f"Latencia {metrics.get('total_latency_ms', '-')}ms · "
-                    f"TPS {metrics.get('tokens_per_second', '-')}"
-                )
+            # if metrics:
+            #     meta = (
+            #         f"{label} · TTFT {metrics.get('ttft_ms', '-')}ms · "
+            #         f"Latencia {metrics.get('total_latency_ms', '-')}ms · "
+            #         f"TPS {metrics.get('tokens_per_second', '-')}"
+            #     )
             if stream_msg.get("meta_label"):
                 stream_msg["meta_label"].configure(
                     text=meta,
@@ -415,9 +542,10 @@ class ChatWindow(tk.Toplevel):
         )
         bubble.pack(side="right", anchor="e")
         if scroll:
+            self._update_scroll_region()
             self._scroll_bottom()
 
-    def _bot_message(self, text, meta=None, error=False, scroll_to="bottom"):
+    def _bot_message(self, text, meta=None, error=False, scroll_to="bottom", streaming=False):
         row = tk.Frame(self.messages_frame, bg=COLORS["chat_bg"])
         row.pack(fill="x", pady=6, padx=4)
 
@@ -436,30 +564,72 @@ class ChatWindow(tk.Toplevel):
         else:
             meta_label = None
 
-        bubble = tk.Label(
-            inner,
-            text=text,
-            bg="#fee2e2" if error else COLORS["bot_bubble"],
-            fg=COLORS["bot_text"],
-            font=("Helvetica", 11),
-            wraplength=400,
-            justify="left",
-            padx=14,
-            pady=10,
-            relief="flat",
-            borderwidth=1,
-        )
-        bubble.pack(anchor="w")
+        bubble_bg = "#fee2e2" if error else COLORS["bot_bubble"]
+        if streaming:
+            bubble = tk.Text(
+                inner,
+                height=1,
+                width=46,
+                wrap="word",
+                bg=bubble_bg,
+                fg=COLORS["bot_text"],
+                font=("Helvetica", 11),
+                relief="flat",
+                borderwidth=1,
+                highlightthickness=1,
+                highlightbackground=COLORS["border"],
+                padx=10,
+                pady=8,
+                cursor="arrow",
+            )
+            bubble.pack(anchor="w")
+            bubble.configure(state="normal")
+            if text:
+                bubble.insert("1.0", text)
+            bubble.configure(state="disabled")
+
+            def _resize(_event=None):
+                bubble.update_idletasks()
+                line_count = int(bubble.index("end-1c").split(".")[0])
+                bubble.configure(height=max(1, line_count))
+
+            bubble.bind("<Configure>", _resize)
+            bubble_text = bubble
+            bubble_label = None
+        else:
+            bubble_label = tk.Label(
+                inner,
+                text=text,
+                bg=bubble_bg,
+                fg=COLORS["bot_text"],
+                font=("Helvetica", 11),
+                wraplength=400,
+                justify="left",
+                padx=14,
+                pady=10,
+                relief="flat",
+                borderwidth=1,
+            )
+            bubble_label.pack(anchor="w")
+            bubble_text = None
+
         if scroll_to == "bottom":
+            self._update_scroll_region()
             self._scroll_bottom()
         elif scroll_to == "top":
+            self._update_scroll_region()
             self._scroll_top()
-        return {"row": row, "meta_label": meta_label, "bubble_label": bubble}
+        return {
+            "row": row,
+            "meta_label": meta_label,
+            "bubble_label": bubble_label,
+            "bubble_text": bubble_text,
+        }
 
     def _scroll_top(self):
-        self.update_idletasks()
+        self._update_scroll_region()
         self.canvas.yview_moveto(0.0)
 
     def _scroll_bottom(self):
-        self.update_idletasks()
+        self._update_scroll_region()
         self.canvas.yview_moveto(1.0)

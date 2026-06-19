@@ -295,8 +295,8 @@ class ChatService:
 
         def stream_answer(text: str) -> str:
             answer = plain_chat_text(text or "")
-            for word in answer.split(" "):
-                emit_token(word + " ")
+            for char in answer:
+                emit_token(char)
             return answer
 
         def finalize(
