@@ -26,6 +26,7 @@ iespro_taller/.venv/
 
 # Sistema / IDE
 .DS_Store
+**/.DS_Store
 Thumbs.db
 .cursor/
 .idea/
