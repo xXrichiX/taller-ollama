@@ -1,24 +1,35 @@
 """Entrada de voz en tiempo real para el chat (Tkinter).
 
-Transcripción por WebSocket local: el micrófono envía fragmentos de audio y el
-servidor devuelve texto parcial mientras hablas. Al pulsar stop, el texto
-ya transcrito se conserva en el cuadro de entrada.
+Transcripción por WebSocket local con Vosk (parciales mientras hablas).
+Al pulsar stop, el texto ya transcrito se conserva en el cuadro de entrada.
 
-Motores STT (por fragmento):
-1. Whisper local (si openai-whisper + torch están instalados)
-2. Google STT vía SpeechRecognition (requiere internet)
+Motores STT:
+1. Vosk local en español (prioridad, sin internet, tiempo real)
+2. Google STT vía SpeechRecognition (respaldo si falta el modelo Vosk)
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
+import zipfile
+from pathlib import Path
 from typing import Callable
+from urllib.request import urlretrieve
 
 SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
-CHUNK_SECONDS = 1.0
+PYAUDIO_CHUNK = 4000
+FALLBACK_CHUNK_BYTES = SAMPLE_RATE * SAMPLE_WIDTH
+
+MODEL_NAME = "vosk-model-small-es-0.42"
+MODEL_URL = f"https://alphacephei.com/vosk/models/{MODEL_NAME}.zip"
+MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+
+_vosk_model = None
+_vosk_model_lock = threading.Lock()
 
 
 def _whisper_available() -> bool:
@@ -28,6 +39,95 @@ def _whisper_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _download_vosk_model(target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    zip_path = target.with_suffix(".zip")
+    urlretrieve(MODEL_URL, zip_path)
+    with zipfile.ZipFile(zip_path, "r") as archive:
+        archive.extractall(target.parent)
+    zip_path.unlink(missing_ok=True)
+
+
+def _ensure_vosk_model_path() -> Path | None:
+    env_path = os.environ.get("VOSK_MODEL_PATH", "").strip()
+    if env_path:
+        path = Path(env_path)
+        if path.is_dir():
+            return path
+
+    model_path = MODELS_DIR / MODEL_NAME
+    if model_path.is_dir():
+        return model_path
+
+    try:
+        _download_vosk_model(model_path)
+    except Exception:
+        return None
+    return model_path if model_path.is_dir() else None
+
+
+def _get_vosk_model():
+    global _vosk_model
+    with _vosk_model_lock:
+        if _vosk_model is not None:
+            return _vosk_model
+        model_path = _ensure_vosk_model_path()
+        if model_path is None:
+            return None
+        try:
+            from vosk import Model
+
+            _vosk_model = Model(str(model_path))
+        except Exception:
+            return None
+        return _vosk_model
+
+
+class VoskStreamProcessor:
+    """Procesa PCM en streaming y expone texto parcial y final."""
+
+    def __init__(self) -> None:
+        from vosk import KaldiRecognizer
+
+        model = _get_vosk_model()
+        if model is None:
+            raise RuntimeError("Modelo Vosk no disponible")
+        self._rec = KaldiRecognizer(model, SAMPLE_RATE)
+        self._committed: list[str] = []
+        self._last_sent = ""
+
+    def feed(self, pcm: bytes) -> str | None:
+        if not pcm:
+            return None
+        if self._rec.AcceptWaveform(pcm):
+            result = json.loads(self._rec.Result())
+            text = (result.get("text") or "").strip()
+            if text:
+                self._committed.append(text)
+        partial = json.loads(self._rec.PartialResult()).get("partial", "").strip()
+        parts = list(self._committed)
+        if partial:
+            parts.append(partial)
+        full = " ".join(parts).strip()
+        if full and full != self._last_sent:
+            self._last_sent = full
+            return full
+        return None
+
+    def finalize(self) -> str:
+        final = json.loads(self._rec.FinalResult()).get("text", "").strip()
+        if final:
+            self._committed.append(final)
+        return " ".join(self._committed).strip()
+
+
+def _create_vosk_processor() -> VoskStreamProcessor | None:
+    try:
+        return VoskStreamProcessor()
+    except Exception:
+        return None
 
 
 def transcribe_from_microphone() -> tuple[bool, str]:
@@ -160,10 +260,19 @@ class RealtimeVoiceSession:
     async def _async_main(self) -> None:
         import websockets
 
+        processor = await asyncio.to_thread(_create_vosk_processor)
+        use_vosk = processor is not None
+        if not use_vosk:
+            self._on_error(
+                "Modelo Vosk no encontrado; usando STT alternativo (más lento). "
+                "Ejecuta la app con internet la primera vez para descargarlo."
+            )
+
         connected = asyncio.Event()
 
         async def ws_handler(websocket):
             connected.set()
+            fallback_buffer = bytearray()
             try:
                 async for message in websocket:
                     if self._stop.is_set():
@@ -174,14 +283,34 @@ class RealtimeVoiceSession:
                         except json.JSONDecodeError:
                             continue
                         if payload.get("type") == "stop":
+                            if use_vosk and processor:
+                                text = processor.finalize()
+                                if text:
+                                    self._transcript = text
+                                    await websocket.send(
+                                        json.dumps({"type": "partial", "text": text})
+                                    )
                             break
                         continue
                     if not isinstance(message, (bytes, bytearray)):
                         continue
-                    text = await asyncio.to_thread(_transcribe_pcm, bytes(message))
+
+                    pcm = bytes(message)
+                    text: str | None = None
+                    if use_vosk and processor:
+                        text = processor.feed(pcm)
+                    else:
+                        fallback_buffer.extend(pcm)
+                        if len(fallback_buffer) >= FALLBACK_CHUNK_BYTES:
+                            chunk = bytes(fallback_buffer)
+                            fallback_buffer.clear()
+                            piece = await asyncio.to_thread(_transcribe_pcm, chunk)
+                            if piece:
+                                self._parts.append(piece)
+                                text = " ".join(self._parts)
+
                     if text:
-                        self._parts.append(text)
-                        self._transcript = " ".join(self._parts)
+                        self._transcript = text
                         await websocket.send(
                             json.dumps({"type": "partial", "text": self._transcript})
                         )
@@ -199,7 +328,7 @@ class RealtimeVoiceSession:
                 recv_task = asyncio.create_task(self._receive_partials(ws))
                 capture_task = asyncio.create_task(self._capture_audio(ws))
 
-                done, pending = await asyncio.wait(
+                _done, pending = await asyncio.wait(
                     [recv_task, capture_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
@@ -233,27 +362,36 @@ class RealtimeVoiceSession:
 
     async def _capture_audio(self, ws) -> None:
         loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._capture_blocking, ws, loop)
 
-        def _capture_blocking() -> None:
-            try:
-                import speech_recognition as sr
-            except ImportError:
-                self._on_error(
-                    "Voz no disponible. Instala SpeechRecognition y pyaudio."
-                )
-                return
+    def _capture_blocking(self, ws, loop) -> None:
+        try:
+            import pyaudio
+        except ImportError:
+            self._on_error("Voz no disponible. Instala pyaudio (brew install portaudio).")
+            return
 
-            recognizer = sr.Recognizer()
-            try:
-                with sr.Microphone(sample_rate=SAMPLE_RATE) as source:
-                    recognizer.adjust_for_ambient_noise(source, duration=0.35)
-                    while not self._stop.is_set():
-                        audio = recognizer.record(source, duration=CHUNK_SECONDS)
-                        pcm = audio.get_raw_data(convert_rate=16000, convert_width=2)
-                        if pcm and not self._stop.is_set():
-                            asyncio.run_coroutine_threadsafe(ws.send(pcm), loop).result(timeout=5)
-            except Exception as exc:
-                if not self._stop.is_set():
-                    self._on_error(f"No pude usar el micrófono: {exc}")
-
-        await loop.run_in_executor(None, _capture_blocking)
+        pa = pyaudio.PyAudio()
+        stream = None
+        try:
+            stream = pa.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=SAMPLE_RATE,
+                input=True,
+                frames_per_buffer=PYAUDIO_CHUNK,
+            )
+            stream.start_stream()
+            while not self._stop.is_set():
+                data = stream.read(PYAUDIO_CHUNK, exception_on_overflow=False)
+                if self._stop.is_set():
+                    break
+                asyncio.run_coroutine_threadsafe(ws.send(data), loop).result(timeout=2)
+        except Exception as exc:
+            if not self._stop.is_set():
+                self._on_error(f"No pude usar el micrófono: {exc}")
+        finally:
+            if stream is not None:
+                stream.stop_stream()
+                stream.close()
+            pa.terminate()

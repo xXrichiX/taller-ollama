@@ -765,13 +765,17 @@ class ChatWindow(tk.Toplevel):
             self.input_var.set("")
         self.input_entry.configure(fg=COLORS["text"])
         self._update_compose_actions()
-        self._set_agent_status("thinking", "Escuchando... habla ahora")
+        self._set_agent_status("thinking", "Preparando reconocimiento de voz...")
 
         from services.voice_service import RealtimeVoiceSession
 
         self._voice_session = RealtimeVoiceSession(
             on_partial=lambda text: self.after(0, lambda t=text: self._apply_voice_partial(t)),
             on_error=lambda msg: self.after(0, lambda m=msg: self._handle_voice_error(m)),
+            on_ready=lambda: self.after(
+                0,
+                lambda: self._set_agent_status("thinking", "Escuchando... habla ahora"),
+            ),
         )
         self._voice_session.start()
 

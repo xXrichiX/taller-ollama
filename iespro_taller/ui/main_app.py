@@ -22,8 +22,12 @@ class MainApp(tk.Tk):
         self.chat_service = ChatService(self.id_sucursal)
         self.chat_window = None
 
-        self.status_var = tk.StringVar(value="Iniciando...")
-        ttk.Label(self, textvariable=self.status_var, style="Status.TLabel", anchor="w").pack(side="bottom", fill="x", ipady=4)
+        # Barra de estado de BD/RAG desactivada en UI para demo limpia.
+        # La inicialización sigue ejecutándose en _init_db().
+        # self.status_var = tk.StringVar(value="Iniciando...")
+        # ttk.Label(self, textvariable=self.status_var, style="Status.TLabel", anchor="w").pack(
+        #     side="bottom", fill="x", ipady=4
+        # )
 
         self.container = ttk.Frame(self)
         self.container.pack(fill="both", expand=True)
@@ -34,12 +38,11 @@ class MainApp(tk.Tk):
         from db.init_db import ensure_data_dir, init_database
 
         ensure_data_dir()
-        ok, msg = init_database()
-        self.status_var.set(msg if ok else f"BD: {msg}")
+        ok, _ = init_database()
+        # self.status_var.set(msg if ok else f"BD: {msg}")
 
         if ok:
-            rag_ok, rag_msg = self.chat_service.bootstrap()
-            self.status_var.set(f"{msg} | {rag_msg if rag_ok else 'RAG: ' + rag_msg}")
+            self.chat_service.bootstrap()
 
     def _on_login(self, user):
         self.user = user
