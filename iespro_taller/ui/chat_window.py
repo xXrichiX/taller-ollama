@@ -777,10 +777,7 @@ class ChatWindow(tk.Toplevel):
             on_error=lambda msg: self.after(0, lambda m=msg: self._handle_voice_error(m)),
             on_ready=lambda: self.after(
                 0,
-                lambda: self._set_agent_status(
-                    "thinking",
-                    "Escuchando... al callar ~2 s se envía solo",
-                ),
+                lambda: self._set_agent_status("thinking", "Escuchando..."),
             ),
             on_silence_pause=lambda: self.after(0, self._auto_stop_voice_and_send),
         )
