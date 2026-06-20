@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import struct
 import threading
+import time
 import zipfile
 from pathlib import Path
 from typing import Callable
@@ -23,6 +25,8 @@ SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
 MIC_CHUNK = 4000
 FALLBACK_CHUNK_BYTES = SAMPLE_RATE * SAMPLE_WIDTH
+SILENCE_SECONDS = 2.0
+SILENCE_RMS_THRESHOLD = 350
 
 MODEL_NAME = "vosk-model-small-es-0.42"
 MODEL_URL = f"https://alphacephei.com/vosk/models/{MODEL_NAME}.zip"
@@ -137,8 +141,52 @@ def _mic_error_message() -> str:
     )
 
 
-def _stream_mic_chunks(stop_event: threading.Event, on_chunk: Callable[[bytes], None]) -> bool:
+def _pcm_rms(pcm: bytes) -> float:
+    if len(pcm) < 2:
+        return 0.0
+    count = len(pcm) // 2
+    samples = struct.unpack(f"{count}h", pcm[: count * 2])
+    if not samples:
+        return 0.0
+    mean_sq = sum(s * s for s in samples) / len(samples)
+    return mean_sq**0.5
+
+
+def _stream_mic_chunks(
+    stop_event: threading.Event,
+    on_chunk: Callable[[bytes], None],
+    *,
+    silence_seconds: float = 0,
+    on_silence: Callable[[], None] | None = None,
+    silence_rms: float = SILENCE_RMS_THRESHOLD,
+) -> bool:
     """Captura PCM del micrófono. Usa sounddevice (Windows/Python 3.14+) o pyaudio como respaldo."""
+    last_voice_at = time.monotonic()
+    had_voice = False
+
+    def process_chunk(pcm: bytes) -> None:
+        nonlocal last_voice_at, had_voice
+        if _pcm_rms(pcm) >= silence_rms:
+            last_voice_at = time.monotonic()
+            had_voice = True
+        on_chunk(pcm)
+
+    def silence_elapsed() -> bool:
+        if not on_silence or silence_seconds <= 0 or not had_voice:
+            return False
+        return (time.monotonic() - last_voice_at) >= silence_seconds
+
+    def read_loop(read_fn) -> None:
+        while not stop_event.is_set():
+            pcm = read_fn()
+            if stop_event.is_set():
+                break
+            process_chunk(pcm)
+            if silence_elapsed():
+                on_silence()
+                stop_event.set()
+                break
+
     try:
         import sounddevice as sd
 
@@ -148,11 +196,7 @@ def _stream_mic_chunks(stop_event: threading.Event, on_chunk: Callable[[bytes], 
             dtype="int16",
             blocksize=MIC_CHUNK,
         ) as stream:
-            while not stop_event.is_set():
-                data, _overflowed = stream.read(MIC_CHUNK)
-                if stop_event.is_set():
-                    break
-                on_chunk(bytes(data))
+            read_loop(lambda: bytes(stream.read(MIC_CHUNK)[0]))
         return True
     except ImportError:
         pass
@@ -173,11 +217,7 @@ def _stream_mic_chunks(stop_event: threading.Event, on_chunk: Callable[[bytes], 
                 frames_per_buffer=MIC_CHUNK,
             )
             stream.start_stream()
-            while not stop_event.is_set():
-                data = stream.read(MIC_CHUNK, exception_on_overflow=False)
-                if stop_event.is_set():
-                    break
-                on_chunk(data)
+            read_loop(lambda: stream.read(MIC_CHUNK, exception_on_overflow=False))
             return True
         finally:
             if stream is not None:
@@ -297,10 +337,15 @@ class RealtimeVoiceSession:
         on_partial: Callable[[str], None],
         on_error: Callable[[str], None] | None = None,
         on_ready: Callable[[], None] | None = None,
+        on_silence_pause: Callable[[], None] | None = None,
+        silence_seconds: float = SILENCE_SECONDS,
     ):
         self._on_partial = on_partial
         self._on_error = on_error or (lambda _msg: None)
         self._on_ready = on_ready or (lambda: None)
+        self._on_silence_pause = on_silence_pause or (lambda: None)
+        self._silence_seconds = silence_seconds
+        self._silence_notified = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._transcript = ""
@@ -447,8 +492,19 @@ class RealtimeVoiceSession:
         def send_pcm(pcm: bytes) -> None:
             asyncio.run_coroutine_threadsafe(ws.send(pcm), loop).result(timeout=2)
 
+        def on_silence() -> None:
+            if self._silence_notified or self._stop.is_set():
+                return
+            self._silence_notified = True
+            self._on_silence_pause()
+
         try:
-            ok = _stream_mic_chunks(self._stop, send_pcm)
+            ok = _stream_mic_chunks(
+                self._stop,
+                send_pcm,
+                silence_seconds=self._silence_seconds,
+                on_silence=on_silence,
+            )
             if not ok and not self._stop.is_set():
                 self._on_error(_mic_error_message())
         except Exception as exc:

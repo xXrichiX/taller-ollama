@@ -29,6 +29,7 @@ TYPEWRITER_MS = 16
 TYPEWRITER_CHARS = 2
 STREAM_CURSOR = "▌"
 COMPOSE_BTN = 32
+VOICE_AUTO_SEND_MS = 2000
 
 
 class RoundMicButton(tk.Canvas):
@@ -290,6 +291,7 @@ class ChatWindow(tk.Toplevel):
         self._busy = False
         self._voice_active = False
         self._voice_session = None
+        self._voice_auto_send_job: str | None = None
         self._conv_ids: list[int] = []
         self._switching = False
         self._canvas_window_id: int | None = None
@@ -634,6 +636,7 @@ class ChatWindow(tk.Toplevel):
         return "break"
 
     def _on_close(self):
+        self._cancel_voice_auto_send()
         if self._voice_active and self._voice_session:
             self._voice_active = False
             self._voice_session.stop()
@@ -774,10 +777,24 @@ class ChatWindow(tk.Toplevel):
             on_error=lambda msg: self.after(0, lambda m=msg: self._handle_voice_error(m)),
             on_ready=lambda: self.after(
                 0,
-                lambda: self._set_agent_status("thinking", "Escuchando... habla ahora"),
+                lambda: self._set_agent_status(
+                    "thinking",
+                    "Escuchando... al callar ~2 s se envía solo",
+                ),
             ),
+            on_silence_pause=lambda: self.after(0, self._auto_stop_voice_and_send),
         )
         self._voice_session.start()
+
+    def _cancel_voice_auto_send(self) -> None:
+        if self._voice_auto_send_job:
+            self.after_cancel(self._voice_auto_send_job)
+            self._voice_auto_send_job = None
+
+    def _schedule_voice_auto_send(self) -> None:
+        self._cancel_voice_auto_send()
+        if self._voice_active and self._get_input_text().strip():
+            self._voice_auto_send_job = self.after(VOICE_AUTO_SEND_MS, self._auto_stop_voice_and_send)
 
     def _apply_voice_partial(self, text: str) -> None:
         if not self._voice_active or not text:
@@ -785,11 +802,19 @@ class ChatWindow(tk.Toplevel):
         self._placeholder_active = False
         self.input_var.set(text)
         self.input_entry.configure(fg=COLORS["text"])
+        self._schedule_voice_auto_send()
 
-    def _stop_voice(self) -> None:
+    def _auto_stop_voice_and_send(self) -> None:
+        self._cancel_voice_auto_send()
+        if not self._voice_active:
+            return
+        self._stop_voice(auto_send=True)
+
+    def _stop_voice(self, auto_send: bool = False) -> None:
         if not self._voice_active:
             return
 
+        self._cancel_voice_auto_send()
         self._voice_active = False
         session = self._voice_session
         self._voice_session = None
@@ -801,6 +826,10 @@ class ChatWindow(tk.Toplevel):
             self._placeholder_active = False
             self.input_var.set(final)
             self.input_entry.configure(fg=COLORS["text"])
+            if auto_send and not self._busy:
+                self._update_compose_actions()
+                self._send()
+                return
             self._set_agent_status("ready", "Voz transcrita. Revisa y envía.")
         else:
             self._set_agent_status("ready", "Listo")
@@ -811,6 +840,7 @@ class ChatWindow(tk.Toplevel):
         self.input_entry.focus_force()
 
     def _handle_voice_error(self, msg: str) -> None:
+        self._cancel_voice_auto_send()
         partial = self._get_input_text()
         if self._voice_active:
             self._voice_active = False
