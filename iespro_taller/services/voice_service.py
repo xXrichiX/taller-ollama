@@ -21,12 +21,19 @@ from pathlib import Path
 from typing import Callable
 from urllib.request import urlretrieve
 
+from config import (
+    VOICE_RMS_CALIBRATION_S,
+    VOICE_RMS_MIN,
+    VOICE_RMS_MULTIPLIER,
+    VOICE_RMS_OFFSET,
+    VOICE_SILENCE_SECONDS,
+)
+
 SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2
 MIC_CHUNK = 4000
 FALLBACK_CHUNK_BYTES = SAMPLE_RATE * SAMPLE_WIDTH
-SILENCE_SECONDS = 2.0
-SILENCE_RMS_THRESHOLD = 350
+SILENCE_SECONDS = VOICE_SILENCE_SECONDS
 
 MODEL_NAME = "vosk-model-small-es-0.42"
 MODEL_URL = f"https://alphacephei.com/vosk/models/{MODEL_NAME}.zip"
@@ -152,31 +159,57 @@ def _pcm_rms(pcm: bytes) -> float:
     return mean_sq**0.5
 
 
+def _speech_threshold(ambient_rms: float) -> float:
+    """Umbral dinámico: ruido ambiente calibrado + margen mínimo."""
+    dynamic = ambient_rms * VOICE_RMS_MULTIPLIER + VOICE_RMS_OFFSET
+    return max(VOICE_RMS_MIN, dynamic)
+
+
+def _calibrate_ambient_rms(
+    read_fn: Callable[[], bytes],
+    stop_event: threading.Event,
+    seconds: float = VOICE_RMS_CALIBRATION_S,
+) -> float:
+    """Mide ruido de fondo al iniciar (mediana RMS) para ajustar la puerta de ruido."""
+    levels: list[float] = []
+    deadline = time.monotonic() + max(0.15, seconds)
+    while time.monotonic() < deadline and not stop_event.is_set():
+        levels.append(_pcm_rms(read_fn()))
+    if not levels:
+        return VOICE_RMS_MIN * 0.4
+    levels.sort()
+    return levels[len(levels) // 2]
+
+
 def _stream_mic_chunks(
     stop_event: threading.Event,
     on_chunk: Callable[[bytes], None],
     *,
     silence_seconds: float = 0,
     on_silence: Callable[[], None] | None = None,
-    silence_rms: float = SILENCE_RMS_THRESHOLD,
+    speech_threshold: float | None = None,
 ) -> bool:
-    """Captura PCM del micrófono. Usa sounddevice (Windows/Python 3.14+) o pyaudio como respaldo."""
+    """Captura PCM del micrófono con puerta de ruido y detección de silencio."""
     last_voice_at = time.monotonic()
     had_voice = False
+    gate = speech_threshold if speech_threshold is not None else VOICE_RMS_MIN
 
     def process_chunk(pcm: bytes) -> None:
         nonlocal last_voice_at, had_voice
-        if _pcm_rms(pcm) >= silence_rms:
+        if _pcm_rms(pcm) >= gate:
             last_voice_at = time.monotonic()
             had_voice = True
-        on_chunk(pcm)
+            on_chunk(pcm)
 
     def silence_elapsed() -> bool:
         if not on_silence or silence_seconds <= 0 or not had_voice:
             return False
         return (time.monotonic() - last_voice_at) >= silence_seconds
 
-    def read_loop(read_fn) -> None:
+    def read_loop(read_fn: Callable[[], bytes]) -> None:
+        nonlocal gate
+        ambient = _calibrate_ambient_rms(read_fn, stop_event)
+        gate = _speech_threshold(ambient)
         while not stop_event.is_set():
             pcm = read_fn()
             if stop_event.is_set():
