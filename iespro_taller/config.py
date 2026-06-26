@@ -29,8 +29,8 @@ DOCUMENTS_PATH = BASE_DIR / "data" / "documentos"
 DEFAULT_SUCURSAL_ID = int(os.getenv("DEFAULT_SUCURSAL_ID", "1"))
 
 # Voz (micrófono): umbrales anti-ruido; ajustables por env si hace falta
-VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "2.0"))
-VOICE_RMS_MIN = float(os.getenv("VOICE_RMS_MIN", "700"))
-VOICE_RMS_CALIBRATION_S = float(os.getenv("VOICE_RMS_CALIBRATION_S", "0.45"))
-VOICE_RMS_MULTIPLIER = float(os.getenv("VOICE_RMS_MULTIPLIER", "2.8"))
-VOICE_RMS_OFFSET = float(os.getenv("VOICE_RMS_OFFSET", "180"))
+VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "1.2"))
+VOICE_RMS_MIN = float(os.getenv("VOICE_RMS_MIN", "450"))
+VOICE_RMS_CALIBRATION_S = float(os.getenv("VOICE_RMS_CALIBRATION_S", "0.35"))
+VOICE_RMS_MULTIPLIER = float(os.getenv("VOICE_RMS_MULTIPLIER", "2.4"))
+VOICE_RMS_OFFSET = float(os.getenv("VOICE_RMS_OFFSET", "120"))

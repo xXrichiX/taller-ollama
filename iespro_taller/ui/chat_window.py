@@ -29,7 +29,7 @@ TYPEWRITER_MS = 16
 TYPEWRITER_CHARS = 2
 STREAM_CURSOR = "▌"
 COMPOSE_BTN = 32
-VOICE_AUTO_SEND_MS = 2000
+VOICE_AUTO_SEND_MS = 1500
 
 
 class RoundMicButton(tk.Canvas):
@@ -786,7 +786,7 @@ class ChatWindow(tk.Toplevel):
             on_error=lambda msg: self.after(0, lambda m=msg: self._handle_voice_error(m)),
             on_ready=lambda: self.after(
                 0,
-                lambda: self._set_agent_status("thinking", "Escuchando..."),
+                lambda: self._set_agent_status("thinking", "Escuchando... di tu mensaje"),
             ),
             on_silence_pause=lambda: self.after(0, self._auto_stop_voice_and_send),
         )

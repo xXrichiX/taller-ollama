@@ -10,7 +10,6 @@ Motores STT:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import struct
@@ -131,7 +130,12 @@ class VoskStreamProcessor:
         final = json.loads(self._rec.FinalResult()).get("text", "").strip()
         if final:
             self._committed.append(final)
-        return " ".join(self._committed).strip()
+        result = " ".join(self._committed).strip()
+        if not result:
+            partial = json.loads(self._rec.PartialResult()).get("partial", "").strip()
+            if partial:
+                result = partial
+        return result
 
 
 def _create_vosk_processor() -> VoskStreamProcessor | None:
@@ -188,18 +192,41 @@ def _stream_mic_chunks(
     silence_seconds: float = 0,
     on_silence: Callable[[], None] | None = None,
     speech_threshold: float | None = None,
+    preroll_chunks: int = 3,
 ) -> bool:
-    """Captura PCM del micrófono con puerta de ruido y detección de silencio."""
+    """Captura PCM del micrófono.
+
+    La puerta de ruido solo detecta inicio/fin de habla (como WhatsApp o ChatGPT).
+    Todo el audio relevante se envía al motor STT; no se descartan trozos bajos
+    en volumen, que era lo que truncaba palabras (p. ej. «hola» → «la»).
+    """
     last_voice_at = time.monotonic()
     had_voice = False
     gate = speech_threshold if speech_threshold is not None else VOICE_RMS_MIN
+    preroll: list[bytes] = []
+
+    def is_speech(pcm: bytes) -> bool:
+        return _pcm_rms(pcm) >= gate
+
+    def flush_preroll() -> None:
+        for buffered in preroll:
+            on_chunk(buffered)
+        preroll.clear()
 
     def process_chunk(pcm: bytes) -> None:
         nonlocal last_voice_at, had_voice
-        if _pcm_rms(pcm) >= gate:
-            last_voice_at = time.monotonic()
+        if is_speech(pcm):
+            if not had_voice:
+                flush_preroll()
             had_voice = True
+            last_voice_at = time.monotonic()
             on_chunk(pcm)
+        elif had_voice:
+            on_chunk(pcm)
+        else:
+            preroll.append(pcm)
+            if len(preroll) > preroll_chunks:
+                preroll.pop(0)
 
     def silence_elapsed() -> bool:
         if not on_silence or silence_seconds <= 0 or not had_voice:
@@ -363,7 +390,7 @@ def _transcribe_pcm(pcm: bytes, sample_rate: int = SAMPLE_RATE) -> str:
 
 
 class RealtimeVoiceSession:
-    """Sesión de voz con WebSocket local y transcripción en tiempo real."""
+    """Sesión de voz: micrófono → Vosk en streaming con detección de silencio."""
 
     def __init__(
         self,
@@ -381,6 +408,8 @@ class RealtimeVoiceSession:
         self._silence_notified = False
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._processor: VoskStreamProcessor | None = None
+        self._processor_lock = threading.Lock()
         self._transcript = ""
         self._parts: list[str] = []
 
@@ -398,6 +427,8 @@ class RealtimeVoiceSession:
         self._stop.clear()
         self._transcript = ""
         self._parts = []
+        self._processor = None
+        self._silence_notified = False
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -406,140 +437,92 @@ class RealtimeVoiceSession:
         if self._thread:
             self._thread.join(timeout=8)
             self._thread = None
+        with self._processor_lock:
+            if self._processor is not None:
+                final = self._processor.finalize()
+                if final:
+                    self._transcript = final
         return self._transcript
 
     def _run(self) -> None:
         try:
-            asyncio.run(self._async_main())
+            processor = _create_vosk_processor()
+            if processor is None:
+                self._on_error(
+                    "Modelo Vosk no encontrado; usando STT alternativo (más lento). "
+                    "Ejecuta la app con internet la primera vez para descargarlo."
+                )
+                self._run_fallback()
+                return
+
+            self._processor = processor
+            self._on_ready()
+            self._capture_with_processor(processor)
         except Exception as exc:
             self._on_error(f"Error de voz: {exc}")
+        finally:
+            self._stop.set()
 
-    async def _async_main(self) -> None:
-        import websockets
+    def _capture_with_processor(self, processor: VoskStreamProcessor) -> None:
+        def on_chunk(pcm: bytes) -> None:
+            if self._stop.is_set():
+                return
+            with self._processor_lock:
+                text = processor.feed(pcm)
+            if text:
+                self._transcript = text
+                self._on_partial(text)
 
-        processor = await asyncio.to_thread(_create_vosk_processor)
-        use_vosk = processor is not None
-        if not use_vosk:
-            self._on_error(
-                "Modelo Vosk no encontrado; usando STT alternativo (más lento). "
-                "Ejecuta la app con internet la primera vez para descargarlo."
-            )
+        self._capture_loop(on_chunk)
 
-        connected = asyncio.Event()
+    def _run_fallback(self) -> None:
+        self._on_ready()
+        fallback_buffer = bytearray()
+        last_transcribe = 0.0
 
-        async def ws_handler(websocket):
-            connected.set()
-            fallback_buffer = bytearray()
-            try:
-                async for message in websocket:
-                    if self._stop.is_set():
-                        break
-                    if isinstance(message, str):
-                        try:
-                            payload = json.loads(message)
-                        except json.JSONDecodeError:
-                            continue
-                        if payload.get("type") == "stop":
-                            if use_vosk and processor:
-                                text = processor.finalize()
-                                if text:
-                                    self._transcript = text
-                                    await websocket.send(
-                                        json.dumps({"type": "partial", "text": text})
-                                    )
-                            break
-                        continue
-                    if not isinstance(message, (bytes, bytearray)):
-                        continue
-
-                    pcm = bytes(message)
-                    text: str | None = None
-                    if use_vosk and processor:
-                        text = processor.feed(pcm)
-                    else:
-                        fallback_buffer.extend(pcm)
-                        if len(fallback_buffer) >= FALLBACK_CHUNK_BYTES:
-                            chunk = bytes(fallback_buffer)
-                            fallback_buffer.clear()
-                            piece = await asyncio.to_thread(_transcribe_pcm, chunk)
-                            if piece:
-                                self._parts.append(piece)
-                                text = " ".join(self._parts)
-
-                    if text:
-                        self._transcript = text
-                        await websocket.send(
-                            json.dumps({"type": "partial", "text": self._transcript})
-                        )
-            except websockets.exceptions.ConnectionClosed:
-                pass
-
-        async with websockets.serve(ws_handler, "127.0.0.1", 0) as server:
-            port = server.sockets[0].getsockname()[1]
-            uri = f"ws://127.0.0.1:{port}"
-
-            async with websockets.connect(uri) as ws:
-                await connected.wait()
-                self._on_ready()
-
-                recv_task = asyncio.create_task(self._receive_partials(ws))
-                capture_task = asyncio.create_task(self._capture_audio(ws))
-
-                _done, pending = await asyncio.wait(
-                    [recv_task, capture_task],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-
-                if not self._stop.is_set():
-                    self._stop.set()
-                try:
-                    await ws.send(json.dumps({"type": "stop"}))
-                except Exception:
-                    pass
-
-    async def _receive_partials(self, ws) -> None:
-        import websockets
-
-        try:
-            async for message in ws:
-                if not isinstance(message, str):
-                    continue
-                payload = json.loads(message)
-                if payload.get("type") != "partial":
-                    continue
-                text = (payload.get("text") or "").strip()
+        def on_chunk(pcm: bytes) -> None:
+            nonlocal last_transcribe
+            if self._stop.is_set():
+                return
+            fallback_buffer.extend(pcm)
+            now = time.monotonic()
+            if len(fallback_buffer) < FALLBACK_CHUNK_BYTES:
+                return
+            if now - last_transcribe < 0.75:
+                return
+            chunk = bytes(fallback_buffer)
+            fallback_buffer.clear()
+            last_transcribe = now
+            piece = _transcribe_pcm(chunk)
+            if piece:
+                self._parts.append(piece)
+                text = " ".join(self._parts).strip()
                 if text:
                     self._transcript = text
                     self._on_partial(text)
-        except websockets.exceptions.ConnectionClosed:
-            pass
 
-    async def _capture_audio(self, ws) -> None:
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._capture_blocking, ws, loop)
+        self._capture_loop(on_chunk)
 
-    def _capture_blocking(self, ws, loop) -> None:
-        def send_pcm(pcm: bytes) -> None:
-            asyncio.run_coroutine_threadsafe(ws.send(pcm), loop).result(timeout=2)
+        if fallback_buffer and not self._stop.is_set():
+            piece = _transcribe_pcm(bytes(fallback_buffer))
+            if piece:
+                self._parts.append(piece)
+                text = " ".join(self._parts).strip()
+                if text:
+                    self._transcript = text
 
+    def _capture_loop(self, on_chunk: Callable[[bytes], None]) -> None:
         def on_silence() -> None:
             if self._silence_notified or self._stop.is_set():
                 return
             self._silence_notified = True
             self._on_silence_pause()
 
-        try:
-            ok = _stream_mic_chunks(
-                self._stop,
-                send_pcm,
-                silence_seconds=self._silence_seconds,
-                on_silence=on_silence,
-            )
-            if not ok and not self._stop.is_set():
-                self._on_error(_mic_error_message())
-        except Exception as exc:
-            if not self._stop.is_set():
-                self._on_error(f"No pude usar el micrófono: {exc}")
+        ok = _stream_mic_chunks(
+            self._stop,
+            on_chunk,
+            silence_seconds=self._silence_seconds,
+            on_silence=on_silence,
+        )
+        if not ok and not self._stop.is_set():
+            self._on_error(_mic_error_message())
