@@ -442,6 +442,7 @@ class ChatWindow(tk.Toplevel):
         self.input_entry.bind("<Return>", lambda e: self._send())
         self.input_entry.bind("<FocusIn>", self._on_input_focus_in)
         self.input_entry.bind("<FocusOut>", self._on_input_focus_out)
+        self.input_entry.bind("<KeyPress>", self._on_input_keypress)
         self.input_var.trace_add("write", self._on_input_changed)
 
         self.action_slot = tk.Frame(input_row, bg="#ffffff", width=COMPOSE_BTN, height=COMPOSE_BTN)
@@ -460,10 +461,18 @@ class ChatWindow(tk.Toplevel):
 
         self.after(100, lambda: self.input_entry.focus_force())
 
+    def _on_input_keypress(self, _event=None) -> None:
+        if self._placeholder_active:
+            self._on_input_focus_in()
+
     def _on_input_changed(self, *_args) -> None:
         if self._placeholder_active:
-            return
-        self.after_idle(self._update_compose_actions)
+            if self.input_var.get() == self._input_placeholder:
+                return
+            self._placeholder_active = False
+            self.input_entry.configure(fg=COLORS["text"])
+        if not self._voice_active:
+            self.after_idle(self._update_compose_actions)
 
     def _update_compose_actions(self) -> None:
         if not hasattr(self, "mic_btn"):
@@ -809,14 +818,33 @@ class ChatWindow(tk.Toplevel):
 
     def _stop_voice(self, auto_send: bool = False) -> None:
         if not self._voice_active:
+            self._update_compose_actions()
             return
 
         self._cancel_voice_auto_send()
-        self._voice_active = False
         session = self._voice_session
         self._voice_session = None
+        self._voice_active = False
+        self.mic_btn.stop_listening()
+        self._update_compose_actions()
 
-        transcript = session.stop() if session else ""
+        def worker() -> None:
+            transcript = ""
+            try:
+                transcript = session.stop() if session else ""
+            except Exception:
+                transcript = ""
+            self.after(0, lambda: self._finish_stop_voice(transcript, auto_send))
+
+        if session:
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            self._finish_stop_voice("", auto_send)
+
+    def _finish_stop_voice(self, transcript: str, auto_send: bool) -> None:
+        if not self.winfo_exists():
+            return
+
         final = (transcript or self._get_input_text()).strip()
 
         if final:
@@ -830,7 +858,7 @@ class ChatWindow(tk.Toplevel):
             self._set_agent_status("ready", "Voz transcrita. Revisa y envía.")
         else:
             self._set_agent_status("ready", "Listo")
-            if not self.input_var.get().strip():
+            if not self._get_input_text():
                 self._show_input_placeholder()
 
         self._update_compose_actions()
@@ -840,10 +868,16 @@ class ChatWindow(tk.Toplevel):
         self._cancel_voice_auto_send()
         partial = self._get_input_text()
         if self._voice_active:
+            session = self._voice_session
             self._voice_active = False
-            if self._voice_session:
-                self._voice_session.stop()
-                self._voice_session = None
+            self._voice_session = None
+            self.mic_btn.stop_listening()
+            self._update_compose_actions()
+            if session:
+                try:
+                    session.stop()
+                except Exception:
+                    pass
 
         if partial:
             self._placeholder_active = False
