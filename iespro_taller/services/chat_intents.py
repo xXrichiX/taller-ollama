@@ -18,6 +18,7 @@ WORKSHOP_HINTS = (
     "mecanico", "mecánico", "isla", "taller", "falla", "freno", "frenos",
     "ruido", "motor", "aceite", "lista", "listar", "cuant", "cuánt",
     "crea", "crear", "agenda", "marca", "pendiente", "proceso", "complet",
+    "cancelar", "cancela", "eliminar", "elimina", "borrar", "editar", "edita",
     "similar", "parecid", "busca", "roberto", "maria", "maría", "abc",
     "hola", "gracias", "salir", "diagn", "servicio", "horario",
     "recuerda", "recuerdas", "anterior", "antes", "conversacion", "conversación",
@@ -33,19 +34,104 @@ SUBSTANTIVE_WORKSHOP_HINTS = (
     "cuant", "cuánt", "total de", "busca fallas", "buscar fallas", "crea cita",
     "crear cita", "agenda", "marca como", "marcar como", "cambia el estado",
     "cambiar estado", "pendiente", "proceso", "completada", "cancelada",
+    "cancelar", "eliminar", "borrar", "editar", "actualizar", "modificar",
 )
 
 MUTATING_TOOLS = frozenset({
     "crear_cita_natural",
     "cambiar_estado_cita_natural",
     "cambiar_estado_cita",
+    "cancelar_cita_natural",
+    "editar_cita_natural",
 })
+
+_PLACA_RE = re.compile(r"\b[A-Za-z]{3}[-\s]?\d{2,3}\b")
+
+_CANCEL_VERBS = (
+    "cancelar", "cancela", "calear", "calea", "canselar", "cansela",
+    "eliminar", "elimina", "borrar", "borra", "quitar", "quita",
+    "anular", "anula", "dar de baja", "deshacer",
+)
+
+_EDIT_MARKERS = (
+    "editar cita", "edita cita", "editar la cita", "edita la cita",
+    "actualizar cita", "actualiza cita", "actualizar la cita", "actualiza la cita",
+    "modificar cita", "modifica cita", "modificar la cita", "modifica la cita",
+    "cambiar mecanico", "cambia mecanico", "cambiar mecánico", "cambia mecánico",
+    "cambiar falla", "cambia la falla", "cambiar isla", "cambia la isla",
+    "mueve la cita", "reagendar", "reagenda",
+)
 
 ACKNOWLEDGMENT_PHRASES = (
     "ok", "okay", "vale", "si", "sí", "ah si", "ah sí", "aja", "ajá",
     "claro", "bueno", "genial", "perfecto", "entendido", "de acuerdo",
     "gracias", "muchas gracias", "thx", "thanks",
 )
+
+
+def extract_placa_from_text(text: str) -> str | None:
+    match = _PLACA_RE.search(text or "")
+    if not match:
+        return None
+    raw = match.group(0).upper().replace(" ", "")
+    if "-" not in raw and len(raw) >= 6:
+        return f"{raw[:3]}-{raw[3:]}"
+    return raw
+
+
+def normalize_workshop_question(question: str) -> str:
+    """Corrige typos de voz y mapea 'eliminar cita' → cancelar."""
+    text = (question or "").strip()
+    if not text:
+        return text
+
+    typo_map = (
+        (r"\bcalear\b", "cancelar"),
+        (r"\bcalea\b", "cancela"),
+        (r"\bcanselar\b", "cancelar"),
+        (r"\bcansela\b", "cancela"),
+        (r"\belimnar\b", "eliminar"),
+        (r"\belimna\b", "elimina"),
+        (r"\beditar\b", "editar"),
+        (r"\bedita\b", "edita"),
+    )
+    for pattern, replacement in typo_map:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+    norm = _norm(text)
+    if "cita" in norm and any(v in norm for v in ("eliminar", "elimina", "borrar", "borra", "quitar", "quita")):
+        text = re.sub(
+            r"\b(eliminar|elimina|borrar|borra|quitar|quita)\b",
+            "cancelar",
+            text,
+            flags=re.IGNORECASE,
+        )
+
+    return text.strip()
+
+
+def is_cancel_cita_request(question: str) -> bool:
+    q = _norm(question)
+    if "cita" not in q:
+        return False
+    return any(v in q for v in _CANCEL_VERBS)
+
+
+def is_edit_cita_request(question: str) -> bool:
+    q = _norm(question)
+    if "cita" not in q:
+        return False
+    return any(m in q for m in _EDIT_MARKERS) or (
+        any(w in q for w in ("editar", "edita", "actualizar", "actualiza", "modificar", "modifica"))
+        and "cita" in q
+    )
+
+
+def parse_cancel_cita_request(question: str) -> dict | None:
+    if not is_cancel_cita_request(question):
+        return None
+    placa = extract_placa_from_text(question)
+    return {"placa": placa, "id_cita": None}
 
 
 def is_memory_recall_question(question: str) -> bool:
@@ -84,6 +170,9 @@ def _is_action_request(question: str) -> bool:
         "agenda una cita", "agendar cita", "marca como", "marcar como",
         "lista los", "lista las", "listar ", "listame", "cambia el estado",
         "buscar fallas", "busca fallas",
+        "cancelar cita", "cancela cita", "eliminar cita", "elimina cita",
+        "borrar cita", "borra cita", "editar cita", "edita cita",
+        "actualizar cita", "actualiza cita", "modificar cita", "modifica cita",
     )
     if any(m in q for m in markers):
         return True
@@ -126,8 +215,13 @@ def allows_mutating_tool(question: str, tool_name: str) -> bool:
     state_markers = (
         "marca como", "marcar como", "cambia el estado", "cambiar estado",
         "cambiar a", "pon en", "poner en", "actualiza la cita", "actualizar cita",
+        "editar cita", "edita cita", "modificar cita", "modifica cita",
+        "cancelar cita", "cancela cita", "eliminar cita", "elimina cita",
+        "borrar cita", "borra cita", "calear", "quitar cita",
     )
     if any(m in q for m in state_markers):
+        return True
+    if is_cancel_cita_request(question) or is_edit_cita_request(question):
         return True
     if "crea" in q or "crear" in q or "agenda" in q or "agendar" in q:
         return True
@@ -273,7 +367,9 @@ Historial de fallas parecidas:
 
 Acciones que ejecuto en el sistema:
 - Crea una cita para Roberto García, placa ABC-123, mecánico Carlos, isla 1, falla: ruido en frenos
+- Edita la cita de ABC-123: cambia el mecánico a Ana y la falla a vibración en volante
 - Marca como completada la cita de la placa ABC-123
+- Cancela (o elimina) la cita de la placa ABC-123 — queda inactiva, no se borra de la base
 
 También puedo listar citas, clientes, vehículos, mecánicos e islas. Dime qué necesitas en español claro."""
 

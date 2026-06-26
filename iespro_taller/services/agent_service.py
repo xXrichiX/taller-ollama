@@ -11,6 +11,7 @@ from services.chat_intents import (
     INVALID_INPUT_ANSWER,
     is_capabilities_question,
     is_invalid_input,
+    normalize_workshop_question,
 )
 from services.text_format import plain_chat_text
 from services.tools_service import TOOL_DEFINITIONS, ToolsService
@@ -23,6 +24,8 @@ REGLAS:
 - SIEMPRE usa las tools para consultar o modificar datos reales. No inventes datos.
 - NUNCA pidas IDs numéricos al usuario (cliente, vehículo, mecánico, isla).
 - Para crear citas usa crear_cita_natural con nombre_cliente, placa, nombre_mecanico, isla y descripcion_fallo.
+- Para editar citas usa editar_cita_natural con placa y los campos a cambiar.
+- Para cancelar usa cancelar_cita_natural. Si el usuario dice eliminar, borrar o quitar una cita, cancélala (estado CANCELADA).
 - Para cambiar estado usa cambiar_estado_cita_natural con placa o id_cita.
 - Si falta un dato, pregunta en lenguaje natural (nombre, placa, isla), no en IDs.
 - Responde en español, breve y profesional. NUNCA respondas con JSON ni listas de funciones técnicas.
@@ -38,6 +41,7 @@ Sucursal activa por defecto: {sucursal}.
 SUCURSAL_TOOLS = frozenset({
     "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
     "crear_cita_natural", "cambiar_estado_cita_natural",
+    "cancelar_cita_natural", "editar_cita_natural",
 })
 
 
@@ -58,7 +62,7 @@ class AgentService:
         return args
 
     def ask(self, question: str) -> dict[str, Any]:
-        question = (question or "").strip()
+        question = normalize_workshop_question((question or "").strip())
         if not question or is_invalid_input(question):
             return {"answer": INVALID_INPUT_ANSWER, "tool_calls": [], "route": "help"}
 

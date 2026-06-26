@@ -347,6 +347,103 @@ def create_cita(data: dict, servicio_ids: list[int]) -> int:
     return cita_id
 
 
+def get_cita_by_id(id_cita: int) -> dict | None:
+    return fetch_one(
+        """
+        SELECT c.id, c.estado, c.descripcion_fallo, c.fecha_cita, c.id_horario,
+               cl.nombre AS cliente, v.placa, u.nombre AS mecanico, i.nombre AS isla
+        FROM citas c
+        JOIN clientes cl ON cl.id = c.id_cliente
+        JOIN vehiculos v ON v.id = c.id_vehiculo
+        JOIN usuarios u ON u.id = c.id_mecanico
+        JOIN islas i ON i.id = c.id_isla
+        WHERE c.id = %s
+        """,
+        (id_cita,),
+    )
+
+
+def cancelar_cita(id_cita: int) -> dict:
+    cita = fetch_one(
+        "SELECT id, id_horario, estado FROM citas WHERE id = %s",
+        (id_cita,),
+    )
+    if not cita:
+        return {"ok": False, "error": "Cita no encontrada."}
+    if cita["estado"] == "CANCELADA":
+        return {"ok": False, "error": "La cita ya está cancelada (inactiva)."}
+    if cita["estado"] == "COMPLETADA":
+        return {"ok": False, "error": "No se puede cancelar una cita ya completada."}
+
+    execute("UPDATE citas SET estado = 'CANCELADA' WHERE id = %s", (id_cita,))
+    if cita.get("id_horario"):
+        execute("UPDATE horarios SET disponible = 1 WHERE id = %s", (cita["id_horario"],))
+
+    return {
+        "ok": True,
+        "id_cita": id_cita,
+        "nuevo_estado": "CANCELADA",
+        "mensaje": "Cita cancelada. Quedó inactiva en el sistema (no se eliminó el registro).",
+    }
+
+
+def update_cita(id_cita: int, updates: dict) -> dict:
+    cita = fetch_one(
+        """
+        SELECT c.id, c.estado, v.placa
+        FROM citas c
+        JOIN vehiculos v ON v.id = c.id_vehiculo
+        WHERE c.id = %s
+        """,
+        (id_cita,),
+    )
+    if not cita:
+        return {"ok": False, "error": "Cita no encontrada."}
+    if cita["estado"] in ("CANCELADA", "COMPLETADA"):
+        return {
+            "ok": False,
+            "error": f"No se puede editar una cita con estado {cita['estado']}.",
+        }
+
+    set_clauses: list[str] = []
+    params: list[Any] = []
+
+    field_map = {
+        "descripcion_fallo": "descripcion_fallo",
+        "id_mecanico": "id_mecanico",
+        "id_isla": "id_isla",
+        "fecha_cita": "fecha_cita",
+        "fecha_compromiso": "fecha_compromiso",
+        "hora_compromiso": "hora_compromiso",
+        "estado": "estado",
+    }
+    for key, column in field_map.items():
+        if key in updates and updates[key] is not None:
+            set_clauses.append(f"{column} = %s")
+            params.append(updates[key])
+
+    if not set_clauses:
+        return {"ok": False, "error": "Indica qué quieres cambiar (falla, mecánico, isla, fecha, etc.)."}
+
+    params.append(id_cita)
+    execute(f"UPDATE citas SET {', '.join(set_clauses)} WHERE id = %s", tuple(params))
+
+    if updates.get("descripcion_fallo"):
+        execute(
+            "UPDATE fallas_registradas SET descripcion = %s WHERE id_cita = %s",
+            (updates["descripcion_fallo"], id_cita),
+        )
+
+    refreshed = get_cita_by_id(id_cita)
+    return {
+        "ok": True,
+        "id_cita": id_cita,
+        "placa": cita["placa"],
+        "cita": refreshed,
+        "mensaje": "Cita actualizada correctamente.",
+    }
+
+
 def count_citas(estado: str | None = None, id_sucursal: int | None = None) -> int:
     query = "SELECT COUNT(*) AS total FROM citas WHERE 1=1"
     params: list[Any] = []

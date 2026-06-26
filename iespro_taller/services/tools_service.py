@@ -191,6 +191,49 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "cancelar_cita_natural",
+            "description": (
+                "Cancela una cita (estado CANCELADA, inactiva). "
+                "Usar cuando el usuario diga cancelar, eliminar, borrar o quitar una cita. "
+                "NO borra el registro de la base de datos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "placa": {"type": "string"},
+                    "id_cita": {"type": "integer"},
+                    "id_sucursal": {"type": "integer"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "editar_cita_natural",
+            "description": (
+                "Edita una cita activa (PENDIENTE o EN_PROCESO) usando placa o id_cita. "
+                "Puede cambiar falla, mecánico, isla, fecha u observaciones."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "placa": {"type": "string"},
+                    "id_cita": {"type": "integer"},
+                    "descripcion_fallo": {"type": "string"},
+                    "nombre_mecanico": {"type": "string"},
+                    "isla": {"type": "string"},
+                    "fecha_cita": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"},
+                    "fecha_compromiso": {"type": "string", "description": "YYYY-MM-DD"},
+                    "hora_compromiso": {"type": "string", "description": "HH:MM:SS"},
+                    "id_sucursal": {"type": "integer"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "cambiar_estado_cita",
             "description": "Cambia el estado de una cita existente.",
             "parameters": {
@@ -219,6 +262,8 @@ class ToolsService:
             "buscar_cliente": self._buscar_cliente,
             "buscar_vehiculo": self._buscar_vehiculo,
             "cambiar_estado_cita_natural": self._cambiar_estado_cita_natural,
+            "cancelar_cita_natural": self._cancelar_cita_natural,
+            "editar_cita_natural": self._editar_cita_natural,
             "mecanicos_en_isla": self._mecanicos_en_isla,
             "listar_islas": self._listar_islas,
             "vehiculos_de_cliente": self._vehiculos_de_cliente,
@@ -353,6 +398,60 @@ class ToolsService:
 
         return self._cambiar_estado_cita({"id_cita": id_cita, "estado": args["estado"]})
 
+    def _cancelar_cita_natural(self, args: dict) -> dict:
+        from config import DEFAULT_SUCURSAL_ID
+
+        id_sucursal = args.get("id_sucursal", DEFAULT_SUCURSAL_ID)
+        id_cita = args.get("id_cita")
+
+        if not id_cita and args.get("placa"):
+            cita_res = cita_service.find_cita_activa_por_placa(args["placa"], id_sucursal)
+            if not cita_res.get("ok"):
+                return cita_res
+            id_cita = cita_res["cita"]["id"]
+
+        if not id_cita:
+            return {"ok": False, "error": "Indica la placa o el id de la cita a cancelar."}
+
+        return cita_service.cancelar_cita(id_cita)
+
+    def _editar_cita_natural(self, args: dict) -> dict:
+        from config import DEFAULT_SUCURSAL_ID
+
+        id_sucursal = args.get("id_sucursal", DEFAULT_SUCURSAL_ID)
+        id_cita = args.get("id_cita")
+
+        if not id_cita and args.get("placa"):
+            cita_res = cita_service.find_cita_activa_por_placa(args["placa"], id_sucursal)
+            if not cita_res.get("ok"):
+                return cita_res
+            id_cita = cita_res["cita"]["id"]
+
+        if not id_cita:
+            return {"ok": False, "error": "Indica la placa o el id de la cita a editar."}
+
+        updates: dict = {}
+        if args.get("descripcion_fallo"):
+            updates["descripcion_fallo"] = args["descripcion_fallo"]
+        if args.get("nombre_mecanico"):
+            mecanico_res = cita_service.find_mecanico_by_nombre(args["nombre_mecanico"], id_sucursal)
+            if not mecanico_res.get("ok"):
+                return mecanico_res
+            updates["id_mecanico"] = mecanico_res["mecanico"]["id"]
+        if args.get("isla"):
+            isla_res = cita_service.find_isla_by_referencia(args["isla"], id_sucursal)
+            if not isla_res.get("ok"):
+                return isla_res
+            updates["id_isla"] = isla_res["isla"]["id"]
+        if args.get("fecha_cita"):
+            updates["fecha_cita"] = args["fecha_cita"]
+        if args.get("fecha_compromiso"):
+            updates["fecha_compromiso"] = args["fecha_compromiso"]
+        if args.get("hora_compromiso"):
+            updates["hora_compromiso"] = args["hora_compromiso"]
+
+        return cita_service.update_cita(id_cita, updates)
+
     def _buscar_fallas_similares(self, args: dict) -> dict:
         if not self.rag:
             return {"error": "RAG no activo en este modo"}
@@ -362,11 +461,15 @@ class ToolsService:
     def _cambiar_estado_cita(self, args: dict) -> dict:
         from db.connection import execute
 
+        estado = args["estado"]
+        if estado == "CANCELADA":
+            return cita_service.cancelar_cita(args["id_cita"])
+
         execute(
             "UPDATE citas SET estado = %s WHERE id = %s",
-            (args["estado"], args["id_cita"]),
+            (estado, args["id_cita"]),
         )
-        return {"ok": True, "id_cita": args["id_cita"], "nuevo_estado": args["estado"]}
+        return {"ok": True, "id_cita": args["id_cita"], "nuevo_estado": estado}
 
 
 def run_sql_query(question: str, id_sucursal: int) -> str | None:

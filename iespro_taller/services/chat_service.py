@@ -36,15 +36,18 @@ from services.chat_intents import (
     is_invalid_input,
     is_memory_recall_question,
     looks_like_workshop_request,
+    normalize_workshop_question,
+    parse_cancel_cita_request,
 )
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
-from services.tool_response_format import format_tool_calls_log
+from services.tool_response_format import format_tool_calls_log, format_tool_result
 from services.tools_service import TOOL_DEFINITIONS, ToolsService, run_sql_query
 
 SUCURSAL_TOOLS = frozenset({
     "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
     "crear_cita_natural", "cambiar_estado_cita_natural",
+    "cancelar_cita_natural", "editar_cita_natural",
 })
 
 logger = logging.getLogger(__name__)
@@ -63,13 +66,16 @@ Eres el asistente IA de IESPRO-Taller (sistema de citas automotrices).
 Decide cómo responder:
 - Preguntas de conteo o datos estructurados (cuántas citas, clientes, vehículos, mecánicos en isla) → usa tools o SQL.
 - Comparar fallas, buscar casos parecidos, contexto de síntomas → usa buscar_fallas_similares (RAG).
-- Acciones (cambiar estado de cita, consultar islas, listar citas) → usa function calling.
+- Acciones (crear, editar o cancelar citas, cambiar estado, listar) → usa function calling.
 
 Reglas:
 1. Responde en español, claro y profesional.
 2. Si comparas fallas, menciona placa, id de cita y qué tan parecido es el caso.
 3. No inventes datos: usa solo resultados de tools/SQL/RAG.
 4. Si no hay datos, dilo explícitamente.
+5. "Eliminar", "borrar" o "quitar" una cita significa CANCELARLA (estado CANCELADA, inactiva). Nunca borres registros.
+6. Para editar citas usa editar_cita_natural con placa y los campos a cambiar.
+7. Para cancelar usa cancelar_cita_natural (también si el usuario dice eliminar o calear por error de voz).
 """ + PLAIN_TEXT_RULE
 
 
@@ -357,6 +363,8 @@ class ChatService:
             answer = stream_answer(BLOCKED_MESSAGE)
             return finalize(answer, "blocked", was_blocked=True)
 
+        question = normalize_workshop_question(question)
+
         emit_status("thinking", "Pensando...")
 
         if is_invalid_input(question):
@@ -383,6 +391,30 @@ class ChatService:
             emit_status("searching", "Buscando en conversaciones anteriores...")
             answer = stream_answer(self._format_recall_answer(question))
             return finalize(answer, "memory_recall")
+
+        cancel_args = parse_cancel_cita_request(question)
+        if cancel_args:
+            if not cancel_args.get("placa"):
+                answer = stream_answer(
+                    "Para cancelar una cita necesito la placa del vehículo. "
+                    "Por ejemplo: cancela la cita de ABC-123."
+                )
+                return finalize(answer, "help")
+            emit_status("acting", "Cancelando cita...")
+            tool_args = {**cancel_args, "id_sucursal": self.id_sucursal}
+            result = self.tools.execute("cancelar_cita_natural", tool_args)
+            answer = format_tool_result("cancelar_cita_natural", result)
+            if not answer:
+                answer = (
+                    "Para cancelar una cita necesito la placa del vehículo, "
+                    "por ejemplo: cancela la cita de ABC-123."
+                )
+            answer = stream_answer(answer)
+            return finalize(
+                answer,
+                "function_calling",
+                tool_calls=[{"name": "cancelar_cita_natural", "arguments": tool_args, "result": result}],
+            )
 
         emit_status("searching", "Consultando base de datos...")
         sql_answer = run_sql_query(question, self.id_sucursal)
@@ -597,6 +629,8 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
             "listar_mecanicos": "Consultando mecánicos...",
             "buscar_fallas_similares": "Buscando fallas similares...",
             "crear_cita_natural": "Agendando cita...",
+            "editar_cita_natural": "Actualizando cita...",
+            "cancelar_cita_natural": "Cancelando cita...",
             "cambiar_estado_cita_natural": "Actualizando estado de cita...",
         }
         return labels.get(tool_name, f"Ejecutando {tool_name.replace('_', ' ')}...")

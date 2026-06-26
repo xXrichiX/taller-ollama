@@ -120,8 +120,35 @@ def format_tool_result(name: str, result: Any) -> str:
 
     if name in ("cambiar_estado_cita_natural", "cambiar_estado_cita") and isinstance(result, dict):
         if result.get("ok"):
-            return f"Cita actualizada. Nuevo estado: {result.get('nuevo_estado', result.get('estado', '?'))}."
+            estado = result.get("nuevo_estado", result.get("estado", "?"))
+            if estado == "CANCELADA":
+                return (
+                    "Cita cancelada. Quedó inactiva en el sistema "
+                    f"(estado {estado}). No se eliminó el registro."
+                )
+            return f"Cita actualizada. Nuevo estado: {estado}."
         return result.get("error", "No se pudo cambiar el estado de la cita.")
+
+    if name == "cancelar_cita_natural" and isinstance(result, dict):
+        if result.get("ok"):
+            return (
+                "Cita cancelada correctamente. "
+                "Quedó inactiva (estado CANCELADA); no se borró de la base de datos."
+            )
+        return result.get("error", "No se pudo cancelar la cita.")
+
+    if name == "editar_cita_natural" and isinstance(result, dict):
+        if result.get("ok"):
+            cita = result.get("cita") or {}
+            parts = [f"Cita de {result.get('placa', '?')} actualizada."]
+            if cita.get("mecanico"):
+                parts.append(f"Mecánico: {cita['mecanico']}.")
+            if cita.get("isla"):
+                parts.append(f"Isla: {cita['isla']}.")
+            if cita.get("descripcion_fallo"):
+                parts.append(f"Falla: {cita['descripcion_fallo']}.")
+            return " ".join(parts)
+        return result.get("error", "No se pudo editar la cita.")
 
     if name == "buscar_fallas_similares" and isinstance(result, dict):
         matches = result.get("matches", [])
