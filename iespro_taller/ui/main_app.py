@@ -242,7 +242,7 @@ class MainApp(tk.Tk):
         if hasattr(self, "users_tree"):
             self._load_usuarios()
         if hasattr(self, "islas_tree"):
-            self._load_islas()
+            self._load_islas_sucursales()
         if hasattr(self, "sucursales_tree") and not self._is_admin_user():
             pass
         if hasattr(self, "dash_citas_tree"):
@@ -760,12 +760,12 @@ class MainApp(tk.Tk):
 
         today = date.today().isoformat()
         self.c_fecha = tk.StringVar(value=today)
+        self.c_hora = tk.StringVar(value="09:00")
         self.c_fallo = tk.StringVar()
         self.c_fcomp = tk.StringVar(value=today)
         self.c_hcomp = tk.StringVar(value="18:00:00")
         self.c_cliente_map = {}
         self.c_vehiculo_map = {}
-        self.c_horario_map = {}
         self.c_mecanico_map = {}
         self.c_isla_map = {}
         self.c_servicio_rows = []
@@ -773,7 +773,6 @@ class MainApp(tk.Tk):
         self.c_mecanico_cb = None
         self.c_isla_cb = None
         self.c_vehiculo_cb = None
-        self.c_horario_cb = None
         self.c_servicios_lb = None
 
         if self._can_create_citas() or self._is_cliente_user():
@@ -791,15 +790,12 @@ class MainApp(tk.Tk):
 
             today = date.today().isoformat()
             self.c_fecha.set(today)
-            DatePickerRow(
-                form,
-                self.c_fecha,
-                label="Fecha cita",
-                on_change=self._reload_cita_horarios,
-            ).pack_row()
-            ttk.Button(form, text="Cargar horarios", command=self._reload_cita_horarios).pack(anchor="e", pady=(0, 4))
+            DatePickerRow(form, self.c_fecha, label="Fecha cita").pack_row()
 
-            self.c_horario_cb = self._add_combo_row(form, "Hora de la cita")
+            row = ttk.Frame(form)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text="Hora cita", width=26).pack(side="left")
+            ttk.Entry(row, textvariable=self.c_hora, width=10).pack(side="left")
             if self._can_reassign_citas():
                 self.c_mecanico_cb = self._add_combo_row(form, "Mecánico asignado")
                 self.c_isla_cb = self._add_combo_row(form, "Isla asignada")
@@ -1062,7 +1058,6 @@ class MainApp(tk.Tk):
         self._reload_cita_mecanicos()
         self._reload_cita_islas()
         self._reload_cita_servicios()
-        self._reload_cita_horarios()
 
     def _reload_cita_clientes(self):
         if self._is_cliente_user():
@@ -1100,28 +1095,6 @@ class MainApp(tk.Tk):
             self.c_vehiculo_cb,
             vehiculos,
             lambda v: f"{v['placa']} — {v['marca']} {v['modelo']}",
-            "id",
-        )
-
-    def _reload_cita_horarios(self):
-        fecha = self.c_fecha.get().strip()
-        if not self.id_sucursal:
-            self.c_horario_cb.set("")
-            self.c_horario_cb["values"] = ()
-            self.c_horario_map = {}
-            return
-        horarios = cita_service.list_horarios_disponibles(fecha, self.id_sucursal)
-        if not horarios:
-            self.c_horario_cb.set("")
-            self.c_horario_cb["values"] = ("Sin horarios este día",)
-            self.c_horario_cb.current(0)
-            self.c_horario_map = {}
-            return
-
-        self.c_horario_map = self._fill_combo(
-            self.c_horario_cb,
-            horarios,
-            lambda h: f"{str(h['hora'])[:8]} — disponible",
             "id",
         )
 
@@ -1180,17 +1153,11 @@ class MainApp(tk.Tk):
                 raise ValueError("Selecciona al menos un tipo de mantenimiento.")
             servicios = [self.c_servicio_rows[i]["id"] for i in selected]
 
-            horario_id = None
-            fecha_cita = f"{self.c_fecha.get().strip()} 09:00:00"
-            if self.c_horario_map:
-                horario_id = self._combo_id(self.c_horario_cb, self.c_horario_map, "horario")
-                h = next(
-                    x for x in cita_service.list_horarios_disponibles(self.c_fecha.get().strip(), self.id_sucursal)
-                    if x["id"] == horario_id
-                )
-                fecha_cita = f"{h['fecha']} {h['hora']}"
-            elif self.c_horario_cb.get() == "Sin horarios este día":
-                raise ValueError("No hay horarios disponibles para esa fecha.")
+            fecha = self.c_fecha.get().strip()
+            if not fecha:
+                raise ValueError("Indica la fecha de la cita.")
+            hora = self._normalize_hora(self.c_hora.get())
+            fecha_cita = f"{fecha} {hora}"
 
             if self._is_cliente_user():
                 if not self.id_cliente:
@@ -1214,7 +1181,7 @@ class MainApp(tk.Tk):
                 "id_vehiculo": self._combo_id(self.c_vehiculo_cb, self.c_vehiculo_map, "vehículo"),
                 "id_sucursal": self.id_sucursal,
                 "fecha_cita": fecha_cita,
-                "id_horario": horario_id,
+                "id_horario": None,
                 "id_mecanico": id_mecanico,
                 "id_isla": id_isla,
                 "descripcion_fallo": self.c_fallo.get().strip(),
@@ -1226,7 +1193,6 @@ class MainApp(tk.Tk):
             msg = "Solicitud de cita enviada." if self._is_cliente_user() else "Cita creada correctamente."
             messagebox.showinfo("Citas", msg)
             self._load_citas()
-            self._reload_cita_horarios()
             self.c_fallo.set("")
             if hasattr(self, "_cita_layout"):
                 self._cita_layout.hide()
@@ -1244,22 +1210,25 @@ class MainApp(tk.Tk):
             r["estado"] = estado_a_etiqueta(r.get("estado"))
         self._fill_tree(self.citas_tree, rows)
 
-    def _nuevo_codigo_taller(self) -> None:
+    def _nuevo_codigo_sucursal_invitacion(self) -> None:
         from services.invitation_service import generar_codigo_aleatorio
 
-        if hasattr(self, "taller_codigo"):
-            self.taller_codigo.set(generar_codigo_aleatorio())
+        if hasattr(self, "suc_inv_codigo"):
+            self.suc_inv_codigo.set(generar_codigo_aleatorio())
 
-    def _guardar_codigo_taller(self) -> None:
+    def _guardar_codigo_sucursal_invitacion(self) -> None:
         from services import invitation_service
 
         try:
-            codigo = self.taller_codigo.get().strip()
+            id_sucursal = self._sucursal_tree_selected_id()
+            if not id_sucursal:
+                raise ValueError("Selecciona una sucursal de la lista.")
+            codigo = self.suc_inv_codigo.get().strip()
             if not codigo:
                 raise ValueError("Genera un código primero.")
             creado_por = self.user["id"] if self.user else None
             result = invitation_service.crear_codigo(
-                self.id_sucursal,
+                id_sucursal,
                 codigo=codigo,
                 usos_maximos=50,
                 creado_por=creado_por,
@@ -1268,76 +1237,56 @@ class MainApp(tk.Tk):
             if not result.get("ok"):
                 raise ValueError(result.get("error", "No se pudo guardar el código."))
             messagebox.showinfo("Código guardado", f"Código de invitación: {result['codigo']}")
-            self.taller_codigo.set("")
-            if hasattr(self, "_taller_layout"):
-                self._taller_layout.hide()
+            self.suc_inv_codigo.set("")
+            self._suc_layout.hide()
         except Exception as exc:
             messagebox.showerror("Código de invitación", str(exc))
 
-    def _build_taller_tab(self):
-        frame = ttk.Frame(padding=10)
-        self._taller_layout = SidePanelLayout(frame)
-        self._taller_layout.frame().pack(fill="both", expand=True)
-        self._taller_layout.add_toolbar_button("+ Crear isla", self._open_isla_create)
-        if can_manage_branch(self.user.get("rol_nombre") if self.user else None) and self._is_admin_user():
-            self._taller_layout.add_toolbar_button("+ Código invitación", self._open_taller_codigo, accent=False)
+    def _sucursal_tree_selected_id(self) -> int | None:
+        if not hasattr(self, "sucursales_tree"):
+            return self.id_sucursal
+        sel = self.sucursales_tree.selection()
+        if sel:
+            return int(sel[0])
+        return self.id_sucursal
 
-        self.taller_isla_frame = ttk.Frame(self._taller_layout.panel_form)
-        self.isla_nombre = tk.StringVar()
-        self.isla_mec_map = {}
-        row = ttk.Frame(self.taller_isla_frame)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text="Nombre isla", width=14).pack(side="left")
-        ttk.Entry(row, textvariable=self.isla_nombre).pack(side="left", fill="x", expand=True)
-        self.isla_mec_cb = self._add_combo_row(self.taller_isla_frame, "Mecánico", width=14)
-        ttk.Button(
-            self.taller_isla_frame, text="Crear isla", style="Accent.TButton", command=self._save_isla
-        ).pack(anchor="e", pady=8)
+    def _hide_suc_panel_forms(self) -> None:
+        for frame_name in ("suc_create_frame", "suc_isla_frame", "suc_codigo_frame"):
+            frame = getattr(self, frame_name, None)
+            if frame:
+                frame.pack_forget()
 
-        self.taller_codigo_frame = ttk.Frame(self._taller_layout.panel_form)
-        self.taller_codigo = tk.StringVar()
-        ttk.Label(
-            self.taller_codigo_frame,
-            text=f"Sucursal: {self._sucursal_nombre()}",
-            foreground=COLORS["muted"],
-        ).pack(anchor="w", pady=(0, 6))
-        row = ttk.Frame(self.taller_codigo_frame)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text="Código", width=14).pack(side="left")
-        ttk.Entry(row, textvariable=self.taller_codigo, state="readonly", width=24).pack(side="left")
-        ttk.Button(row, text="Generar código", command=self._nuevo_codigo_taller).pack(side="left", padx=8)
-        ttk.Button(
-            self.taller_codigo_frame,
-            text="Guardar código",
-            style="Accent.TButton",
-            command=self._guardar_codigo_taller,
-        ).pack(anchor="e", pady=(4, 0))
-
-        self.islas_tree = self._make_tree(
-            self._taller_layout.tree_host,
-            ("nombre", "activo"),
-            headers={"nombre": "Isla", "activo": "Activa"},
-            pady=0,
-        )
-        self._load_islas()
-        return frame
-
-    def _open_isla_create(self) -> None:
+    def _open_suc_isla_create(self) -> None:
+        if not self._sucursal_tree_selected_id():
+            messagebox.showinfo("Islas", "Selecciona una sucursal de la lista.")
+            return
         self.isla_nombre.set("")
-        self.taller_codigo_frame.pack_forget()
-        self.taller_isla_frame.pack(fill="both", expand=True)
+        self._hide_suc_panel_forms()
+        self.suc_isla_frame.pack(fill="both", expand=True)
         self._reload_isla_mecanico_combo()
-        self._taller_layout.show("Nueva isla")
+        self._suc_layout.show("Nueva isla")
 
-    def _open_taller_codigo(self) -> None:
-        self.taller_codigo.set("")
-        self.taller_isla_frame.pack_forget()
-        self.taller_codigo_frame.pack(fill="both", expand=True)
-        self._taller_layout.show("Código de invitación")
+    def _open_suc_codigo_invitacion(self) -> None:
+        id_sucursal = self._sucursal_tree_selected_id()
+        if not id_sucursal:
+            messagebox.showinfo("Códigos", "Selecciona una sucursal de la lista.")
+            return
+        self.suc_inv_codigo.set("")
+        if hasattr(self, "suc_codigo_sucursal_lbl"):
+            nombre = next(
+                (s["nombre"] for s in catalog_service.list_sucursales() if s["id"] == id_sucursal),
+                "—",
+            )
+            self.suc_codigo_sucursal_lbl.configure(text=f"Sucursal: {nombre}")
+        self._hide_suc_panel_forms()
+        self.suc_codigo_frame.pack(fill="both", expand=True)
+        self._suc_layout.show("Código de invitación")
 
     def _save_isla(self):
         try:
-            id_sucursal = self._require_sucursal()
+            id_sucursal = self._sucursal_tree_selected_id()
+            if not id_sucursal:
+                raise ValueError("Selecciona una sucursal de la lista.")
             nombre = self.isla_nombre.get().strip()
             if not nombre:
                 raise ValueError("Indica el nombre de la isla.")
@@ -1347,23 +1296,23 @@ class MainApp(tk.Tk):
             if id_mecanico:
                 cita_service.assign_mecanico_isla(id_isla, id_mecanico)
             messagebox.showinfo("Islas", "Isla creada.")
-            self._load_islas()
+            self._load_islas_sucursales()
             if hasattr(self, "c_isla_cb"):
                 self._reload_cita_islas()
-            if hasattr(self, "_taller_layout"):
-                self._taller_layout.hide()
+            self._suc_layout.hide()
         except Exception as exc:
             messagebox.showerror("Islas", str(exc))
 
     def _reload_isla_mecanico_combo(self) -> None:
         if not hasattr(self, "isla_mec_cb") or not self.isla_mec_cb:
             return
-        if not self.id_sucursal:
+        id_sucursal = self._sucursal_tree_selected_id()
+        if not id_sucursal:
             self.isla_mec_cb.set("")
             self.isla_mec_cb["values"] = ()
             self.isla_mec_map = {}
             return
-        mecanicos = cita_service.list_mecanicos(self.id_sucursal)
+        mecanicos = cita_service.list_mecanicos(id_sucursal)
         opciones = [{"id": None, "nombre": "— Sin asignar —"}] + mecanicos
         self.isla_mec_map = self._fill_combo(
             self.isla_mec_cb,
@@ -1372,11 +1321,26 @@ class MainApp(tk.Tk):
             "id",
         )
 
-    def _load_islas(self):
-        if not self.id_sucursal:
+    def _load_islas_sucursales(self):
+        if not hasattr(self, "islas_tree"):
+            return
+        id_sucursal = self._sucursal_tree_selected_id()
+        if not id_sucursal:
             self._fill_tree(self.islas_tree, [])
             return
-        self._fill_tree(self.islas_tree, cita_service.list_islas(self.id_sucursal))
+        rows = cita_service.list_islas(id_sucursal)
+        for r in rows:
+            r["activo"] = "Sí" if r.get("activo", 1) else "No"
+        self._fill_tree(self.islas_tree, rows)
+
+    def _select_sucursal_in_tree(self, id_sucursal: int | None) -> None:
+        if not id_sucursal or not hasattr(self, "sucursales_tree"):
+            return
+        iid = str(id_sucursal)
+        if self.sucursales_tree.exists(iid):
+            self.sucursales_tree.selection_set(iid)
+            self.sucursales_tree.focus(iid)
+            self._load_islas_sucursales()
 
     def _build_sucursales_tab(self):
         frame = ttk.Frame(padding=10)
@@ -1386,10 +1350,19 @@ class MainApp(tk.Tk):
         self.suc_nombre = tk.StringVar()
         self.suc_dir = tk.StringVar()
         self.suc_codigo = tk.StringVar()
+        self.isla_nombre = tk.StringVar()
+        self.isla_mec_map = {}
+        self.suc_inv_codigo = tk.StringVar()
 
         if self._is_admin_user():
             self._suc_layout.add_toolbar_button("+ Crear sucursal", self._open_sucursal_create)
-            form = self._suc_layout.panel_form
+            self._suc_layout.add_toolbar_button("+ Crear isla", self._open_suc_isla_create, accent=False)
+            self._suc_layout.add_toolbar_button(
+                "+ Código invitación", self._open_suc_codigo_invitacion, accent=False
+            )
+
+            self.suc_create_frame = ttk.Frame(self._suc_layout.panel_form)
+            form = self.suc_create_frame
             for label, var in [("Nombre", self.suc_nombre), ("Dirección", self.suc_dir)]:
                 row = ttk.Frame(form)
                 row.pack(fill="x", pady=4)
@@ -1411,32 +1384,81 @@ class MainApp(tk.Tk):
                 command=self._save_sucursal,
             ).pack(side="right")
 
+            self.suc_isla_frame = ttk.Frame(self._suc_layout.panel_form)
+            row = ttk.Frame(self.suc_isla_frame)
+            row.pack(fill="x", pady=4)
+            ttk.Label(row, text="Nombre isla", width=14).pack(side="left")
+            ttk.Entry(row, textvariable=self.isla_nombre).pack(side="left", fill="x", expand=True)
+            self.isla_mec_cb = self._add_combo_row(self.suc_isla_frame, "Mecánico", width=14)
+            ttk.Button(
+                self.suc_isla_frame, text="Crear isla", style="Accent.TButton", command=self._save_isla
+            ).pack(anchor="e", pady=8)
+
+            self.suc_codigo_frame = ttk.Frame(self._suc_layout.panel_form)
+            self.suc_codigo_sucursal_lbl = ttk.Label(
+                self.suc_codigo_frame,
+                text="Sucursal: —",
+                foreground=COLORS["muted"],
+            )
+            self.suc_codigo_sucursal_lbl.pack(anchor="w", pady=(0, 6))
+            row = ttk.Frame(self.suc_codigo_frame)
+            row.pack(fill="x", pady=4)
+            ttk.Label(row, text="Código", width=14).pack(side="left")
+            ttk.Entry(row, textvariable=self.suc_inv_codigo, state="readonly", width=24).pack(side="left")
+            ttk.Button(row, text="Generar código", command=self._nuevo_codigo_sucursal_invitacion).pack(
+                side="left", padx=8
+            )
+            ttk.Button(
+                self.suc_codigo_frame,
+                text="Guardar código",
+                style="Accent.TButton",
+                command=self._guardar_codigo_sucursal_invitacion,
+            ).pack(anchor="e", pady=(4, 0))
+
+        tree_host = self._suc_layout.tree_host
+        ttk.Label(tree_host, text="Sucursales", style="Section.TLabel").pack(anchor="w")
         self.sucursales_tree = self._make_tree(
-            self._suc_layout.tree_host,
+            tree_host,
             ("nombre", "direccion", "activo"),
             headers={"nombre": "Nombre", "direccion": "Dirección", "activo": "Activa"},
-            height=10,
+            height=6,
+            pady=(0, 8),
+        )
+        ttk.Label(tree_host, text="Islas de la sucursal", style="Section.TLabel").pack(anchor="w", pady=(4, 0))
+        self.islas_tree = self._make_tree(
+            tree_host,
+            ("nombre", "activo"),
+            headers={"nombre": "Isla", "activo": "Activa"},
+            height=6,
             pady=0,
         )
-        if not self._is_admin_user():
-            self.sucursales_tree.bind("<<TreeviewSelect>>", self._on_sucursal_tree_select)
+        self.sucursales_tree.bind("<<TreeviewSelect>>", self._on_sucursal_tree_select)
         self._load_sucursales()
         return frame
 
     def _on_sucursal_tree_select(self, _event=None) -> None:
-        if self._is_admin_user():
-            return
         sel = self.sucursales_tree.selection()
         if not sel:
             return
-        self._switch_sucursal(int(sel[0]))
-        if hasattr(self, "sucursal_var"):
-            self.sucursal_var.set(self._sucursal_nombre())
+        id_sucursal = int(sel[0])
+        self._load_islas_sucursales()
+        if self._is_admin_user():
+            self._switch_sucursal(id_sucursal)
+            if hasattr(self, "sucursal_var"):
+                nombre = self.sucursales_tree.item(sel[0], "values")[0]
+                if nombre:
+                    self.sucursal_var.set(nombre)
+        else:
+            self._switch_sucursal(id_sucursal)
+            if hasattr(self, "sucursal_var"):
+                self.sucursal_var.set(self._sucursal_nombre())
 
     def _open_sucursal_create(self) -> None:
         self.suc_nombre.set("")
         self.suc_dir.set("")
         self.suc_codigo.set("")
+        self._hide_suc_panel_forms()
+        self.suc_create_frame.pack(fill="both", expand=True)
         self._suc_layout.show("Nueva sucursal (taller)")
 
     def _nuevo_codigo_sucursal(self) -> None:
@@ -1477,6 +1499,7 @@ class MainApp(tk.Tk):
             self.suc_codigo.set("")
             self._load_sucursales()
             self._reload_sucursal_selector()
+            self._select_sucursal_in_tree(id_sucursal)
             if not self.id_sucursal:
                 self._switch_sucursal(id_sucursal)
             self._suc_layout.hide()
@@ -1493,6 +1516,10 @@ class MainApp(tk.Tk):
         for r in rows:
             r["activo"] = "Sí" if r.get("activo", 1) else "No"
         self._fill_tree(self.sucursales_tree, rows)
+        if self.id_sucursal:
+            self._select_sucursal_in_tree(self.id_sucursal)
+        elif rows and self._is_admin_user():
+            self._select_sucursal_in_tree(rows[0]["id"])
 
     def _build_usuarios_tab(self):
         frame = ttk.Frame(padding=10)
@@ -1684,6 +1711,20 @@ class MainApp(tk.Tk):
         for r in rows:
             r["puesto"] = r.get("puesto") or "—"
         self._fill_tree(self.users_tree, rows)
+
+    @staticmethod
+    def _normalize_hora(hora: str) -> str:
+        hora = (hora or "").strip()
+        if not hora:
+            raise ValueError("Indica la hora de la cita.")
+        parts = hora.split(":")
+        if len(parts) == 2:
+            h, m = int(parts[0]), int(parts[1])
+            return f"{h:02d}:{m:02d}:00"
+        if len(parts) == 3:
+            h, m, s = int(parts[0]), int(parts[1]), int(parts[2])
+            return f"{h:02d}:{m:02d}:{s:02d}"
+        raise ValueError("Hora inválida. Usa formato HH:MM o HH:MM:SS.")
 
     @staticmethod
     def _add_combo_row(parent, label, width=26):
