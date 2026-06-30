@@ -47,7 +47,14 @@ from services.chat_intents import (
     STAFF_MI_AUTO_ANSWER,
 )
 from services.estado_labels import estado_a_etiqueta
-from services.user_roles import is_cliente, is_mecanico, is_staff_manager, is_workshop_staff
+from services.user_roles import (
+    is_cliente,
+    is_mecanico,
+    is_pending,
+    is_staff_manager,
+    is_super_admin,
+    is_workshop_staff,
+)
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
 from services.tool_response_format import format_tool_calls_log, format_tool_result
@@ -88,13 +95,31 @@ Reglas:
 """ + PLAIN_TEXT_RULE
 
 STAFF_MANAGER_PROMPT = """
-ROL ACTUAL: Personal del taller (ADMIN o JEFE). Operas en nombre de cualquier cliente.
+ROL ACTUAL: Administrador de sucursal o jefe de taller. Operas en nombre de cualquier cliente de tu sucursal.
 
-Reglas para staff:
-- Puedes crear, editar y cancelar citas de cualquier placa o cliente del taller.
-- Para fallas similares, busca por placa, nombre de cliente o síntoma en todo el historial.
+Reglas para admin de sucursal:
+- Puedes crear, editar y cancelar citas de cualquier placa o cliente de tu sucursal.
+- Puedes asignar y reasignar mecánicos e islas.
+- Para fallas similares, busca por placa, nombre de cliente o síntoma en todo el historial de la sucursal.
 - No asumas "mi auto" ni vehículos del usuario logueado; el personal no tiene autos personales aquí.
-- Si registran en mostrador, usa nombre del cliente y placa que te den explícitamente.
+"""
+
+SUPER_ADMIN_PROMPT = """
+ROL ACTUAL: Administrador superior. Tienes visibilidad de todas las sucursales.
+
+Reglas:
+- Puedes consultar información de cualquier sucursal si el usuario lo pide.
+- Gestiona sucursales, usuarios, roles y códigos de invitación desde la aplicación.
+"""
+
+MECANICO_PROMPT = """
+ROL ACTUAL: Mecánico. Trabajas en tu sucursal.
+
+Reglas para mecánico:
+- Puedes VER todas las citas, vehículos e historial de reparaciones de tu sucursal (incluso asignados a otros).
+- Solo puedes CAMBIAR estado, diagnóstico u observaciones de citas asignadas a ti.
+- Usa el historial de la sucursal para casos similares y diagnósticos.
+- No modifiques citas de otros mecánicos ni datos de otras sucursales.
 """
 
 CLIENTE_PROMPT = """
@@ -287,19 +312,20 @@ class ChatService:
 
     def _build_system_prompt(self) -> str:
         prompt = SYSTEM_PROMPT + f"\nSucursal activa: {self.id_sucursal}"
-        if is_staff_manager(self.rol_nombre):
+        if is_super_admin(self.rol_nombre):
+            prompt += SUPER_ADMIN_PROMPT
+        elif is_staff_manager(self.rol_nombre):
             prompt += STAFF_MANAGER_PROMPT
-            if self.user_nombre:
-                prompt += f"\nUsuario logueado: {self.user_nombre} ({self.rol_nombre})."
-        elif is_workshop_staff(self.rol_nombre):
-            prompt += (
-                "\nROL ACTUAL: Personal del taller (mecánico). "
-                "Puedes actualizar estado de citas y reasignar mecánico o isla."
-            )
-            if self.user_nombre:
-                prompt += f"\nUsuario logueado: {self.user_nombre} ({self.rol_nombre})."
+        elif is_mecanico(self.rol_nombre):
+            prompt += MECANICO_PROMPT
         elif is_cliente(self.rol_nombre):
             prompt += CLIENTE_PROMPT
+        else:
+            prompt += "\nROL ACTUAL: Usuario pendiente de asignación de rol."
+
+        if self.user_nombre and not is_cliente(self.rol_nombre):
+            prompt += f"\nUsuario logueado: {self.user_nombre} ({self.rol_nombre})."
+        elif is_cliente(self.rol_nombre):
             if self.nombre_cliente:
                 prompt += f"\nCliente logueado: {self.nombre_cliente} (id_cliente={self.id_cliente})."
             vehiculos = []
@@ -402,11 +428,10 @@ class ChatService:
         return {**rag_result, "matches": filtered}
 
     def _mecanico_placas(self) -> set[str]:
-        if not self.id_mecanico_scope:
-            return set()
+        """Placas de toda la sucursal (lectura amplia para diagnóstico)."""
         from services import cita_service
 
-        citas = cita_service.list_citas(self.id_sucursal, id_mecanico=self.id_mecanico_scope)
+        citas = cita_service.list_citas(self.id_sucursal)
         return {norm_placa_token(c["placa"]) for c in citas if c.get("placa")}
 
     def _filter_rag_for_mecanico(self, rag_result: dict) -> dict:
@@ -675,7 +700,7 @@ class ChatService:
                 rag_result = self._filter_rag_for_mecanico(rag_result)
                 if not rag_result.get("matches"):
                     answer = stream_answer(
-                        "No encontré fallas similares en las citas que tienes asignadas."
+                        "No encontré fallas similares en el historial de tu sucursal."
                     )
                     return finalize(answer, "rag")
             emit_status("thinking", "Analizando casos encontrados...")

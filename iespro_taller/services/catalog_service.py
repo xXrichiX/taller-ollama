@@ -7,9 +7,10 @@ from db.connection import execute, fetch_all, fetch_one
 def login(email: str, password: str) -> dict[str, Any] | None:
     return fetch_one(
         """
-        SELECT u.*, r.nombre AS rol_nombre
+        SELECT u.*, r.nombre AS rol_nombre, p.nombre AS puesto_nombre
         FROM usuarios u
         JOIN roles r ON r.id = u.id_rol
+        LEFT JOIN puestos p ON p.id = u.id_puesto
         WHERE u.email = %s AND u.password = %s AND u.activo = 1
         """,
         (email, password),
@@ -17,7 +18,7 @@ def login(email: str, password: str) -> dict[str, Any] | None:
 
 
 def list_sucursales() -> list[dict]:
-    return fetch_all("SELECT id, nombre FROM sucursales WHERE activo = 1 ORDER BY nombre")
+    return fetch_all("SELECT id, nombre, direccion, activo FROM sucursales WHERE activo = 1 ORDER BY nombre")
 
 
 def list_roles() -> list[dict]:
@@ -28,21 +29,74 @@ def list_puestos() -> list[dict]:
     return fetch_all("SELECT id, nombre FROM puestos ORDER BY nombre")
 
 
-def list_usuarios() -> list[dict]:
-    return fetch_all(
-        """
+def list_usuarios(id_sucursal: int | None = None) -> list[dict]:
+    query = """
         SELECT u.id, u.nombre, u.email, r.nombre AS rol, s.nombre AS sucursal,
-               u.es_cliente, u.es_trabajador, u.activo
+               p.nombre AS puesto, u.activo, u.id_sucursal, u.id_rol
         FROM usuarios u
         JOIN roles r ON r.id = u.id_rol
         LEFT JOIN sucursales s ON s.id = u.id_sucursal
-        ORDER BY u.id
+        LEFT JOIN puestos p ON p.id = u.id_puesto
+        WHERE 1=1
+    """
+    params: list[Any] = []
+    if id_sucursal:
+        query += " AND u.id_sucursal = %s"
+        params.append(id_sucursal)
+    query += " ORDER BY u.id"
+    return fetch_all(query, tuple(params))
+
+
+def update_usuario_rol(id_usuario: int, id_rol: int, rol_nombre: str | None = None) -> dict[str, Any]:
+    from services.user_roles import flags_for_role
+
+    if not rol_nombre:
+        row = fetch_one("SELECT nombre FROM roles WHERE id = %s", (id_rol,))
+        rol_nombre = row["nombre"] if row else ""
+    es_cliente, es_trabajador = flags_for_role(rol_nombre)
+    execute(
         """
+        UPDATE usuarios
+        SET id_rol = %s, es_cliente = %s, es_trabajador = %s
+        WHERE id = %s
+        """,
+        (id_rol, es_cliente, es_trabajador, id_usuario),
+    )
+    return {"ok": True}
+
+
+def update_usuario_puesto(id_usuario: int, id_puesto: int | None) -> dict[str, Any]:
+    execute("UPDATE usuarios SET id_puesto = %s WHERE id = %s", (id_puesto, id_usuario))
+    return {"ok": True}
+
+
+def create_sucursal(nombre: str, direccion: str = "") -> int:
+    return execute(
+        "INSERT INTO sucursales (nombre, direccion) VALUES (%s, %s)",
+        (nombre.strip(), direccion.strip()),
     )
 
 
-def register_usuario(nombre: str, email: str, password: str, id_sucursal: int = DEFAULT_SUCURSAL_ID) -> dict[str, Any]:
-    """Registro público: crea usuario ADMIN con acceso completo al taller."""
+def update_sucursal(id_sucursal: int, nombre: str, direccion: str, activo: bool = True) -> dict[str, Any]:
+    execute(
+        "UPDATE sucursales SET nombre = %s, direccion = %s, activo = %s WHERE id = %s",
+        (nombre.strip(), direccion.strip(), int(activo), id_sucursal),
+    )
+    return {"ok": True}
+
+
+def get_sucursal(id_sucursal: int) -> dict | None:
+    return fetch_one("SELECT id, nombre, direccion, activo FROM sucursales WHERE id = %s", (id_sucursal,))
+
+
+def register_usuario(
+    nombre: str,
+    email: str,
+    password: str,
+    codigo_invitacion: str,
+) -> dict[str, Any]:
+    """Registro público con código de invitación. Rol PENDIENTE hasta que un admin lo asigne."""
+    from services.invitation_service import consumir_codigo, validar_codigo
     from services.password_policy import normalize_password, validate_password
 
     nombre = (nombre or "").strip()
@@ -61,25 +115,42 @@ def register_usuario(nombre: str, email: str, password: str, id_sucursal: int = 
     if fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
         return {"ok": False, "error": "Ese correo ya está registrado."}
 
-    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'ADMIN'")
-    id_rol = rol["id"] if rol else 1
-    puesto = fetch_one("SELECT id FROM puestos WHERE nombre = 'Gerente'")
-    id_puesto = puesto["id"] if puesto else None
+    inv = validar_codigo(codigo_invitacion)
+    if not inv.get("ok"):
+        return inv
+
+    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'PENDIENTE'")
+    id_rol = rol["id"] if rol else 6
 
     id_usuario = create_usuario({
         "nombre": nombre,
         "email": email,
         "password": password,
         "id_rol": id_rol,
-        "id_sucursal": id_sucursal,
+        "id_sucursal": inv["id_sucursal"],
         "es_cliente": 0,
-        "es_trabajador": 1,
-        "id_puesto": id_puesto,
+        "es_trabajador": 0,
+        "id_puesto": None,
     })
-    return {"ok": True, "id_usuario": id_usuario}
+    consumir_codigo(inv["id_codigo"])
+    return {
+        "ok": True,
+        "id_usuario": id_usuario,
+        "sucursal": inv.get("sucursal_nombre"),
+        "pendiente_rol": True,
+    }
 
 
 def create_usuario(data: dict) -> int:
+    from services.user_roles import flags_for_role
+
+    rol = fetch_one("SELECT nombre FROM roles WHERE id = %s", (data["id_rol"],))
+    rol_nombre = rol["nombre"] if rol else ""
+    es_cliente, es_trabajador = flags_for_role(rol_nombre)
+    if "es_cliente" in data:
+        es_cliente = data["es_cliente"]
+    if "es_trabajador" in data:
+        es_trabajador = data["es_trabajador"]
     return execute(
         """
         INSERT INTO usuarios (nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto)
@@ -87,7 +158,7 @@ def create_usuario(data: dict) -> int:
         """,
         (
             data["nombre"], data["email"], data["password"], data["id_rol"],
-            data.get("id_sucursal"), data["es_cliente"], data["es_trabajador"],
+            data.get("id_sucursal"), es_cliente, es_trabajador,
             data.get("id_puesto"),
         ),
     )
@@ -140,7 +211,7 @@ def ensure_cliente_usuario(id_cliente: int) -> int:
         email = f"walkin.cliente{id_cliente}@iespro.local"
 
     rol = fetch_one("SELECT id FROM roles WHERE nombre = 'CLIENTE'")
-    id_rol = rol["id"] if rol else 4
+    id_rol = rol["id"] if rol else 5
     nombre = (cliente.get("nombre") or "Cliente").strip() or "Cliente"
     password = f"walkin{id_cliente:04d}"
 

@@ -19,6 +19,7 @@ class LoginFrame(ttk.Frame):
         self.reg_nombre_var = tk.StringVar()
         self.reg_email_var = tk.StringVar()
         self.reg_pass_var = tk.StringVar()
+        self.reg_codigo_var = tk.StringVar()
 
         outer = ttk.Frame(self)
         outer.pack(fill="both", expand=True)
@@ -91,6 +92,14 @@ class LoginFrame(ttk.Frame):
             self.reg_pass_var,
             hint=f"Mínimo {MIN_PASSWORD_LEN} caracteres, con letra y número.",
         )
+        self._field(card, "Código de invitación", self.reg_codigo_var)
+
+        ttk.Label(
+            card,
+            text="El código te lo proporciona el administrador de tu taller.",
+            foreground=COLORS["muted"],
+            font=("Helvetica", 9),
+        ).pack(anchor="w", pady=(0, 8))
 
         ttk.Button(card, text="Crear cuenta", style="Accent.TButton", command=self._register_user).pack(
             fill="x", pady=(4, 8)
@@ -136,6 +145,12 @@ class LoginFrame(ttk.Frame):
         if not user:
             messagebox.showerror("Iniciar sesión", "Correo o contraseña incorrectos.")
             return
+        if user.get("rol_nombre") == "PENDIENTE":
+            messagebox.showinfo(
+                "Cuenta pendiente",
+                "Tu cuenta aún no tiene rol asignado. Contacta al administrador de tu taller.",
+            )
+            return
         self._finish_login(user)
 
     def _register_user(self) -> None:
@@ -145,14 +160,26 @@ class LoginFrame(ttk.Frame):
         email = self.reg_email_var.get().strip().lower()
         password = normalize_password(self.reg_pass_var.get())
 
-        result = register_usuario(nombre, email, password)
+        codigo = self.reg_codigo_var.get().strip()
+
+        result = register_usuario(nombre, email, password, codigo)
         if not result.get("ok"):
             messagebox.showerror("Registro", result.get("error", "No se pudo crear la cuenta."))
             return
 
+        if result.get("pendiente_rol"):
+            sucursal = result.get("sucursal") or "tu taller"
+            messagebox.showinfo(
+                "Registro",
+                f"Cuenta creada en {sucursal}.\n\n"
+                "Un administrador debe asignarte tu rol antes de que puedas entrar.",
+            )
+            self._show_login()
+            return
+
         user = login(email, password)
         if user:
-            messagebox.showinfo("Registro", "Cuenta de administrador creada. Bienvenido.")
+            messagebox.showinfo("Registro", "Cuenta creada. Bienvenido.")
             self._finish_login(user)
             return
 

@@ -139,7 +139,10 @@ def find_cita_activa_por_placa(
         JOIN clientes cl ON cl.id = c.id_cliente
         JOIN vehiculos v ON v.id = c.id_vehiculo
         WHERE REPLACE(LOWER(v.placa), '-', '') = %s
-          AND c.estado IN ('PENDIENTE', 'EN_PROCESO')
+          AND c.estado IN (
+            'PENDIENTE', 'RECIBIDO', 'DIAGNOSTICO', 'EN_PROCESO',
+            'EN_REPARACION', 'ESPERANDO_REFACCIONES'
+          )
     """
     params: list[Any] = [_norm_placa(placa)]
     if id_sucursal:
@@ -164,20 +167,28 @@ def find_cita_activa_por_placa(
     }
 
 
-def list_vehiculos(id_cliente: int | None = None) -> list[dict]:
+def list_vehiculos(id_cliente: int | None = None, id_sucursal: int | None = None) -> list[dict]:
     query = """
         SELECT v.id, v.numero_economico, v.placa, v.modelo, m.nombre AS marca,
-               c.nombre AS cliente, v.kilometraje, v.activo
+               c.nombre AS cliente, v.kilometraje, v.activo,
+               um.nombre AS mecanico_asignado, v.id_mecanico_asignado
         FROM vehiculos v
         JOIN marcas m ON m.id = v.id_marca
         JOIN clientes c ON c.id = v.id_cliente
+        LEFT JOIN usuarios um ON um.id = v.id_mecanico_asignado
     """
-    params: tuple = ()
+    clauses: list[str] = []
+    params: list[Any] = []
     if id_cliente:
-        query += " WHERE v.id_cliente = %s"
-        params = (id_cliente,)
+        clauses.append("v.id_cliente = %s")
+        params.append(id_cliente)
+    if id_sucursal:
+        clauses.append("v.id_sucursal = %s")
+        params.append(id_sucursal)
+    if clauses:
+        query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY v.id DESC"
-    return fetch_all(query, params)
+    return fetch_all(query, tuple(params))
 
 
 def list_vehiculos_por_usuario(id_usuario: int) -> list[dict]:
@@ -199,14 +210,15 @@ def create_vehiculo(data: dict) -> int:
         INSERT INTO vehiculos (
             numero_economico, placa, serie, id_marca, modelo,
             id_tipo_combustible, id_tipo_unidad, kilometraje, dias_mantenimiento,
-            observaciones, id_cliente, id_usuario
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            observaciones, id_cliente, id_usuario, id_sucursal, id_mecanico_asignado
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
             data["numero_economico"], data["placa"], data["serie"], data["id_marca"],
             data["modelo"], data["id_tipo_combustible"], data["id_tipo_unidad"],
             data["kilometraje"], data["dias_mantenimiento"], data.get("observaciones"),
             data["id_cliente"], data["id_usuario"],
+            data.get("id_sucursal", 1), data.get("id_mecanico_asignado"),
         ),
     )
 
@@ -241,18 +253,26 @@ def create_isla(nombre: str, id_sucursal: int) -> int:
 
 
 def list_mecanicos(id_sucursal: int) -> list[dict]:
-    return fetch_all(
+    """Personal asignable a citas/vehículos (por rol MECANICO o puesto en el taller)."""
+    rows = fetch_all(
         """
-        SELECT u.id, u.nombre
+        SELECT u.id, u.nombre, r.nombre AS rol, p.nombre AS puesto
         FROM usuarios u
         JOIN roles r ON r.id = u.id_rol
-        WHERE u.es_trabajador = 1 AND u.activo = 1
+        LEFT JOIN puestos p ON p.id = u.id_puesto
+        WHERE u.activo = 1
           AND (u.id_sucursal = %s OR u.id_sucursal IS NULL)
-          AND r.nombre IN ('MECANICO', 'JEFE_TALLER', 'ADMIN')
         ORDER BY u.nombre
         """,
         (id_sucursal,),
     )
+    from services.user_roles import can_assign_work_as_mecanico
+
+    return [
+        {"id": r["id"], "nombre": r["nombre"], "rol": r["rol"], "puesto": r.get("puesto")}
+        for r in rows
+        if can_assign_work_as_mecanico(r.get("rol"), r.get("puesto"))
+    ]
 
 
 def assign_mecanico_isla(id_isla: int, id_usuario: int, es_responsable: bool = False) -> None:
@@ -373,7 +393,7 @@ def create_cita(data: dict, servicio_ids: list[int]) -> int:
 def get_cita_by_id(id_cita: int) -> dict | None:
     return fetch_one(
         """
-        SELECT c.id, c.id_cliente, c.estado, c.descripcion_fallo, c.fecha_cita, c.id_horario,
+        SELECT c.id, c.id_cliente, c.id_vehiculo, c.estado, c.descripcion_fallo, c.fecha_cita, c.id_horario,
                c.id_mecanico, c.id_isla,
                cl.nombre AS cliente, v.placa, u.nombre AS mecanico, i.nombre AS isla
         FROM citas c
@@ -382,6 +402,17 @@ def get_cita_by_id(id_cita: int) -> dict | None:
         JOIN usuarios u ON u.id = c.id_mecanico
         JOIN islas i ON i.id = c.id_isla
         WHERE c.id = %s
+        """,
+        (id_cita,),
+    )
+
+
+def get_falla_por_cita(id_cita: int) -> dict | None:
+    return fetch_one(
+        """
+        SELECT diagnostico, observaciones, solucion, descripcion, resuelto
+        FROM fallas_registradas
+        WHERE id_cita = %s
         """,
         (id_cita,),
     )
@@ -396,7 +427,7 @@ def cancelar_cita(id_cita: int) -> dict:
         return {"ok": False, "error": "Cita no encontrada."}
     if cita["estado"] == "CANCELADA":
         return {"ok": False, "error": "La cita ya está cancelada (inactiva)."}
-    if cita["estado"] == "COMPLETADA":
+    if cita["estado"] in ("COMPLETADA", "FINALIZADO"):
         return {"ok": False, "error": "No se puede cancelar una cita ya completada."}
 
     execute("UPDATE citas SET estado = 'CANCELADA' WHERE id = %s", (id_cita,))
@@ -423,7 +454,7 @@ def update_cita(id_cita: int, updates: dict) -> dict:
     )
     if not cita:
         return {"ok": False, "error": "Cita no encontrada."}
-    if cita["estado"] in ("CANCELADA", "COMPLETADA"):
+    if cita["estado"] in ("CANCELADA", "COMPLETADA", "FINALIZADO"):
         return {
             "ok": False,
             "error": f"No se puede editar una cita con estado {cita['estado']}.",
@@ -472,9 +503,59 @@ def cambiar_estado_cita(id_cita: int, estado: str) -> dict:
     estado = (estado or "").upper()
     if estado == "CANCELADA":
         return cancelar_cita(id_cita)
-    if estado not in ("PENDIENTE", "EN_PROCESO", "COMPLETADA"):
+    validos = {
+        "PENDIENTE", "RECIBIDO", "DIAGNOSTICO", "EN_PROCESO", "EN_REPARACION",
+        "ESPERANDO_REFACCIONES", "COMPLETADA", "FINALIZADO",
+    }
+    if estado not in validos:
         return {"ok": False, "error": f"Estado no válido: {estado}"}
     return update_cita(id_cita, {"estado": estado})
+
+
+def actualizar_falla_cita(
+    id_cita: int,
+    *,
+    diagnostico: str | None = None,
+    observaciones: str | None = None,
+    solucion: str | None = None,
+) -> dict:
+    cita = get_cita_by_id(id_cita)
+    if not cita:
+        return {"ok": False, "error": "Cita no encontrada."}
+
+    falla = fetch_one("SELECT id FROM fallas_registradas WHERE id_cita = %s", (id_cita,))
+    if not falla:
+        execute(
+            """
+            INSERT INTO fallas_registradas (id_cita, id_vehiculo, descripcion)
+            VALUES (%s, %s, %s)
+            """,
+            (id_cita, cita["id_vehiculo"], cita.get("descripcion_fallo") or ""),
+        )
+
+    updates: list[str] = []
+    params: list[Any] = []
+    if diagnostico is not None:
+        updates.append("diagnostico = %s")
+        params.append(diagnostico)
+    if observaciones is not None:
+        updates.append("observaciones = %s")
+        params.append(observaciones)
+    if solucion is not None:
+        updates.append("solucion = %s")
+        params.append(solucion)
+        updates.append("resuelto = %s")
+        params.append(1 if solucion.strip() else 0)
+
+    if not updates:
+        return {"ok": False, "error": "Indica diagnóstico, observaciones o solución."}
+
+    params.append(id_cita)
+    execute(
+        f"UPDATE fallas_registradas SET {', '.join(updates)} WHERE id_cita = %s",
+        tuple(params),
+    )
+    return {"ok": True, "id_cita": id_cita, "mensaje": "Información de reparación actualizada."}
 
 
 def count_citas(

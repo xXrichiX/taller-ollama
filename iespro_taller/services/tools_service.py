@@ -355,8 +355,6 @@ class ToolsService:
                 scoped["id_cliente"] = self.id_cliente
             return scoped
         if self.es_mecanico and self.id_mecanico:
-            if name in ("listar_citas", "contar_citas"):
-                scoped["id_mecanico"] = self.id_mecanico
             if name in ("cancelar_cita_natural", "cambiar_estado_cita_natural") and scoped.get("placa"):
                 scoped["id_mecanico"] = self.id_mecanico
         return scoped

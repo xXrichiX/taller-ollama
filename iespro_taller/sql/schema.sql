@@ -2,6 +2,10 @@ CREATE DATABASE IF NOT EXISTS iespro_taller_app
   CHARACTER SET utf8mb4
   COLLATE utf8mb4_unicode_ci;
 
+-- Instalación limpia (opcional): descomenta la siguiente línea y vuelve a ejecutar este script.
+-- DROP DATABASE IF EXISTS iespro_taller_app;
+-- CREATE DATABASE iespro_taller_app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 USE iespro_taller_app;
 
 CREATE TABLE IF NOT EXISTS sucursales (
@@ -20,6 +24,21 @@ CREATE TABLE IF NOT EXISTS roles (
 CREATE TABLE IF NOT EXISTS puestos (
   id INT AUTO_INCREMENT PRIMARY KEY,
   nombre VARCHAR(80) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS codigos_invitacion (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(32) NOT NULL UNIQUE,
+  id_sucursal INT NOT NULL,
+  usos_maximos INT NOT NULL DEFAULT 1,
+  usos_actuales INT NOT NULL DEFAULT 0,
+  expira_en DATETIME NULL,
+  creado_por INT NULL,
+  activo TINYINT(1) NOT NULL DEFAULT 1,
+  permite_admin_sucursal TINYINT(1) NOT NULL DEFAULT 0,
+  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id),
+  FOREIGN KEY (creado_por) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS usuarios (
@@ -76,12 +95,16 @@ CREATE TABLE IF NOT EXISTS vehiculos (
   observaciones TEXT,
   id_cliente INT NOT NULL,
   id_usuario INT NOT NULL,
+  id_sucursal INT NOT NULL DEFAULT 1,
+  id_mecanico_asignado INT NULL,
   activo TINYINT(1) NOT NULL DEFAULT 1,
   FOREIGN KEY (id_marca) REFERENCES marcas(id),
   FOREIGN KEY (id_tipo_combustible) REFERENCES tipos_combustible(id),
   FOREIGN KEY (id_tipo_unidad) REFERENCES tipos_unidad(id),
   FOREIGN KEY (id_cliente) REFERENCES clientes(id),
-  FOREIGN KEY (id_usuario) REFERENCES usuarios(id)
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id),
+  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id),
+  FOREIGN KEY (id_mecanico_asignado) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS tipos_mantenimiento (
@@ -141,7 +164,10 @@ CREATE TABLE IF NOT EXISTS citas (
   descripcion_fallo TEXT NOT NULL,
   fecha_compromiso DATE NOT NULL,
   hora_compromiso TIME NOT NULL,
-  estado ENUM('PENDIENTE','EN_PROCESO','COMPLETADA','CANCELADA') NOT NULL DEFAULT 'PENDIENTE',
+  estado ENUM(
+    'PENDIENTE','RECIBIDO','DIAGNOSTICO','EN_PROCESO','EN_REPARACION',
+    'ESPERANDO_REFACCIONES','COMPLETADA','FINALIZADO','CANCELADA'
+  ) NOT NULL DEFAULT 'PENDIENTE',
   creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (id_cliente) REFERENCES clientes(id),
   FOREIGN KEY (id_vehiculo) REFERENCES vehiculos(id),
@@ -165,6 +191,8 @@ CREATE TABLE IF NOT EXISTS fallas_registradas (
   id_vehiculo INT NOT NULL,
   descripcion TEXT NOT NULL,
   diagnostico TEXT,
+  observaciones TEXT,
+  solucion TEXT,
   resuelto TINYINT(1) NOT NULL DEFAULT 0,
   registrado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (id_cita) REFERENCES citas(id) ON DELETE SET NULL,
@@ -209,17 +237,17 @@ CREATE TABLE IF NOT EXISTS llm_observability_logs (
 );
 
 
-USE iespro_taller_app;
-
 INSERT IGNORE INTO sucursales (id, nombre, direccion) VALUES
 (1, 'Sucursal Centro', 'Av. Principal 100'),
 (2, 'Sucursal Norte', 'Blvd. Norte 250');
 
 INSERT IGNORE INTO roles (id, nombre, descripcion) VALUES
-(1, 'ADMIN', 'Administrador del sistema'),
-(2, 'JEFE_TALLER', 'Jefe de taller'),
-(3, 'MECANICO', 'Mecánico'),
-(4, 'CLIENTE', 'Cliente del taller');
+(1, 'SUPER_ADMIN', 'Administrador superior del sistema'),
+(2, 'ADMIN', 'Administrador de sucursal'),
+(3, 'JEFE_TALLER', 'Jefe de taller (admin de sucursal)'),
+(4, 'MECANICO', 'Permisos de mecánico: ver sucursal, editar solo citas asignadas'),
+(5, 'CLIENTE', 'Solo sus vehículos y citas'),
+(6, 'PENDIENTE', 'Usuario registrado, pendiente de asignación de rol');
 
 INSERT IGNORE INTO puestos (id, nombre) VALUES
 (1, 'Gerente'),
@@ -228,12 +256,12 @@ INSERT IGNORE INTO puestos (id, nombre) VALUES
 (4, 'Mecánico');
 
 INSERT IGNORE INTO usuarios (id, nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto) VALUES
-(1, 'Admin Sistema', 'admin@iespro.mx', 'admin1234', 1, 1, 0, 1, 1),
+(1, 'Admin Sistema', 'admin@iespro.mx', 'admin1234', 1, NULL, 0, 1, 1),
 (2, 'Jefe Taller Centro', 'jefe@iespro.mx', 'jefe1234', 2, 1, 0, 1, 2),
-(3, 'Carlos Mecánico', 'carlos@iespro.mx', 'mec12345', 3, 1, 0, 1, 4),
-(4, 'Ana Mecánica', 'ana@iespro.mx', 'mec12345', 3, 1, 0, 1, 4),
-(5, 'Roberto García', 'roberto@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
-(6, 'María López', 'maria@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL);
+(3, 'Carlos Mecánico', 'carlos@iespro.mx', 'mec12345', 4, 1, 0, 1, 4),
+(4, 'Ana Mecánica', 'ana@iespro.mx', 'mec12345', 4, 1, 0, 1, 4),
+(5, 'Roberto García', 'roberto@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL),
+(6, 'María López', 'maria@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL);
 
 INSERT IGNORE INTO clientes (id, nombre, telefono, email, id_usuario) VALUES
 (1, 'Roberto García', '555-1001', 'roberto@cliente.mx', 5),
@@ -306,13 +334,13 @@ INSERT IGNORE INTO fallas_registradas (id_cita, id_vehiculo, descripcion, diagno
 -- ---------------------------------------------------------------------------
 
 INSERT IGNORE INTO usuarios (id, nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto) VALUES
-(7, 'Jorge Medina', 'jorge@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
-(8, 'Patricia Ruiz', 'patricia@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
-(9, 'Luis Hernández', 'luis@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
-(10, 'Carmen Vega', 'carmen@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
-(11, 'Diego Morales', 'diego@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
-(12, 'Miguel Torre', 'miguel@iespro.mx', 'mec12345', 3, 1, 0, 1, 3),
-(13, 'Laura Recepción', 'laura@iespro.mx', 'rec12345', 2, 1, 0, 1, 2);
+(7, 'Jorge Medina', 'jorge@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL),
+(8, 'Patricia Ruiz', 'patricia@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL),
+(9, 'Luis Hernández', 'luis@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL),
+(10, 'Carmen Vega', 'carmen@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL),
+(11, 'Diego Morales', 'diego@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL),
+(12, 'Miguel Torre', 'miguel@iespro.mx', 'mec12345', 4, 1, 0, 1, 3),
+(13, 'Laura Recepción', 'laura@iespro.mx', 'rec12345', 3, 1, 0, 1, 2);
 
 INSERT IGNORE INTO clientes (id, nombre, telefono, email, id_usuario) VALUES
 (3, 'Jorge Medina', '555-1003', 'jorge@cliente.mx', 7),
@@ -396,4 +424,7 @@ INSERT IGNORE INTO fallas_registradas (id_cita, id_vehiculo, descripcion, diagno
 (NULL, 9, 'Parabrisas con rajadura pequeña lado conductor', 'Reparación con resina', 1),
 (NULL, 10, 'Batería descargada tras 3 días sin uso', 'Prueba de carga: alternador OK, batería al 40%', 1);
 
-
+INSERT IGNORE INTO codigos_invitacion (id, codigo, id_sucursal, usos_maximos, usos_actuales, expira_en, creado_por, activo, permite_admin_sucursal) VALUES
+(1, 'CENTRO-2026', 1, 50, 0, '2027-12-31 23:59:59', 1, 1, 1),
+(2, 'NORTE-2026', 2, 20, 0, '2027-12-31 23:59:59', 1, 1, 0),
+(3, 'DEMO-UN-USO', 1, 1, 0, NULL, 1, 1, 0);
