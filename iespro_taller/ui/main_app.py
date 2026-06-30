@@ -16,6 +16,7 @@ from services.user_roles import (
 )
 from ui.chat_window import ChatWindow
 from ui.login_window import LoginFrame
+from ui.side_panel import SidePanelLayout
 from ui.theme import COLORS, apply_theme, set_button_enabled, style_listbox
 from ui.user_menu import UserProfileMenu
 
@@ -384,36 +385,48 @@ class MainApp(tk.Tk):
 
     def _build_clientes_tab(self):
         frame = ttk.Frame(padding=10)
-        top = ttk.LabelFrame(frame, text="Nuevo cliente", padding=10)
-        top.pack(fill="x")
+        self._cli_layout = SidePanelLayout(frame)
+        self._cli_layout.frame().pack(fill="both", expand=True)
+        self._cli_layout.add_toolbar_button("+ Crear cliente", self._open_cliente_create)
 
         self.cli_nombre = tk.StringVar()
         self.cli_tel = tk.StringVar()
         self.cli_email = tk.StringVar()
         self.cli_usuario_map = {}
 
+        form = self._cli_layout.panel_form
         for label, var in [("Nombre", self.cli_nombre), ("Teléfono", self.cli_tel), ("Email", self.cli_email)]:
-            row = ttk.Frame(top)
+            row = ttk.Frame(form)
             row.pack(fill="x", pady=4)
             ttk.Label(row, text=label, width=14).pack(side="left")
             ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
 
         ttk.Label(
-            top,
+            form,
             text="Si el cliente no usa la app, deja «Sin usuario» y registra su vehículo después.",
-            wraplength=520,
+            wraplength=360,
+            foreground=COLORS["muted"],
         ).pack(anchor="w", pady=(0, 6))
-        self.cli_usuario_cb = self._add_combo_row(top, "Usuario vinculado (opcional)", width=14)
-        self._reload_cliente_usuarios()
-        ttk.Button(top, text="Guardar cliente", command=self._save_cliente).pack(anchor="e", pady=8)
+        self.cli_usuario_cb = self._add_combo_row(form, "Usuario vinculado (opcional)", width=14)
+        ttk.Button(form, text="Guardar cliente", style="Accent.TButton", command=self._save_cliente).pack(
+            anchor="e", pady=8
+        )
 
         self.clientes_tree = self._make_tree(
-            frame,
+            self._cli_layout.tree_host,
             ("nombre", "telefono", "email", "usuario_email"),
             headers={"nombre": "Nombre", "telefono": "Teléfono", "email": "Email", "usuario_email": "Usuario"},
+            pady=0,
         )
         self._load_clientes()
         return frame
+
+    def _open_cliente_create(self) -> None:
+        self.cli_nombre.set("")
+        self.cli_tel.set("")
+        self.cli_email.set("")
+        self._reload_cliente_usuarios()
+        self._cli_layout.show("Nuevo cliente")
 
     def _reload_cliente_usuarios(self):
         usuarios = [u for u in catalog_service.list_usuarios() if u.get("es_cliente")]
@@ -444,6 +457,8 @@ class MainApp(tk.Tk):
             self._reload_cliente_usuarios()
             if hasattr(self, "c_cliente_cb"):
                 self._reload_cita_clientes()
+            if hasattr(self, "_cli_layout"):
+                self._cli_layout.hide()
         except Exception as exc:
             messagebox.showerror("Clientes", str(exc))
 
@@ -453,21 +468,6 @@ class MainApp(tk.Tk):
     def _build_vehiculos_tab(self):
         frame = ttk.Frame(padding=10)
         can_edit = self._can_create_citas() or self._is_cliente_user()
-
-        if self._is_cliente_user():
-            ttk.Label(
-                frame,
-                text="Tus vehículos registrados. El estado de cada cita y el mecánico asignado están en Mis Citas.",
-                foreground=COLORS["muted"],
-                wraplength=700,
-            ).pack(anchor="w", pady=(0, 8))
-        elif self._is_mecanico_user():
-            ttk.Label(
-                frame,
-                text="Consulta todos los vehículos de tu sucursal. Solo puedes trabajar los asignados a ti.",
-                foreground=COLORS["muted"],
-                wraplength=700,
-            ).pack(anchor="w", pady=(0, 8))
 
         self.v_num = tk.StringVar()
         self.v_placa = tk.StringVar()
@@ -488,9 +488,26 @@ class MainApp(tk.Tk):
         self.v_unidad_cb = None
 
         if can_edit:
+            self._veh_layout = SidePanelLayout(frame)
+            self._veh_layout.frame().pack(fill="both", expand=True)
+            btn_label = "+ Registrar mi vehículo" if self._is_cliente_user() else "+ Crear vehículo"
+            self._veh_layout.add_toolbar_button(btn_label, self._open_vehiculo_create)
+
+            if self._is_cliente_user():
+                ttk.Label(
+                    self._veh_layout.toolbar,
+                    text="Tus vehículos registrados. El estado de cada cita está en Mis Citas.",
+                    foreground=COLORS["muted"],
+                ).pack(side="left", padx=(8, 0))
+            else:
+                ttk.Label(
+                    self._veh_layout.toolbar,
+                    text="Vehículos de la sucursal.",
+                    foreground=COLORS["muted"],
+                ).pack(side="left", padx=(8, 0))
+
+            form = self._veh_layout.panel_form
             form_title = "Registrar mi vehículo" if self._is_cliente_user() else "Registrar vehículo"
-            form = ttk.LabelFrame(frame, text=form_title, padding=10)
-            form.pack(fill="x")
 
             if self._is_cliente_user() and not self.id_cliente:
                 ttk.Label(
@@ -517,8 +534,20 @@ class MainApp(tk.Tk):
             self.v_comb_cb = self._add_combo_row(form, "Tipo combustible", width=18)
             self.v_unidad_cb = self._add_combo_row(form, "Tipo unidad", width=18)
 
-            self._reload_vehiculo_combos()
-            ttk.Button(form, text="Guardar vehículo", command=self._save_vehiculo).pack(anchor="e", pady=6)
+            ttk.Button(
+                form, text="Guardar vehículo", style="Accent.TButton", command=self._save_vehiculo
+            ).pack(anchor="e", pady=6)
+            tree_host = self._veh_layout.tree_host
+        else:
+            layout = ttk.Frame(frame)
+            layout.pack(fill="both", expand=True)
+            ttk.Label(
+                layout,
+                text="Consulta todos los vehículos de tu sucursal. Solo puedes trabajar los asignados a ti.",
+                foreground=COLORS["muted"],
+                wraplength=700,
+            ).pack(anchor="w", pady=(0, 8))
+            tree_host = layout
 
         cols = ("placa", "marca", "modelo", "cliente", "mecanico_asignado", "numero_economico", "kilometraje")
         headers = {
@@ -532,9 +561,21 @@ class MainApp(tk.Tk):
                 "cliente": "Cliente", "numero_economico": "No. económico", "kilometraje": "Km",
             }
 
-        self.veh_tree = self._make_tree(frame, cols, headers=headers)
+        self.veh_tree = self._make_tree(tree_host, cols, headers=headers, pady=0 if can_edit else 8)
         self._load_vehiculos()
         return frame
+
+    def _open_vehiculo_create(self) -> None:
+        self.v_num.set("")
+        self.v_placa.set("")
+        self.v_serie.set("")
+        self.v_modelo.set("")
+        self.v_km.set("0")
+        self.v_dias.set("90")
+        self.v_obs.set("")
+        self._reload_vehiculo_combos()
+        title = "Registrar mi vehículo" if self._is_cliente_user() else "Nuevo vehículo"
+        self._veh_layout.show(title)
 
     def _reload_vehiculo_combos(self):
         if not self._is_cliente_user() and self.v_cliente_cb is not None:
@@ -597,6 +638,8 @@ class MainApp(tk.Tk):
             self._load_vehiculos()
             if hasattr(self, "c_cliente_cb"):
                 self._reload_cita_clientes()
+            if hasattr(self, "_veh_layout"):
+                self._veh_layout.hide()
         except Exception as exc:
             messagebox.showerror("Vehículos", str(exc))
 
@@ -611,6 +654,9 @@ class MainApp(tk.Tk):
 
     def _build_citas_tab(self):
         frame = ttk.Frame(padding=10)
+        self._cita_layout = SidePanelLayout(frame, panel_width=440)
+        self._cita_layout.frame().pack(fill="both", expand=True)
+
         self.c_fecha = tk.StringVar(value="2026-06-11")
         self.c_fallo = tk.StringVar()
         self.c_fcomp = tk.StringVar(value="2026-06-11")
@@ -629,10 +675,24 @@ class MainApp(tk.Tk):
         self.c_servicios_lb = None
 
         if self._can_create_citas() or self._is_cliente_user():
-            form_title = "Solicitar cita" if self._is_cliente_user() else "Nueva cita"
-            form = ttk.LabelFrame(frame, text=form_title, padding=10)
-            form.pack(fill="x")
+            btn_text = "+ Solicitar cita" if self._is_cliente_user() else "+ Crear cita"
+            self._cita_layout.add_toolbar_button(btn_text, self._open_cita_create)
+            if self._is_cliente_user():
+                ttk.Label(
+                    self._cita_layout.toolbar,
+                    text="El estado y mecánico asignado aparecerán cuando el taller confirme.",
+                    foreground=COLORS["muted"],
+                ).pack(side="left", padx=(8, 0))
+        elif self._is_mecanico_user():
+            ttk.Label(
+                self._cita_layout.toolbar,
+                text="Ves todas las órdenes de tu sucursal. Solo puedes modificar las asignadas a ti.",
+                foreground=COLORS["muted"],
+            ).pack(side="left", padx=(8, 0))
 
+        self.c_crear_frame = ttk.Frame(self._cita_layout.panel_form)
+        if self._can_create_citas() or self._is_cliente_user():
+            form = self.c_crear_frame
             if self._can_create_citas():
                 self.c_cliente_cb = self._add_combo_row(form, "Cliente")
                 self.c_cliente_cb.bind("<<ComboboxSelected>>", lambda e: self._reload_cita_vehiculos())
@@ -641,6 +701,7 @@ class MainApp(tk.Tk):
                     form,
                     text="El taller asignará mecánico e isla después de tu solicitud.",
                     foreground=COLORS["muted"],
+                    wraplength=380,
                 ).pack(anchor="w", pady=(0, 6))
 
             self.c_vehiculo_cb = self._add_combo_row(form, "Vehículo")
@@ -680,52 +741,12 @@ class MainApp(tk.Tk):
             scroll.pack(side="right", fill="y")
             self.c_servicios_lb.configure(yscrollcommand=scroll.set)
 
-            btn_text = "Solicitar cita" if self._is_cliente_user() else "Crear cita"
-            ttk.Button(form, text=btn_text, command=self._save_cita).pack(anchor="e", pady=6)
-        elif self._is_mecanico_user():
-            ttk.Label(
-                frame,
-                text="Ves todas las órdenes de tu sucursal. Solo puedes modificar las asignadas a ti.",
-                foreground=COLORS["muted"],
-                wraplength=700,
-            ).pack(anchor="w", pady=(0, 8))
+            save_text = "Solicitar cita" if self._is_cliente_user() else "Crear cita"
+            ttk.Button(form, text=save_text, style="Accent.TButton", command=self._save_cita).pack(anchor="e", pady=6)
 
-        if self._is_cliente_user():
-            ttk.Label(
-                frame,
-                text="Aquí verás el estado de tus citas y el mecánico asignado cuando el taller lo confirme.",
-                foreground=COLORS["muted"],
-                wraplength=700,
-            ).pack(anchor="w", pady=(0, 8))
-
-        self._reload_cita_form()
-
-        if self._is_cliente_user():
-            citas_cols = ("placa", "fecha_cita", "estado", "mecanico", "isla", "descripcion_fallo")
-            citas_headers = {
-                "placa": "Placa", "fecha_cita": "Fecha", "estado": "Estado",
-                "mecanico": "Mecánico asignado", "isla": "Isla",
-                "descripcion_fallo": "Falla reportada",
-            }
-        else:
-            citas_cols = ("cliente", "placa", "fecha_cita", "estado", "mecanico", "isla", "descripcion_fallo")
-            citas_headers = {
-                "cliente": "Cliente", "placa": "Placa", "fecha_cita": "Fecha",
-                "estado": "Estado", "mecanico": "Mecánico", "isla": "Isla",
-                "descripcion_fallo": "Falla reportada",
-            }
-
-        self.citas_tree = self._make_tree(frame, citas_cols, headers=citas_headers)
-        self.citas_tree.bind("<<TreeviewSelect>>", self._on_cita_selected)
-
+        self.c_manage_frame = ttk.Frame(self._cita_layout.panel_form)
         if self._can_manage_citas():
-            manage_title = (
-                "Actualizar estado de la cita"
-                if self._is_mecanico_user()
-                else "Actualizar cita seleccionada"
-            )
-            manage = ttk.LabelFrame(frame, text=manage_title, padding=10)
-            manage.pack(fill="x", pady=(0, 8))
+            manage = self.c_manage_frame
             self.c_manage_estado = tk.StringVar()
             self.c_manage_diagnostico = tk.StringVar()
             self.c_manage_observaciones = tk.StringVar()
@@ -756,16 +777,49 @@ class MainApp(tk.Tk):
                 self.c_manage_mec_cb = self._add_combo_row(manage, "Mecánico", width=14)
                 self.c_manage_isla_cb = self._add_combo_row(manage, "Isla", width=14)
                 self._reload_cita_manage_combos()
-            hint = (
-                "Selecciona una orden asignada a ti para actualizar estado, diagnóstico u observaciones."
-                if self._is_mecanico_user()
-                else "Selecciona una cita de la lista para cambiar estado, mecánico o isla."
-            )
-            ttk.Button(manage, text="Guardar cambios", command=self._update_cita_staff).pack(anchor="e", pady=6)
-            ttk.Label(manage, text=hint, foreground=COLORS["muted"]).pack(anchor="w")
+            ttk.Button(
+                manage, text="Guardar cambios", style="Accent.TButton", command=self._update_cita_staff
+            ).pack(anchor="e", pady=6)
 
+        if self._is_cliente_user():
+            citas_cols = ("placa", "fecha_cita", "estado", "mecanico", "isla", "descripcion_fallo")
+            citas_headers = {
+                "placa": "Placa", "fecha_cita": "Fecha", "estado": "Estado",
+                "mecanico": "Mecánico asignado", "isla": "Isla",
+                "descripcion_fallo": "Falla reportada",
+            }
+        else:
+            citas_cols = ("cliente", "placa", "fecha_cita", "estado", "mecanico", "isla", "descripcion_fallo")
+            citas_headers = {
+                "cliente": "Cliente", "placa": "Placa", "fecha_cita": "Fecha",
+                "estado": "Estado", "mecanico": "Mecánico", "isla": "Isla",
+                "descripcion_fallo": "Falla reportada",
+            }
+
+        self.citas_tree = self._make_tree(
+            self._cita_layout.tree_host, citas_cols, headers=citas_headers, pady=0
+        )
+        self.citas_tree.bind("<<TreeviewSelect>>", self._on_cita_selected)
         self._load_citas()
         return frame
+
+    def _open_cita_create(self) -> None:
+        self.c_fallo.set("")
+        self.c_manage_frame.pack_forget()
+        self.c_crear_frame.pack(fill="both", expand=True)
+        self._reload_cita_form()
+        title = "Solicitar cita" if self._is_cliente_user() else "Nueva cita"
+        self._cita_layout.show(title)
+
+    def _show_cita_manage_panel(self) -> None:
+        self.c_crear_frame.pack_forget()
+        self.c_manage_frame.pack(fill="both", expand=True)
+        title = (
+            "Actualizar estado de la cita"
+            if self._is_mecanico_user()
+            else "Actualizar cita seleccionada"
+        )
+        self._cita_layout.show(title)
 
     def _reload_cita_manage_combos(self):
         if not self._can_reassign_citas() or not hasattr(self, "c_manage_mec_cb") or not self.c_manage_mec_cb:
@@ -785,6 +839,7 @@ class MainApp(tk.Tk):
         cita = cita_service.get_cita_by_id(id_cita)
         if not cita:
             return
+        self._show_cita_manage_panel()
         self.c_manage_estado.set(estado_a_etiqueta(cita.get("estado")))
         falla = cita_service.get_falla_por_cita(id_cita)
         if falla and self._is_mecanico_user():
@@ -853,6 +908,8 @@ class MainApp(tk.Tk):
             messagebox.showinfo("Citas", msg)
             self._load_citas()
             self._refresh_dashboard()
+            if hasattr(self, "_cita_layout"):
+                self._cita_layout.hide()
         except Exception as exc:
             messagebox.showerror("Citas", str(exc))
 
@@ -1005,6 +1062,8 @@ class MainApp(tk.Tk):
             self._load_citas()
             self._reload_cita_horarios()
             self.c_fallo.set("")
+            if hasattr(self, "_cita_layout"):
+                self._cita_layout.hide()
         except Exception as exc:
             messagebox.showerror("Citas", str(exc))
 
@@ -1040,62 +1099,90 @@ class MainApp(tk.Tk):
             if not result.get("ok"):
                 raise ValueError(result.get("error", "No se pudo guardar el código."))
             messagebox.showinfo("Código guardado", f"Código de invitación: {result['codigo']}")
-            self._nuevo_codigo_taller()
+            self.taller_codigo.set("")
+            if hasattr(self, "_taller_layout"):
+                self._taller_layout.hide()
         except Exception as exc:
             messagebox.showerror("Código de invitación", str(exc))
 
     def _build_taller_tab(self):
         frame = ttk.Frame(padding=10)
-
+        self._taller_layout = SidePanelLayout(frame)
+        self._taller_layout.frame().pack(fill="both", expand=True)
+        self._taller_layout.add_toolbar_button("+ Crear isla", self._open_isla_create)
+        self._taller_layout.add_toolbar_button("+ Asignar mecánico", self._open_isla_assign, accent=False)
         if can_manage_branch(self.user.get("rol_nombre") if self.user else None) and not self._is_super_admin_user():
-            inv = ttk.LabelFrame(frame, text="Código de invitación de tu sucursal", padding=10)
-            inv.pack(fill="x", pady=(0, 8))
-            ttk.Label(
-                inv,
-                text=f"Sucursal: {self._sucursal_nombre()}",
-                foreground=COLORS["muted"],
-            ).pack(anchor="w", pady=(0, 6))
-            self.taller_codigo = tk.StringVar()
-            row = ttk.Frame(inv)
-            row.pack(fill="x", pady=4)
-            ttk.Label(row, text="Código", width=14).pack(side="left")
-            ttk.Entry(row, textvariable=self.taller_codigo, state="readonly", width=24).pack(side="left")
-            ttk.Button(row, text="Generar código", command=self._nuevo_codigo_taller).pack(side="left", padx=8)
-            ttk.Button(
-                inv,
-                text="Guardar código",
-                style="Accent.TButton",
-                command=self._guardar_codigo_taller,
-            ).pack(anchor="e", pady=(4, 0))
-            self._nuevo_codigo_taller()
+            self._taller_layout.add_toolbar_button("+ Código invitación", self._open_taller_codigo, accent=False)
 
-        isla_form = ttk.LabelFrame(frame, text="Nueva isla", padding=10)
-        isla_form.pack(fill="x")
+        self.taller_isla_frame = ttk.Frame(self._taller_layout.panel_form)
         self.isla_nombre = tk.StringVar()
-        row = ttk.Frame(isla_form)
+        row = ttk.Frame(self.taller_isla_frame)
         row.pack(fill="x")
         ttk.Label(row, text="Nombre isla", width=14).pack(side="left")
         ttk.Entry(row, textvariable=self.isla_nombre).pack(side="left", fill="x", expand=True)
-        ttk.Button(isla_form, text="Crear isla", command=self._save_isla).pack(anchor="e", pady=4)
+        ttk.Button(
+            self.taller_isla_frame, text="Crear isla", style="Accent.TButton", command=self._save_isla
+        ).pack(anchor="e", pady=8)
 
-        asign_form = ttk.LabelFrame(frame, text="Asignar mecánico a isla", padding=10)
-        asign_form.pack(fill="x", pady=8)
+        self.taller_asign_frame = ttk.Frame(self._taller_layout.panel_form)
         self.asig_resp = tk.BooleanVar(value=False)
         self.asig_isla_map = {}
         self.asig_mec_map = {}
-        self.asig_isla_cb = self._add_combo_row(asign_form, "Isla", width=20)
-        self.asig_mec_cb = self._add_combo_row(asign_form, "Mecánico", width=20)
-        self._reload_asignacion_combos()
-        ttk.Checkbutton(asign_form, text="Es responsable", variable=self.asig_resp).pack(anchor="w")
-        ttk.Button(asign_form, text="Asignar", command=self._assign_mecanico).pack(anchor="e", pady=4)
+        self.asig_isla_cb = self._add_combo_row(self.taller_asign_frame, "Isla", width=20)
+        self.asig_mec_cb = self._add_combo_row(self.taller_asign_frame, "Mecánico", width=20)
+        ttk.Checkbutton(self.taller_asign_frame, text="Es responsable", variable=self.asig_resp).pack(anchor="w")
+        ttk.Button(
+            self.taller_asign_frame, text="Asignar", style="Accent.TButton", command=self._assign_mecanico
+        ).pack(anchor="e", pady=8)
+
+        self.taller_codigo_frame = ttk.Frame(self._taller_layout.panel_form)
+        self.taller_codigo = tk.StringVar()
+        ttk.Label(
+            self.taller_codigo_frame,
+            text=f"Sucursal: {self._sucursal_nombre()}",
+            foreground=COLORS["muted"],
+        ).pack(anchor="w", pady=(0, 6))
+        row = ttk.Frame(self.taller_codigo_frame)
+        row.pack(fill="x", pady=4)
+        ttk.Label(row, text="Código", width=14).pack(side="left")
+        ttk.Entry(row, textvariable=self.taller_codigo, state="readonly", width=24).pack(side="left")
+        ttk.Button(row, text="Generar código", command=self._nuevo_codigo_taller).pack(side="left", padx=8)
+        ttk.Button(
+            self.taller_codigo_frame,
+            text="Guardar código",
+            style="Accent.TButton",
+            command=self._guardar_codigo_taller,
+        ).pack(anchor="e", pady=(4, 0))
 
         self.islas_tree = self._make_tree(
-            frame,
+            self._taller_layout.tree_host,
             ("nombre", "activo"),
             headers={"nombre": "Isla", "activo": "Activa"},
+            pady=0,
         )
         self._load_islas()
         return frame
+
+    def _open_isla_create(self) -> None:
+        self.isla_nombre.set("")
+        self.taller_asign_frame.pack_forget()
+        self.taller_codigo_frame.pack_forget()
+        self.taller_isla_frame.pack(fill="both", expand=True)
+        self._taller_layout.show("Nueva isla")
+
+    def _open_isla_assign(self) -> None:
+        self.taller_isla_frame.pack_forget()
+        self.taller_codigo_frame.pack_forget()
+        self.taller_asign_frame.pack(fill="both", expand=True)
+        self._reload_asignacion_combos()
+        self._taller_layout.show("Asignar mecánico a isla")
+
+    def _open_taller_codigo(self) -> None:
+        self.taller_codigo.set("")
+        self.taller_isla_frame.pack_forget()
+        self.taller_asign_frame.pack_forget()
+        self.taller_codigo_frame.pack(fill="both", expand=True)
+        self._taller_layout.show("Código de invitación")
 
     def _save_isla(self):
         try:
@@ -1105,6 +1192,8 @@ class MainApp(tk.Tk):
             self._reload_asignacion_combos()
             if hasattr(self, "c_isla_cb"):
                 self._reload_cita_islas()
+            if hasattr(self, "_taller_layout"):
+                self._taller_layout.hide()
         except Exception as exc:
             messagebox.showerror("Islas", str(exc))
 
@@ -1124,6 +1213,8 @@ class MainApp(tk.Tk):
                 self.asig_resp.get(),
             )
             messagebox.showinfo("Islas", "Mecánico asignado.")
+            if hasattr(self, "_taller_layout"):
+                self._taller_layout.hide()
         except Exception as exc:
             messagebox.showerror("Islas", str(exc))
 
@@ -1132,13 +1223,15 @@ class MainApp(tk.Tk):
 
     def _build_sucursales_tab(self):
         frame = ttk.Frame(padding=10)
-        form = ttk.LabelFrame(frame, text="Nueva sucursal (taller)", padding=10)
-        form.pack(fill="x")
+        self._suc_layout = SidePanelLayout(frame)
+        self._suc_layout.frame().pack(fill="both", expand=True)
+        self._suc_layout.add_toolbar_button("+ Crear sucursal", self._open_sucursal_create)
 
         self.suc_nombre = tk.StringVar()
         self.suc_dir = tk.StringVar()
         self.suc_codigo = tk.StringVar()
 
+        form = self._suc_layout.panel_form
         for label, var in [("Nombre", self.suc_nombre), ("Dirección", self.suc_dir)]:
             row = ttk.Frame(form)
             row.pack(fill="x", pady=4)
@@ -1161,21 +1254,27 @@ class MainApp(tk.Tk):
         ).pack(side="right")
 
         ttk.Label(
-            frame,
+            form,
             text="Genera un código, créala cuando te guste, y al guardar la sucursal se almacena ese código.",
             foreground=COLORS["muted"],
-            wraplength=720,
+            wraplength=360,
         ).pack(anchor="w", pady=(8, 4))
 
         self.sucursales_tree = self._make_tree(
-            frame,
+            self._suc_layout.tree_host,
             ("nombre", "direccion", "activo"),
             headers={"nombre": "Nombre", "direccion": "Dirección", "activo": "Activa"},
             height=10,
+            pady=0,
         )
-        self._nuevo_codigo_sucursal()
         self._load_sucursales()
         return frame
+
+    def _open_sucursal_create(self) -> None:
+        self.suc_nombre.set("")
+        self.suc_dir.set("")
+        self.suc_codigo.set("")
+        self._suc_layout.show("Nueva sucursal (taller)")
 
     def _nuevo_codigo_sucursal(self) -> None:
         from services.invitation_service import generar_codigo_aleatorio
@@ -1212,8 +1311,9 @@ class MainApp(tk.Tk):
             )
             self.suc_nombre.set("")
             self.suc_dir.set("")
-            self._nuevo_codigo_sucursal()
+            self.suc_codigo.set("")
             self._load_sucursales()
+            self._suc_layout.hide()
         except Exception as exc:
             messagebox.showerror("Sucursales", str(exc))
 
@@ -1225,35 +1325,47 @@ class MainApp(tk.Tk):
 
     def _build_usuarios_tab(self):
         frame = ttk.Frame(padding=10)
-        form = ttk.LabelFrame(frame, text="Nuevo usuario del taller", padding=10)
-        form.pack(fill="x")
+        self._usr_layout = SidePanelLayout(frame, panel_width=420)
+        self._usr_layout.frame().pack(fill="both", expand=True)
+        self._usr_layout.add_toolbar_button("+ Crear usuario", self._open_usuario_create)
 
-        ttk.Label(
-            form,
-            text=(
-                "El ROL define los permisos en el sistema. El PUESTO es solo el cargo en el taller "
-                "(Gerente, Mecánico, etc.) y no cambia lo que puede hacer en la app."
-            ),
-            foreground=COLORS["muted"],
-            wraplength=640,
-        ).pack(anchor="w", pady=(0, 8))
-
+        self.u_editing_id = None
         self.u_nombre = tk.StringVar()
         self.u_email = tk.StringVar()
-        self.u_pass = tk.StringVar(value="pass1234")
+        self.u_pass = tk.StringVar()
         self.u_rol_map = {}
         self.u_suc_map = {}
         self.u_puesto_map = {}
         self.u_roles_staff = []
 
-        for label, var in [("Nombre", self.u_nombre), ("Email", self.u_email), ("Contraseña", self.u_pass)]:
+        form = self._usr_layout.panel_form
+        ttk.Label(
+            form,
+            text=(
+                "Seleccione un usuario para editar o pulse «+ Crear usuario» para añadir uno nuevo.\n"
+                "El ROL define permisos; el PUESTO es solo el cargo en el taller."
+            ),
+            foreground=COLORS["muted"],
+            wraplength=380,
+        ).pack(anchor="w", pady=(0, 8))
+
+        ttk.Label(form, text="Información básica", style="Section.TLabel").pack(anchor="w", pady=(0, 4))
+        for label, var in [("Nombre", self.u_nombre), ("Email", self.u_email)]:
             row = ttk.Frame(form)
             row.pack(fill="x", pady=4)
             ttk.Label(row, text=label, width=14).pack(side="left")
-            ttk.Entry(row, textvariable=var, show="*" if "Contraseña" in label else "").pack(side="left", fill="x", expand=True)
+            ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
 
-        self.u_rol_cb = self._add_combo_row(form, "Rol (permisos)", width=14)
         self.u_suc_cb = self._add_combo_row(form, "Sucursal", width=14)
+
+        ttk.Label(form, text="Seguridad", style="Section.TLabel").pack(anchor="w", pady=(8, 4))
+        row = ttk.Frame(form)
+        row.pack(fill="x", pady=4)
+        ttk.Label(row, text="Contraseña", width=14).pack(side="left")
+        ttk.Entry(row, textvariable=self.u_pass, show="*").pack(side="left", fill="x", expand=True)
+
+        ttk.Label(form, text="Rol y puesto", style="Section.TLabel").pack(anchor="w", pady=(8, 4))
+        self.u_rol_cb = self._add_combo_row(form, "Rol (permisos)", width=14)
         self.u_puesto_cb = self._add_combo_row(form, "Puesto en el taller", width=14)
 
         self.u_roles_staff = [r for r in catalog_service.list_roles() if r["nombre"] not in ("PENDIENTE",)]
@@ -1265,72 +1377,84 @@ class MainApp(tk.Tk):
         puestos = catalog_service.list_puestos()
         self.u_puesto_map = self._fill_combo(self.u_puesto_cb, puestos, lambda p: p["nombre"], "id")
 
-        ttk.Label(
-            form,
-            text="Ej.: rol ADMIN + puesto Mecánico = administra la sucursal pero es mecánico de oficio.",
-            foreground=COLORS["muted"],
-            wraplength=640,
-        ).pack(anchor="w", pady=(2, 0))
-        ttk.Button(form, text="Guardar usuario", command=self._save_usuario).pack(anchor="e", pady=4)
-
-        assign = ttk.LabelFrame(frame, text="Cambiar rol o puesto de usuario existente", padding=10)
-        assign.pack(fill="x", pady=(0, 8))
-        self.u_assign_map = {}
-        self.u_assign_rol_map = {}
-        self.u_assign_puesto_map = {}
-        self.u_assign_cb = self._add_combo_row(assign, "Usuario", width=14)
-        self.u_assign_rol_cb = self._add_combo_row(assign, "Rol (permisos)", width=14)
-        self.u_assign_puesto_cb = self._add_combo_row(assign, "Puesto en el taller", width=14)
-        ttk.Button(assign, text="Actualizar", command=self._assign_usuario_rol).pack(anchor="e", pady=6)
-        self._reload_usuario_assign_combos()
+        btn_row = ttk.Frame(form)
+        btn_row.pack(fill="x", pady=(12, 0))
+        ttk.Button(
+            btn_row, text="Guardar cambios", style="Accent.TButton", command=self._save_usuario_panel
+        ).pack(side="right")
 
         self.users_tree = self._make_tree(
-            frame,
+            self._usr_layout.tree_host,
             ("nombre", "email", "rol", "puesto", "sucursal"),
             headers={
                 "nombre": "Nombre", "email": "Email", "rol": "Rol (permisos)",
                 "puesto": "Puesto", "sucursal": "Sucursal",
             },
+            pady=0,
         )
+        self.users_tree.bind("<<TreeviewSelect>>", self._on_usuario_selected)
         self._load_usuarios()
         return frame
 
-    def _reload_usuario_assign_combos(self):
-        if not hasattr(self, "u_assign_cb"):
+    def _open_usuario_create(self) -> None:
+        self.u_editing_id = None
+        self.u_nombre.set("")
+        self.u_email.set("")
+        self.u_pass.set("pass1234")
+        self._reload_usuario_panel_combos()
+        self._usr_layout.show("Nuevo usuario del taller")
+
+    def _reload_usuario_panel_combos(self) -> None:
+        if not hasattr(self, "u_rol_cb"):
             return
+        self.u_rol_map = self._fill_combo(self.u_rol_cb, self.u_roles_staff, lambda r: r["nombre"], "id")
+        sucursales = catalog_service.list_sucursales()
+        self.u_suc_map = self._fill_combo(self.u_suc_cb, sucursales, lambda s: s["nombre"], "id")
+        puestos = catalog_service.list_puestos()
+        self.u_puesto_map = self._fill_combo(self.u_puesto_cb, puestos, lambda p: p["nombre"], "id")
+
+    def _on_usuario_selected(self, _event=None) -> None:
+        sel = self.users_tree.selection()
+        if not sel:
+            return
+        id_usuario = int(sel[0])
         id_sucursal = None if self._is_super_admin_user() else self.id_sucursal
         usuarios = catalog_service.list_usuarios(id_sucursal)
-        self.u_assign_map = self._fill_combo(
-            self.u_assign_cb,
-            usuarios,
-            lambda u: f"{u['nombre']} — {u['email']} ({u['rol']})",
-            "id",
-        )
-        roles = [r for r in catalog_service.list_roles() if r["nombre"] != "PENDIENTE"]
-        if not self._is_super_admin_user():
-            roles = [r for r in roles if r["nombre"] != "SUPER_ADMIN"]
-        self.u_assign_rol_map = self._fill_combo(
-            self.u_assign_rol_cb, roles, lambda r: r["nombre"], "id",
-        )
-        puestos = catalog_service.list_puestos()
-        self.u_assign_puesto_map = self._fill_combo(
-            self.u_assign_puesto_cb, puestos, lambda p: p["nombre"], "id",
-        )
+        usuario = next((u for u in usuarios if u["id"] == id_usuario), None)
+        if not usuario:
+            return
+        self.u_editing_id = id_usuario
+        self.u_nombre.set(usuario.get("nombre") or "")
+        self.u_email.set(usuario.get("email") or "")
+        self.u_pass.set("")
+        if usuario.get("rol"):
+            self.u_rol_cb.set(usuario["rol"])
+        if usuario.get("puesto") and usuario["puesto"] != "—":
+            self.u_puesto_cb.set(usuario["puesto"])
+        if usuario.get("sucursal"):
+            self.u_suc_cb.set(usuario["sucursal"])
+        self._usr_layout.show("Detalles del usuario")
 
-    def _assign_usuario_rol(self):
+    def _save_usuario_panel(self) -> None:
+        if self.u_editing_id:
+            self._assign_usuario_rol_from_panel()
+        else:
+            self._save_usuario()
+
+    def _assign_usuario_rol_from_panel(self) -> None:
         try:
-            id_usuario = self._combo_id(self.u_assign_cb, self.u_assign_map, "usuario")
-            id_rol = self._combo_id(self.u_assign_rol_cb, self.u_assign_rol_map, "rol")
-            rol_nombre = self.u_assign_rol_cb.get().strip()
+            id_usuario = self.u_editing_id
+            if not id_usuario:
+                raise ValueError("Selecciona un usuario de la lista.")
+            id_rol = self._combo_id(self.u_rol_cb, self.u_rol_map, "rol")
+            rol_nombre = self.u_rol_cb.get().strip()
             catalog_service.update_usuario_rol(id_usuario, id_rol, rol_nombre)
-            if self.u_assign_puesto_cb.get().strip():
-                id_puesto = self._combo_id(
-                    self.u_assign_puesto_cb, self.u_assign_puesto_map, "puesto"
-                )
+            if self.u_puesto_cb.get().strip():
+                id_puesto = self._combo_id(self.u_puesto_cb, self.u_puesto_map, "puesto")
                 catalog_service.update_usuario_puesto(id_usuario, id_puesto)
             messagebox.showinfo("Usuarios", "Usuario actualizado.")
             self._load_usuarios()
-            self._reload_usuario_assign_combos()
+            self._usr_layout.hide()
         except Exception as exc:
             messagebox.showerror("Usuarios", str(exc))
 
@@ -1358,6 +1482,8 @@ class MainApp(tk.Tk):
             messagebox.showinfo("Usuarios", "Usuario creado.")
             self._load_usuarios()
             self._reload_cliente_usuarios()
+            if hasattr(self, "_usr_layout"):
+                self._usr_layout.hide()
         except Exception as exc:
             messagebox.showerror("Usuarios", str(exc))
 
@@ -1400,13 +1526,13 @@ class MainApp(tk.Tk):
         return mapping[value]
 
     @staticmethod
-    def _make_tree(parent, columns, headers=None, height=12):
+    def _make_tree(parent, columns, headers=None, height=12, pady=8):
         tree = ttk.Treeview(parent, columns=columns, show="headings", height=height)
         headers = headers or {}
         for col in columns:
             tree.heading(col, text=headers.get(col, col.replace("_", " ").title()))
             tree.column(col, width=130, anchor="w")
-        tree.pack(fill="both", expand=True, pady=8)
+        tree.pack(fill="both", expand=True, pady=pady)
         return tree
 
     @staticmethod
