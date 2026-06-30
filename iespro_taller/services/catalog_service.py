@@ -26,7 +26,28 @@ def list_roles() -> list[dict]:
 
 
 def list_puestos() -> list[dict]:
-    return fetch_all("SELECT id, nombre FROM puestos ORDER BY nombre")
+    return fetch_all(
+        "SELECT id, nombre FROM puestos WHERE nombre IN ('Admin', 'Mecánico') ORDER BY nombre"
+    )
+
+
+def rol_from_puesto(puesto_nombre: str) -> tuple[int, str]:
+    """Deriva rol interno desde puesto visible en UI (Admin → ADMIN, Mecánico → MECANICO)."""
+    p = (puesto_nombre or "").strip().lower()
+    if p == "admin":
+        row = fetch_one("SELECT id, nombre FROM roles WHERE nombre = 'ADMIN'")
+    else:
+        row = fetch_one("SELECT id, nombre FROM roles WHERE nombre = 'MECANICO'")
+    if not row:
+        raise ValueError("Puesto no válido.")
+    return int(row["id"]), row["nombre"]
+
+
+def assign_usuario_staff(id_usuario: int, id_puesto: int, puesto_nombre: str) -> dict[str, Any]:
+    """Asigna puesto en el taller y el rol de sistema correspondiente."""
+    id_rol, rol_nombre = rol_from_puesto(puesto_nombre)
+    update_usuario_puesto(id_usuario, id_puesto)
+    return update_usuario_rol(id_usuario, id_rol, rol_nombre)
 
 
 def list_usuarios(id_sucursal: int | None = None) -> list[dict]:
@@ -144,6 +165,9 @@ def register_usuario(
 def create_usuario(data: dict) -> int:
     from services.user_roles import flags_for_role
 
+    if data.get("puesto_nombre") and not data.get("id_rol"):
+        id_rol, rol_nombre = rol_from_puesto(data["puesto_nombre"])
+        data["id_rol"] = id_rol
     rol = fetch_one("SELECT nombre FROM roles WHERE id = %s", (data["id_rol"],))
     rol_nombre = rol["nombre"] if rol else ""
     es_cliente, es_trabajador = flags_for_role(rol_nombre)
@@ -164,7 +188,20 @@ def create_usuario(data: dict) -> int:
     )
 
 
-def list_clientes() -> list[dict]:
+def list_clientes(id_sucursal: int | None = None, id_mecanico: int | None = None) -> list[dict]:
+    if id_mecanico:
+        return fetch_all(
+            """
+            SELECT DISTINCT c.id, c.nombre, c.telefono, c.email, c.id_usuario, u.email AS usuario_email
+            FROM clientes c
+            LEFT JOIN usuarios u ON u.id = c.id_usuario
+            LEFT JOIN vehiculos v ON v.id_cliente = c.id AND v.id_mecanico_asignado = %s
+            LEFT JOIN citas ct ON ct.id_cliente = c.id AND ct.id_mecanico = %s
+            WHERE v.id IS NOT NULL OR ct.id IS NOT NULL
+            ORDER BY c.nombre
+            """,
+            (id_mecanico, id_mecanico),
+        )
     return fetch_all(
         """
         SELECT c.id, c.nombre, c.telefono, c.email, c.id_usuario, u.email AS usuario_email

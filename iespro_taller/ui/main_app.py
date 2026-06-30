@@ -62,8 +62,8 @@ class MainApp(tk.Tk):
             messagebox.showinfo(
                 "Cuenta pendiente",
                 "Tu cuenta fue creada correctamente.\n\n"
-                "Un administrador debe asignarte tu rol (cliente, mecánico o administrador) "
-                "antes de que puedas usar el sistema. Intenta iniciar sesión más tarde.",
+                "Un administrador debe asignarte tu puesto (Admin o Mecánico) "
+                "antes de que puedas usar el sistema.",
             )
             return
 
@@ -102,15 +102,15 @@ class MainApp(tk.Tk):
         if is_super_admin(user.get("rol_nombre")):
             notebook.add(self._build_sucursales_tab(), text="  Sucursales  ")
 
-        if can_manage_branch(user.get("rol_nombre")):
+        if can_manage_branch(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
             notebook.add(self._build_clientes_tab(), text="  Clientes  ")
 
         if is_cliente(user.get("rol_nombre")):
             veh_label = "  Mis Vehículos  "
             cita_label = "  Mis Citas  "
         elif is_mecanico(user.get("rol_nombre")):
-            veh_label = "  Vehículos (sucursal)  "
-            cita_label = "  Órdenes de trabajo  "
+            veh_label = "  Vehículos  "
+            cita_label = "  Citas  "
         else:
             veh_label = "  Vehículos  "
             cita_label = "  Citas  "
@@ -245,9 +245,16 @@ class MainApp(tk.Tk):
         filters: dict = {}
         if self._is_cliente_user() and self.id_cliente:
             filters["id_cliente"] = self.id_cliente
+        elif self._is_mecanico_user() and self.user:
+            filters["id_mecanico"] = self.user["id"]
         if not self._is_super_admin_user():
             filters["id_sucursal"] = self.id_sucursal
         return filters
+
+    def _clientes_filters(self) -> dict:
+        if self._is_mecanico_user() and self.user:
+            return {"id_mecanico": self.user["id"]}
+        return {}
 
     def _can_reassign_citas(self) -> bool:
         return bool(self.user and can_manage_branch(self.user.get("rol_nombre")))
@@ -256,7 +263,16 @@ class MainApp(tk.Tk):
         return bool(self.user and is_workshop_staff(self.user.get("rol_nombre")))
 
     def _can_create_citas(self) -> bool:
-        return bool(self.user and can_manage_branch(self.user.get("rol_nombre")))
+        return bool(
+            self.user
+            and (can_manage_branch(self.user.get("rol_nombre")) or is_mecanico(self.user.get("rol_nombre")))
+        )
+
+    def _can_create_clientes(self) -> bool:
+        return bool(
+            self.user
+            and (can_manage_branch(self.user.get("rol_nombre")) or is_mecanico(self.user.get("rol_nombre")))
+        )
 
     def _stat_card(self, parent, title: str, value_var: tk.StringVar, accent: bool = False):
         outer = tk.Frame(parent, bg=COLORS["border"], padx=1, pady=1)
@@ -275,7 +291,12 @@ class MainApp(tk.Tk):
         vehiculos: list = []
         if id_cliente:
             vehiculos = cita_service.list_vehiculos(id_cliente=id_cliente)
-        elif self._is_mecanico_user() or (can_manage_branch(self.user.get("rol_nombre")) and not self._is_super_admin_user()):
+        elif self._is_mecanico_user() and self.user:
+            vehiculos = cita_service.list_vehiculos(
+                id_sucursal=self.id_sucursal,
+                id_mecanico_asignado=self.user["id"],
+            )
+        elif can_manage_branch(self.user.get("rol_nombre")) and not self._is_super_admin_user():
             vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
         elif self._is_super_admin_user():
             vehiculos = cita_service.list_vehiculos()
@@ -320,7 +341,7 @@ class MainApp(tk.Tk):
                 self.dash_stat_vars["citas"] = tk.StringVar(value="0")
                 self.dash_stat_vars["pendientes"] = tk.StringVar(value="0")
                 self.dash_stat_vars["proceso"] = tk.StringVar(value="0")
-                self._stat_card(row1, "Órdenes en sucursal", self.dash_stat_vars["citas"], accent=True)
+                self._stat_card(row1, "Mis citas", self.dash_stat_vars["citas"], accent=True)
                 self._stat_card(row1, "Pendientes", self.dash_stat_vars["pendientes"], accent=True)
                 self._stat_card(row1, "En proceso", self.dash_stat_vars["proceso"])
                 row2 = ttk.Frame(self.dash_cards)
@@ -457,7 +478,7 @@ class MainApp(tk.Tk):
             messagebox.showerror("Clientes", str(exc))
 
     def _load_clientes(self):
-        self._fill_tree(self.clientes_tree, catalog_service.list_clientes())
+        self._fill_tree(self.clientes_tree, catalog_service.list_clientes(**self._clientes_filters()))
 
     def _build_vehiculos_tab(self):
         frame = ttk.Frame(padding=10)
@@ -510,7 +531,8 @@ class MainApp(tk.Tk):
 
             if not self._is_cliente_user():
                 self.v_cliente_cb = self._add_combo_row(form, "Propietario (cliente)", width=18)
-                self.v_mecanico_cb = self._add_combo_row(form, "Mecánico asignado", width=18)
+                if not self._is_mecanico_user():
+                    self.v_mecanico_cb = self._add_combo_row(form, "Mecánico asignado", width=18)
             self.v_marca_cb = self._add_combo_row(form, "Marca", width=18)
             self.v_comb_cb = self._add_combo_row(form, "Tipo combustible", width=18)
             self.v_unidad_cb = self._add_combo_row(form, "Tipo unidad", width=18)
@@ -522,12 +544,6 @@ class MainApp(tk.Tk):
         else:
             layout = ttk.Frame(frame)
             layout.pack(fill="both", expand=True)
-            ttk.Label(
-                layout,
-                text="Consulta todos los vehículos de tu sucursal. Solo puedes trabajar los asignados a ti.",
-                foreground=COLORS["muted"],
-                wraplength=700,
-            ).pack(anchor="w", pady=(0, 8))
             tree_host = layout
 
         cols = ("placa", "marca", "modelo", "cliente", "mecanico_asignado", "numero_economico", "kilometraje")
@@ -594,7 +610,9 @@ class MainApp(tk.Tk):
             id_usuario = catalog_service.ensure_cliente_usuario(id_cliente)
 
             id_mecanico = None
-            if self.v_mecanico_cb and self.v_mecanico_map:
+            if self._is_mecanico_user() and self.user:
+                id_mecanico = self.user["id"]
+            elif self.v_mecanico_cb and self.v_mecanico_map:
                 sel = self.v_mecanico_cb.get()
                 id_mecanico = self.v_mecanico_map.get(sel)
 
@@ -627,6 +645,11 @@ class MainApp(tk.Tk):
     def _load_vehiculos(self):
         if self._is_cliente_user():
             rows = cita_service.list_vehiculos(id_cliente=self.id_cliente)
+        elif self._is_mecanico_user() and self.user:
+            rows = cita_service.list_vehiculos(
+                id_sucursal=self.id_sucursal,
+                id_mecanico_asignado=self.user["id"],
+            )
         elif self._is_super_admin_user():
             rows = cita_service.list_vehiculos()
         else:
@@ -675,7 +698,7 @@ class MainApp(tk.Tk):
             ttk.Button(row, text="Cargar horarios", command=self._reload_cita_horarios).pack(side="left", padx=8)
 
             self.c_horario_cb = self._add_combo_row(form, "Hora de la cita")
-            if self._can_create_citas():
+            if self._can_reassign_citas():
                 self.c_mecanico_cb = self._add_combo_row(form, "Mecánico asignado")
                 self.c_isla_cb = self._add_combo_row(form, "Isla asignada")
 
@@ -1002,8 +1025,13 @@ class MainApp(tk.Tk):
                 id_isla = defaults["id_isla"]
             else:
                 id_cliente = self._combo_id(self.c_cliente_cb, self.c_cliente_map, "cliente")
-                id_mecanico = self._combo_id(self.c_mecanico_cb, self.c_mecanico_map, "mecánico")
-                id_isla = self._combo_id(self.c_isla_cb, self.c_isla_map, "isla")
+                if self._is_mecanico_user() and self.user:
+                    defaults = cita_service.get_default_asignacion_taller(self.id_sucursal)
+                    id_mecanico = self.user["id"]
+                    id_isla = defaults["id_isla"]
+                else:
+                    id_mecanico = self._combo_id(self.c_mecanico_cb, self.c_mecanico_map, "mecánico")
+                    id_isla = self._combo_id(self.c_isla_cb, self.c_isla_map, "isla")
 
             cita_id = cita_service.create_cita({
                 "id_cliente": id_cliente,
@@ -1285,10 +1313,8 @@ class MainApp(tk.Tk):
         self.u_nombre = tk.StringVar()
         self.u_email = tk.StringVar()
         self.u_pass = tk.StringVar()
-        self.u_rol_map = {}
         self.u_suc_map = {}
         self.u_puesto_map = {}
-        self.u_roles_staff = []
 
         form = self._usr_layout.panel_form
 
@@ -1307,17 +1333,8 @@ class MainApp(tk.Tk):
         ttk.Label(row, text="Contraseña", width=14).pack(side="left")
         ttk.Entry(row, textvariable=self.u_pass, show="*").pack(side="left", fill="x", expand=True)
 
-        ttk.Label(form, text="Rol y puesto", style="Section.TLabel").pack(anchor="w", pady=(8, 4))
-        self.u_rol_cb = self._add_combo_row(form, "Rol (permisos)", width=14)
-        self.u_puesto_cb = self._add_combo_row(form, "Puesto en el taller", width=14)
+        self.u_puesto_cb = self._add_combo_row(form, "Puesto", width=14)
 
-        self.u_roles_staff = [
-            r for r in catalog_service.list_roles()
-            if r["nombre"] not in ("PENDIENTE", "CLIENTE")
-        ]
-        if not is_super_admin(self.user.get("rol_nombre") if self.user else None):
-            self.u_roles_staff = [r for r in self.u_roles_staff if r["nombre"] != "SUPER_ADMIN"]
-        self.u_rol_map = self._fill_combo(self.u_rol_cb, self.u_roles_staff, lambda r: r["nombre"], "id")
         sucursales = catalog_service.list_sucursales()
         self.u_suc_map = self._fill_combo(self.u_suc_cb, sucursales, lambda s: s["nombre"], "id")
         puestos = catalog_service.list_puestos()
@@ -1331,9 +1348,9 @@ class MainApp(tk.Tk):
 
         self.users_tree = self._make_tree(
             self._usr_layout.tree_host,
-            ("nombre", "email", "rol", "puesto", "sucursal"),
+            ("nombre", "email", "puesto", "sucursal"),
             headers={
-                "nombre": "Nombre", "email": "Email", "rol": "Rol (permisos)",
+                "nombre": "Nombre", "email": "Email",
                 "puesto": "Puesto", "sucursal": "Sucursal",
             },
             pady=0,
@@ -1351,9 +1368,8 @@ class MainApp(tk.Tk):
         self._usr_layout.show("Nuevo usuario del taller")
 
     def _reload_usuario_panel_combos(self) -> None:
-        if not hasattr(self, "u_rol_cb"):
+        if not hasattr(self, "u_puesto_cb"):
             return
-        self.u_rol_map = self._fill_combo(self.u_rol_cb, self.u_roles_staff, lambda r: r["nombre"], "id")
         sucursales = catalog_service.list_sucursales()
         self.u_suc_map = self._fill_combo(self.u_suc_cb, sucursales, lambda s: s["nombre"], "id")
         puestos = catalog_service.list_puestos()
@@ -1373,8 +1389,6 @@ class MainApp(tk.Tk):
         self.u_nombre.set(usuario.get("nombre") or "")
         self.u_email.set(usuario.get("email") or "")
         self.u_pass.set("")
-        if usuario.get("rol") and usuario["rol"] != "PENDIENTE":
-            self.u_rol_cb.set(usuario["rol"])
         if usuario.get("puesto") and usuario["puesto"] != "—":
             self.u_puesto_cb.set(usuario["puesto"])
         if usuario.get("sucursal"):
@@ -1392,12 +1406,11 @@ class MainApp(tk.Tk):
             id_usuario = self.u_editing_id
             if not id_usuario:
                 raise ValueError("Selecciona un usuario de la lista.")
-            id_rol = self._combo_id(self.u_rol_cb, self.u_rol_map, "rol")
-            rol_nombre = self.u_rol_cb.get().strip()
-            catalog_service.update_usuario_rol(id_usuario, id_rol, rol_nombre)
-            if self.u_puesto_cb.get().strip():
-                id_puesto = self._combo_id(self.u_puesto_cb, self.u_puesto_map, "puesto")
-                catalog_service.update_usuario_puesto(id_usuario, id_puesto)
+            puesto_nombre = self.u_puesto_cb.get().strip()
+            if not puesto_nombre:
+                raise ValueError("Selecciona un puesto.")
+            id_puesto = self._combo_id(self.u_puesto_cb, self.u_puesto_map, "puesto")
+            catalog_service.assign_usuario_staff(id_usuario, id_puesto, puesto_nombre)
             messagebox.showinfo("Usuarios", "Usuario actualizado.")
             self._load_usuarios()
             self._usr_layout.hide()
@@ -1415,13 +1428,15 @@ class MainApp(tk.Tk):
                 messagebox.showerror("Usuarios", msg)
                 return
 
-            puesto_sel = self.u_puesto_cb.get()
-            id_puesto = self.u_puesto_map.get(puesto_sel)
+            puesto_sel = self.u_puesto_cb.get().strip()
+            if not puesto_sel:
+                raise ValueError("Selecciona un puesto.")
+            id_puesto = self._combo_id(self.u_puesto_cb, self.u_puesto_map, "puesto")
             catalog_service.create_usuario({
                 "nombre": self.u_nombre.get().strip(),
                 "email": email,
                 "password": password,
-                "id_rol": self._combo_id(self.u_rol_cb, self.u_rol_map, "rol"),
+                "puesto_nombre": puesto_sel,
                 "id_sucursal": self._combo_id(self.u_suc_cb, self.u_suc_map, "sucursal"),
                 "id_puesto": id_puesto,
             })

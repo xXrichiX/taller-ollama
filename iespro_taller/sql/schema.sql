@@ -250,16 +250,14 @@ INSERT IGNORE INTO roles (id, nombre, descripcion) VALUES
 (6, 'PENDIENTE', 'Usuario registrado, pendiente de asignación de rol');
 
 INSERT IGNORE INTO puestos (id, nombre) VALUES
-(1, 'Gerente'),
-(2, 'Jefe de Taller'),
-(3, 'Mecánico Senior'),
-(4, 'Mecánico');
+(1, 'Admin'),
+(2, 'Mecánico');
 
 INSERT IGNORE INTO usuarios (id, nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto) VALUES
 (1, 'Admin Sistema', 'admin@iespro.mx', 'admin1234', 1, NULL, 0, 1, 1),
-(2, 'Jefe Taller Centro', 'jefe@iespro.mx', 'jefe1234', 2, 1, 0, 1, 2),
-(3, 'Carlos Mecánico', 'carlos@iespro.mx', 'mec12345', 4, 1, 0, 1, 4),
-(4, 'Ana Mecánica', 'ana@iespro.mx', 'mec12345', 4, 1, 0, 1, 4),
+(2, 'Jefe Taller Centro', 'jefe@iespro.mx', 'jefe1234', 2, 1, 0, 1, 1),
+(3, 'Carlos Mecánico', 'carlos@iespro.mx', 'mec12345', 4, 1, 0, 1, 2),
+(4, 'Ana Mecánica', 'ana@iespro.mx', 'mec12345', 4, 1, 0, 1, 2),
 (5, 'Roberto García', 'roberto@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL),
 (6, 'María López', 'maria@cliente.mx', 'cli12345', 5, 1, 1, 0, NULL);
 

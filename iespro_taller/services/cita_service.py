@@ -167,7 +167,11 @@ def find_cita_activa_por_placa(
     }
 
 
-def list_vehiculos(id_cliente: int | None = None, id_sucursal: int | None = None) -> list[dict]:
+def list_vehiculos(
+    id_cliente: int | None = None,
+    id_sucursal: int | None = None,
+    id_mecanico_asignado: int | None = None,
+) -> list[dict]:
     query = """
         SELECT v.id, v.numero_economico, v.placa, v.modelo, m.nombre AS marca,
                c.nombre AS cliente, v.kilometraje, v.activo,
@@ -185,6 +189,9 @@ def list_vehiculos(id_cliente: int | None = None, id_sucursal: int | None = None
     if id_sucursal:
         clauses.append("v.id_sucursal = %s")
         params.append(id_sucursal)
+    if id_mecanico_asignado:
+        clauses.append("v.id_mecanico_asignado = %s")
+        params.append(id_mecanico_asignado)
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
     query += " ORDER BY v.id DESC"

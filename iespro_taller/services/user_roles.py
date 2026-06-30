@@ -13,8 +13,11 @@ STAFF_MANAGE_ROLES = SUPER_ADMIN_ROLES | BRANCH_ADMIN_ROLES
 WORKSHOP_STAFF_ROLES = STAFF_MANAGE_ROLES | frozenset({"MECANICO"})
 PENDING_ROLES = frozenset({"PENDIENTE"})
 
-# Puestos que pueden recibir vehículos/citas en el piso del taller (asignación operativa).
-PUESTOS_MECANICO_ASIGNABLE = frozenset({"Mecánico", "Mecánico Senior"})
+# Puestos visibles al asignar personal del taller.
+PUESTOS_STAFF_UI = frozenset({"Admin", "Mecánico"})
+
+# Puestos que pueden recibir vehículos/citas en el piso del taller.
+PUESTOS_MECANICO_ASIGNABLE = frozenset({"Mecánico"})
 
 
 def _norm(rol_nombre: str | None) -> str:

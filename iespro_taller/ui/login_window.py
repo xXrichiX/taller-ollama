@@ -141,7 +141,7 @@ class LoginFrame(ttk.Frame):
         if user.get("rol_nombre") == "PENDIENTE":
             messagebox.showinfo(
                 "Cuenta pendiente",
-                "Tu cuenta aún no tiene rol asignado. Contacta al administrador de tu taller.",
+                "Tu cuenta aún no tiene puesto asignado. Contacta al administrador de tu taller.",
             )
             return
         self._finish_login(user)
@@ -165,7 +165,7 @@ class LoginFrame(ttk.Frame):
             messagebox.showinfo(
                 "Registro",
                 f"Cuenta creada en {sucursal}.\n\n"
-                "Un administrador debe asignarte tu rol antes de que puedas entrar.",
+                "Un administrador debe asignarte tu puesto antes de que puedas entrar.",
             )
             self._show_login()
             return
