@@ -1,4 +1,5 @@
 import tkinter as tk
+from datetime import date
 from tkinter import messagebox, ttk
 
 from config import DEFAULT_SUCURSAL_ID
@@ -15,6 +16,7 @@ from services.user_roles import (
     is_workshop_staff,
 )
 from ui.chat_window import ChatWindow
+from ui.date_picker import DatePickerRow
 from ui.login_window import LoginFrame
 from ui.side_panel import SidePanelLayout
 from ui.theme import COLORS, apply_theme, set_button_enabled, style_listbox
@@ -112,16 +114,16 @@ class MainApp(tk.Tk):
         sucursal_nombre = self._sucursal_nombre()
         self._build_header(user, sucursal_nombre)
 
-        notebook = ttk.Notebook(self.container)
-        notebook.pack(fill="both", expand=True, padx=0, pady=0)
+        self.notebook = ttk.Notebook(self.container)
+        self.notebook.pack(fill="both", expand=True, padx=0, pady=0)
 
-        notebook.add(self._build_dashboard_tab(), text="  Inicio  ")
-
-        if is_admin(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
-            notebook.add(self._build_sucursales_tab(), text="  Sucursales  ")
+        self.notebook.add(self._build_dashboard_tab(), text="  Inicio  ")
 
         if is_admin(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
-            notebook.add(self._build_clientes_tab(), text="  Clientes  ")
+            self.notebook.add(self._build_sucursales_tab(), text="  Sucursales  ")
+
+        if is_admin(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
+            self.notebook.add(self._build_clientes_tab(), text="  Clientes  ")
 
         if is_cliente(user.get("rol_nombre")):
             veh_label = "  Mis Vehículos  "
@@ -134,14 +136,14 @@ class MainApp(tk.Tk):
             cita_label = "  Citas  "
 
         if not is_cliente(user.get("rol_nombre")):
-            notebook.add(self._build_vehiculos_tab(), text=veh_label)
+            self.notebook.add(self._build_vehiculos_tab(), text=veh_label)
         elif is_cliente(user.get("rol_nombre")):
-            notebook.add(self._build_vehiculos_tab(), text=veh_label)
+            self.notebook.add(self._build_vehiculos_tab(), text=veh_label)
 
-        notebook.add(self._build_citas_tab(), text=cita_label)
+        self.notebook.add(self._build_citas_tab(), text=cita_label)
 
         if is_admin(user.get("rol_nombre")):
-            notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
+            self.notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
 
     def _build_header(self, user: dict, sucursal_nombre: str) -> None:
         header = tk.Frame(self.container, bg=COLORS["header"], padx=20, pady=10)
@@ -328,6 +330,8 @@ class MainApp(tk.Tk):
             },
             height=20,
         )
+        if self._can_manage_citas():
+            self.dash_citas_tree.bind("<<TreeviewSelect>>", self._open_cita_from_dashboard)
 
         self._refresh_dashboard()
         return frame
@@ -754,9 +758,10 @@ class MainApp(tk.Tk):
         self._cita_layout = SidePanelLayout(frame, panel_width=440)
         self._cita_layout.frame().pack(fill="both", expand=True)
 
-        self.c_fecha = tk.StringVar(value="2026-06-11")
+        today = date.today().isoformat()
+        self.c_fecha = tk.StringVar(value=today)
         self.c_fallo = tk.StringVar()
-        self.c_fcomp = tk.StringVar(value="2026-06-11")
+        self.c_fcomp = tk.StringVar(value=today)
         self.c_hcomp = tk.StringVar(value="18:00:00")
         self.c_cliente_map = {}
         self.c_vehiculo_map = {}
@@ -784,11 +789,15 @@ class MainApp(tk.Tk):
 
             self.c_vehiculo_cb = self._add_combo_row(form, "Vehículo")
 
-            row = ttk.Frame(form)
-            row.pack(fill="x", pady=2)
-            ttk.Label(row, text="Fecha cita", width=26).pack(side="left")
-            ttk.Entry(row, textvariable=self.c_fecha, width=14).pack(side="left")
-            ttk.Button(row, text="Cargar horarios", command=self._reload_cita_horarios).pack(side="left", padx=8)
+            today = date.today().isoformat()
+            self.c_fecha.set(today)
+            DatePickerRow(
+                form,
+                self.c_fecha,
+                label="Fecha cita",
+                on_change=self._reload_cita_horarios,
+            ).pack_row()
+            ttk.Button(form, text="Cargar horarios", command=self._reload_cita_horarios).pack(anchor="e", pady=(0, 4))
 
             self.c_horario_cb = self._add_combo_row(form, "Hora de la cita")
             if self._can_reassign_citas():
@@ -800,11 +809,18 @@ class MainApp(tk.Tk):
             ttk.Label(row, text="Descripción del fallo", width=26).pack(side="left", anchor="n")
             ttk.Entry(row, textvariable=self.c_fallo).pack(side="left", fill="x", expand=True)
 
+            if self._can_create_citas() and not self._is_cliente_user():
+                row = ttk.Frame(form)
+                row.pack(fill="x", pady=2)
+                ttk.Label(row, text="Estado inicial", width=26).pack(side="left")
+                ttk.Label(row, text="En espera", foreground=COLORS["muted"]).pack(side="left")
+
+            self.c_fcomp.set(today)
+            DatePickerRow(form, self.c_fcomp, label="Fecha compromiso").pack_row()
+
             row = ttk.Frame(form)
             row.pack(fill="x", pady=2)
-            ttk.Label(row, text="Fecha compromiso", width=26).pack(side="left")
-            ttk.Entry(row, textvariable=self.c_fcomp, width=14).pack(side="left")
-            ttk.Label(row, text="Hora compromiso").pack(side="left", padx=(12, 4))
+            ttk.Label(row, text="Hora compromiso", width=26).pack(side="left")
             ttk.Entry(row, textvariable=self.c_hcomp, width=10).pack(side="left")
 
             row = ttk.Frame(form)
@@ -826,6 +842,7 @@ class MainApp(tk.Tk):
         if self._can_manage_citas():
             manage = self.c_manage_frame
             self.c_manage_estado = tk.StringVar()
+            self.c_manage_falla = tk.StringVar()
             self.c_manage_diagnostico = tk.StringVar()
             self.c_manage_observaciones = tk.StringVar()
             self.c_manage_solucion = tk.StringVar()
@@ -834,6 +851,14 @@ class MainApp(tk.Tk):
             self.c_manage_mec_cb = None
             self.c_manage_isla_cb = None
             estados_vals = ESTADOS_MECANICO_UI if self._is_mecanico_user() else ESTADOS_UI
+
+            row = ttk.Frame(manage)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text="Falla reportada", width=14).pack(side="left", anchor="n")
+            ttk.Label(
+                row, textvariable=self.c_manage_falla, wraplength=280, foreground=COLORS["muted"],
+            ).pack(side="left", fill="x", expand=True)
+
             row = ttk.Frame(manage)
             row.pack(fill="x", pady=2)
             ttk.Label(row, text="Estado", width=14).pack(side="left")
@@ -841,16 +866,17 @@ class MainApp(tk.Tk):
                 row, textvariable=self.c_manage_estado, values=estados_vals, state="readonly", width=18,
             )
             self.c_manage_estado_cb.pack(side="left")
-            if self._is_mecanico_user():
-                for label, var in [
-                    ("Diagnóstico", self.c_manage_diagnostico),
-                    ("Observaciones", self.c_manage_observaciones),
-                    ("Solución", self.c_manage_solucion),
-                ]:
-                    row = ttk.Frame(manage)
-                    row.pack(fill="x", pady=2)
-                    ttk.Label(row, text=label, width=14).pack(side="left", anchor="n")
-                    ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
+
+            for label, var in [
+                ("Diagnóstico", self.c_manage_diagnostico),
+                ("Observaciones", self.c_manage_observaciones),
+                ("Solución", self.c_manage_solucion),
+            ]:
+                row = ttk.Frame(manage)
+                row.pack(fill="x", pady=2)
+                ttk.Label(row, text=label, width=14).pack(side="left", anchor="n")
+                ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
+
             if self._can_reassign_citas():
                 self.c_manage_mec_cb = self._add_combo_row(manage, "Mecánico", width=14)
                 self.c_manage_isla_cb = self._add_combo_row(manage, "Isla", width=14)
@@ -909,6 +935,29 @@ class MainApp(tk.Tk):
         islas = cita_service.list_islas(self.id_sucursal)
         self.c_manage_isla_map = self._fill_combo(self.c_manage_isla_cb, islas, lambda i: i["nombre"], "id")
 
+    def _focus_cita(self, id_cita: int) -> None:
+        if not hasattr(self, "citas_tree"):
+            return
+        for tab_id in self.notebook.tabs():
+            label = self.notebook.tab(tab_id, "text")
+            if "Cita" in label:
+                self.notebook.select(tab_id)
+                break
+        iid = str(id_cita)
+        if self.citas_tree.exists(iid):
+            self.citas_tree.selection_set(iid)
+            self.citas_tree.focus(iid)
+            self.citas_tree.see(iid)
+            self._on_cita_selected()
+
+    def _open_cita_from_dashboard(self, _event=None) -> None:
+        if not self._can_manage_citas():
+            return
+        sel = self.dash_citas_tree.selection()
+        if not sel:
+            return
+        self._focus_cita(int(sel[0]))
+
     def _on_cita_selected(self, _event=None) -> None:
         if not self._can_manage_citas() or not hasattr(self, "c_manage_estado_cb"):
             return
@@ -921,11 +970,16 @@ class MainApp(tk.Tk):
             return
         self._show_cita_manage_panel()
         self.c_manage_estado.set(estado_a_etiqueta(cita.get("estado")))
+        self.c_manage_falla.set(cita.get("descripcion_fallo") or "—")
         falla = cita_service.get_falla_por_cita(id_cita)
-        if falla and self._is_mecanico_user():
+        if falla:
             self.c_manage_diagnostico.set(falla.get("diagnostico") or "")
             self.c_manage_observaciones.set(falla.get("observaciones") or "")
             self.c_manage_solucion.set(falla.get("solucion") or "")
+        else:
+            self.c_manage_diagnostico.set("")
+            self.c_manage_observaciones.set("")
+            self.c_manage_solucion.set("")
         if self.c_manage_mec_cb and cita.get("mecanico"):
             self.c_manage_mec_cb.set(cita["mecanico"])
         if self.c_manage_isla_cb and cita.get("isla"):
@@ -966,25 +1020,33 @@ class MainApp(tk.Tk):
                 result = cita_service.cambiar_estado_cita(id_cita, estado)
             elif self._is_mecanico_user():
                 result = cita_service.cambiar_estado_cita(id_cita, estado)
-                falla_res = cita_service.actualizar_falla_cita(
-                    id_cita,
-                    diagnostico=self.c_manage_diagnostico.get().strip() or None,
-                    observaciones=self.c_manage_observaciones.get().strip() or None,
-                    solucion=self.c_manage_solucion.get().strip() or None,
-                )
-                if not falla_res.get("ok") and any([
-                    self.c_manage_diagnostico.get().strip(),
-                    self.c_manage_observaciones.get().strip(),
-                    self.c_manage_solucion.get().strip(),
-                ]):
-                    raise ValueError(falla_res.get("error", "No se pudo guardar diagnóstico."))
             else:
                 result = cita_service.update_cita(id_cita, updates)
+
+            diag = self.c_manage_diagnostico.get().strip()
+            obs = self.c_manage_observaciones.get().strip()
+            sol = self.c_manage_solucion.get().strip()
+            if diag or obs or sol:
+                falla_res = cita_service.actualizar_falla_cita(
+                    id_cita,
+                    diagnostico=diag or None,
+                    observaciones=obs or None,
+                    solucion=sol or None,
+                )
+                if not falla_res.get("ok"):
+                    raise ValueError(falla_res.get("error", "No se pudo guardar diagnóstico/solución."))
 
             if not result.get("ok"):
                 raise ValueError(result.get("error", "No se pudo actualizar la cita."))
 
-            msg = "Estado actualizado." if self._is_mecanico_user() else "Cita actualizada. El cliente verá el nuevo estado y asignación."
+            try:
+                self.chat_service.rag.sync_fallas_from_db()
+            except Exception:
+                pass
+
+            msg = "Cita actualizada."
+            if self._is_mecanico_user():
+                msg = "Estado y reparación guardados."
             messagebox.showinfo("Citas", msg)
             self._load_citas()
             self._refresh_dashboard()

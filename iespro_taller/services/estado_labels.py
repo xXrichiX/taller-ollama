@@ -1,7 +1,7 @@
 """Etiquetas legibles para estados de órdenes de trabajo (citas)."""
 
 ESTADO_A_ETIQUETA = {
-    "PENDIENTE": "Pendiente",
+        "PENDIENTE": "En espera",
     "RECIBIDO": "Recibido",
     "DIAGNOSTICO": "Diagnóstico",
     "EN_PROCESO": "En proceso",
@@ -27,11 +27,10 @@ ESTADOS_UI = [
 ]
 
 ESTADOS_MECANICO_UI = [
+    "En espera",
     "Recibido",
     "Diagnóstico",
     "En reparación",
-    "Esperando refacciones",
-    "En proceso",
     "Finalizado",
 ]
 

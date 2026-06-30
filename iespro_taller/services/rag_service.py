@@ -44,6 +44,8 @@ class RagService:
             text = falla["descripcion"]
             if falla.get("diagnostico"):
                 text += f" Diagnóstico: {falla['diagnostico']}"
+            if falla.get("solucion"):
+                text += f" Solución: {falla['solucion']}"
 
             self.collection.add(
                 ids=[doc_id],

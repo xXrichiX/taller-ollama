@@ -621,7 +621,7 @@ def get_mecanicos_por_isla(id_isla: int) -> list[dict]:
 def list_fallas() -> list[dict]:
     return fetch_all(
         """
-        SELECT f.id, f.descripcion, f.diagnostico, f.resuelto,
+        SELECT f.id, f.descripcion, f.diagnostico, f.solucion, f.resuelto,
                v.placa, c.id AS id_cita
         FROM fallas_registradas f
         JOIN vehiculos v ON v.id = f.id_vehiculo
