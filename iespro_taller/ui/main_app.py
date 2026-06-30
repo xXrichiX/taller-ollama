@@ -7,11 +7,11 @@ from services.chat_service import ChatService
 from services.estado_labels import ESTADOS_MECANICO_UI, ESTADOS_UI, estado_a_etiqueta, etiqueta_a_estado
 from services.user_roles import (
     can_manage_branch,
+    is_admin,
     is_cliente,
     is_mecanico,
     is_pending,
     is_staff_manager,
-    is_super_admin,
     is_workshop_staff,
 )
 from ui.chat_window import ChatWindow
@@ -69,11 +69,17 @@ class MainApp(tk.Tk):
 
         self.user = user
         self.id_cliente = None
+        self.sucursales_ids = user.get("sucursales_ids") or []
         if is_cliente(user.get("rol_nombre")) and user.get("id"):
             cliente = catalog_service.get_cliente_by_usuario(user["id"])
             self.id_cliente = cliente["id"] if cliente else None
-        if user.get("id_sucursal"):
+        if self.sucursales_ids:
+            self.id_sucursal = self.sucursales_ids[0]
+        elif user.get("id_sucursal"):
             self.id_sucursal = user["id_sucursal"]
+        else:
+            self.id_sucursal = None
+        if self.id_sucursal:
             self.chat_service.id_sucursal = self.id_sucursal
         self.chat_service.set_user(user)
 
@@ -99,10 +105,10 @@ class MainApp(tk.Tk):
 
         notebook.add(self._build_dashboard_tab(), text="  Inicio  ")
 
-        if is_super_admin(user.get("rol_nombre")):
+        if is_admin(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
             notebook.add(self._build_sucursales_tab(), text="  Sucursales  ")
 
-        if can_manage_branch(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
+        if is_admin(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
             notebook.add(self._build_clientes_tab(), text="  Clientes  ")
 
         if is_cliente(user.get("rol_nombre")):
@@ -122,9 +128,9 @@ class MainApp(tk.Tk):
 
         notebook.add(self._build_citas_tab(), text=cita_label)
 
-        if can_manage_branch(user.get("rol_nombre")):
+        if is_admin(user.get("rol_nombre")):
             notebook.add(self._build_taller_tab(), text="  Mi Taller  ")
-        if is_staff_manager(user.get("rol_nombre")):
+        if is_admin(user.get("rol_nombre")):
             notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
 
     def _build_header(self, user: dict, sucursal_nombre: str) -> None:
@@ -143,6 +149,21 @@ class MainApp(tk.Tk):
         )
         self.user_menu.pack(anchor="w")
 
+        if is_admin(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
+            suc_frame = tk.Frame(header, bg=COLORS["header"])
+            suc_frame.pack(side="right", padx=(0, 12))
+            tk.Label(
+                suc_frame, text="Sucursal activa:", bg=COLORS["header"],
+                fg="#cbd5e1", font=("Helvetica", 10),
+            ).pack(side="left", padx=(0, 6))
+            self.sucursal_var = tk.StringVar()
+            self.sucursal_cb = ttk.Combobox(
+                suc_frame, textvariable=self.sucursal_var, state="readonly", width=28,
+            )
+            self.sucursal_cb.pack(side="left")
+            self.sucursal_cb.bind("<<ComboboxSelected>>", self._on_sucursal_changed)
+            self._reload_sucursal_selector()
+
         ttk.Button(
             header,
             text="Abrir asistente IA",
@@ -160,9 +181,50 @@ class MainApp(tk.Tk):
             f"Nombre: {u['nombre']}\n"
             f"Correo: {u['email']}\n"
             f"Rol (permisos): {u['rol_nombre']}\n"
-            f"Puesto en el taller: {puesto}\n"
-            f"Sucursal: {self._sucursal_nombre()}",
+            f"Puesto: {puesto}\n"
+            f"Sucursal activa: {self._sucursal_nombre()}",
         )
+
+    def _reload_sucursal_selector(self) -> None:
+        if not hasattr(self, "sucursal_cb"):
+            return
+        if self._is_admin_user():
+            rows = catalog_service.list_sucursales()
+        elif self.user:
+            rows = catalog_service.list_sucursales_usuario(self.user["id"])
+        else:
+            rows = []
+        self._sucursal_map = {s["nombre"]: s["id"] for s in rows}
+        names = list(self._sucursal_map.keys())
+        self.sucursal_cb["values"] = names
+        if names:
+            current = self._sucursal_nombre()
+            if current in names:
+                self.sucursal_var.set(current)
+            else:
+                self.sucursal_var.set(names[0])
+                self._switch_sucursal(self._sucursal_map[names[0]])
+        else:
+            self.sucursal_var.set("")
+
+    def _on_sucursal_changed(self, _event=None) -> None:
+        nombre = self.sucursal_var.get()
+        if nombre and hasattr(self, "_sucursal_map") and nombre in self._sucursal_map:
+            self._switch_sucursal(self._sucursal_map[nombre])
+
+    def _switch_sucursal(self, id_sucursal: int) -> None:
+        self.id_sucursal = id_sucursal
+        self.chat_service.id_sucursal = id_sucursal
+        if hasattr(self, "clientes_tree"):
+            self._load_clientes()
+        if hasattr(self, "veh_tree"):
+            self._load_vehiculos()
+        if hasattr(self, "citas_tree"):
+            self._load_citas()
+        if hasattr(self, "sucursales_tree") and not self._is_admin_user():
+            pass
+        if hasattr(self, "dash_citas_tree"):
+            self._refresh_dashboard()
 
     def _logout(self) -> None:
         if self.user_menu:
@@ -184,10 +246,17 @@ class MainApp(tk.Tk):
         LoginFrame(self.container, self._on_login)
 
     def _sucursal_nombre(self):
+        if not self.id_sucursal:
+            return "Sin sucursal"
         for s in catalog_service.list_sucursales():
             if s["id"] == self.id_sucursal:
                 return s["nombre"]
         return f"Sucursal {self.id_sucursal}"
+
+    def _require_sucursal(self) -> int:
+        if not self.id_sucursal:
+            raise ValueError("Selecciona o crea una sucursal primero.")
+        return self.id_sucursal
 
     def _open_chat(self):
         if self.chat_window and self.chat_window.winfo_exists():
@@ -232,8 +301,11 @@ class MainApp(tk.Tk):
             return "Panel del mecánico"
         return "Panel del taller"
 
+    def _is_admin_user(self) -> bool:
+        return bool(self.user and is_admin(self.user.get("rol_nombre")))
+
     def _is_super_admin_user(self) -> bool:
-        return bool(self.user and is_super_admin(self.user.get("rol_nombre")))
+        return self._is_admin_user()
 
     def _is_cliente_user(self) -> bool:
         return bool(self.user and is_cliente(self.user.get("rol_nombre")))
@@ -245,15 +317,13 @@ class MainApp(tk.Tk):
         filters: dict = {}
         if self._is_cliente_user() and self.id_cliente:
             filters["id_cliente"] = self.id_cliente
-        elif self._is_mecanico_user() and self.user:
-            filters["id_mecanico"] = self.user["id"]
-        if not self._is_super_admin_user():
+        if self.id_sucursal:
             filters["id_sucursal"] = self.id_sucursal
         return filters
 
     def _clientes_filters(self) -> dict:
-        if self._is_mecanico_user() and self.user:
-            return {"id_mecanico": self.user["id"]}
+        if self.id_sucursal:
+            return {"id_sucursal": self.id_sucursal}
         return {}
 
     def _can_reassign_citas(self) -> bool:
@@ -291,14 +361,11 @@ class MainApp(tk.Tk):
         vehiculos: list = []
         if id_cliente:
             vehiculos = cita_service.list_vehiculos(id_cliente=id_cliente)
-        elif self._is_mecanico_user() and self.user:
-            vehiculos = cita_service.list_vehiculos(
-                id_sucursal=self.id_sucursal,
-                id_mecanico_asignado=self.user["id"],
-            )
-        elif can_manage_branch(self.user.get("rol_nombre")) and not self._is_super_admin_user():
+        elif self._is_mecanico_user() and self.id_sucursal:
             vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
-        elif self._is_super_admin_user():
+        elif self._is_admin_user() and self.id_sucursal:
+            vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
+        elif self._is_admin_user():
             vehiculos = cita_service.list_vehiculos()
 
         if self._is_cliente_user() or self._is_mecanico_user():
@@ -645,12 +712,11 @@ class MainApp(tk.Tk):
     def _load_vehiculos(self):
         if self._is_cliente_user():
             rows = cita_service.list_vehiculos(id_cliente=self.id_cliente)
-        elif self._is_mecanico_user() and self.user:
-            rows = cita_service.list_vehiculos(
-                id_sucursal=self.id_sucursal,
-                id_mecanico_asignado=self.user["id"],
-            )
-        elif self._is_super_admin_user():
+        elif self._is_mecanico_user() and self.id_sucursal:
+            rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
+        elif self._is_admin_user() and self.id_sucursal:
+            rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
+        elif self._is_admin_user():
             rows = cita_service.list_vehiculos()
         else:
             rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
@@ -1100,27 +1166,19 @@ class MainApp(tk.Tk):
         self._taller_layout = SidePanelLayout(frame)
         self._taller_layout.frame().pack(fill="both", expand=True)
         self._taller_layout.add_toolbar_button("+ Crear isla", self._open_isla_create)
-        self._taller_layout.add_toolbar_button("+ Asignar mecánico", self._open_isla_assign, accent=False)
-        if can_manage_branch(self.user.get("rol_nombre") if self.user else None) and not self._is_super_admin_user():
+        if can_manage_branch(self.user.get("rol_nombre") if self.user else None) and self._is_admin_user():
             self._taller_layout.add_toolbar_button("+ Código invitación", self._open_taller_codigo, accent=False)
 
         self.taller_isla_frame = ttk.Frame(self._taller_layout.panel_form)
         self.isla_nombre = tk.StringVar()
+        self.isla_mec_map = {}
         row = ttk.Frame(self.taller_isla_frame)
-        row.pack(fill="x")
+        row.pack(fill="x", pady=4)
         ttk.Label(row, text="Nombre isla", width=14).pack(side="left")
         ttk.Entry(row, textvariable=self.isla_nombre).pack(side="left", fill="x", expand=True)
+        self.isla_mec_cb = self._add_combo_row(self.taller_isla_frame, "Mecánico", width=14)
         ttk.Button(
             self.taller_isla_frame, text="Crear isla", style="Accent.TButton", command=self._save_isla
-        ).pack(anchor="e", pady=8)
-
-        self.taller_asign_frame = ttk.Frame(self._taller_layout.panel_form)
-        self.asig_isla_map = {}
-        self.asig_mec_map = {}
-        self.asig_isla_cb = self._add_combo_row(self.taller_asign_frame, "Isla", width=20)
-        self.asig_mec_cb = self._add_combo_row(self.taller_asign_frame, "Mecánico", width=20)
-        ttk.Button(
-            self.taller_asign_frame, text="Asignar", style="Accent.TButton", command=self._assign_mecanico
         ).pack(anchor="e", pady=8)
 
         self.taller_codigo_frame = ttk.Frame(self._taller_layout.panel_form)
@@ -1153,31 +1211,30 @@ class MainApp(tk.Tk):
 
     def _open_isla_create(self) -> None:
         self.isla_nombre.set("")
-        self.taller_asign_frame.pack_forget()
         self.taller_codigo_frame.pack_forget()
         self.taller_isla_frame.pack(fill="both", expand=True)
+        self._reload_isla_mecanico_combo()
         self._taller_layout.show("Nueva isla")
-
-    def _open_isla_assign(self) -> None:
-        self.taller_isla_frame.pack_forget()
-        self.taller_codigo_frame.pack_forget()
-        self.taller_asign_frame.pack(fill="both", expand=True)
-        self._reload_asignacion_combos()
-        self._taller_layout.show("Asignar mecánico a isla")
 
     def _open_taller_codigo(self) -> None:
         self.taller_codigo.set("")
         self.taller_isla_frame.pack_forget()
-        self.taller_asign_frame.pack_forget()
         self.taller_codigo_frame.pack(fill="both", expand=True)
         self._taller_layout.show("Código de invitación")
 
     def _save_isla(self):
         try:
-            cita_service.create_isla(self.isla_nombre.get().strip(), self.id_sucursal)
+            id_sucursal = self._require_sucursal()
+            nombre = self.isla_nombre.get().strip()
+            if not nombre:
+                raise ValueError("Indica el nombre de la isla.")
+            id_isla = cita_service.create_isla(nombre, id_sucursal)
+            sel = self.isla_mec_cb.get() if self.isla_mec_cb else ""
+            id_mecanico = self.isla_mec_map.get(sel) if sel else None
+            if id_mecanico:
+                cita_service.assign_mecanico_isla(id_isla, id_mecanico)
             messagebox.showinfo("Islas", "Isla creada.")
             self._load_islas()
-            self._reload_asignacion_combos()
             if hasattr(self, "c_isla_cb"):
                 self._reload_cita_islas()
             if hasattr(self, "_taller_layout"):
@@ -1185,25 +1242,22 @@ class MainApp(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Islas", str(exc))
 
-    def _reload_asignacion_combos(self):
-        if not hasattr(self, "asig_isla_cb"):
+    def _reload_isla_mecanico_combo(self) -> None:
+        if not hasattr(self, "isla_mec_cb") or not self.isla_mec_cb:
             return
-        islas = cita_service.list_islas(self.id_sucursal)
-        self.asig_isla_map = self._fill_combo(self.asig_isla_cb, islas, lambda i: i["nombre"], "id")
+        if not self.id_sucursal:
+            self.isla_mec_cb.set("")
+            self.isla_mec_cb["values"] = ()
+            self.isla_mec_map = {}
+            return
         mecanicos = cita_service.list_mecanicos(self.id_sucursal)
-        self.asig_mec_map = self._fill_combo(self.asig_mec_cb, mecanicos, lambda m: m["nombre"], "id")
-
-    def _assign_mecanico(self):
-        try:
-            cita_service.assign_mecanico_isla(
-                self._combo_id(self.asig_isla_cb, self.asig_isla_map, "isla"),
-                self._combo_id(self.asig_mec_cb, self.asig_mec_map, "mecánico"),
-            )
-            messagebox.showinfo("Islas", "Mecánico asignado.")
-            if hasattr(self, "_taller_layout"):
-                self._taller_layout.hide()
-        except Exception as exc:
-            messagebox.showerror("Islas", str(exc))
+        opciones = [{"id": None, "nombre": "— Sin asignar —"}] + mecanicos
+        self.isla_mec_map = self._fill_combo(
+            self.isla_mec_cb,
+            opciones,
+            lambda m: m["nombre"] if m.get("id") else "— Sin asignar —",
+            "id",
+        )
 
     def _load_islas(self):
         self._fill_tree(self.islas_tree, cita_service.list_islas(self.id_sucursal))
@@ -1212,33 +1266,34 @@ class MainApp(tk.Tk):
         frame = ttk.Frame(padding=10)
         self._suc_layout = SidePanelLayout(frame)
         self._suc_layout.frame().pack(fill="both", expand=True)
-        self._suc_layout.add_toolbar_button("+ Crear sucursal", self._open_sucursal_create)
 
         self.suc_nombre = tk.StringVar()
         self.suc_dir = tk.StringVar()
         self.suc_codigo = tk.StringVar()
 
-        form = self._suc_layout.panel_form
-        for label, var in [("Nombre", self.suc_nombre), ("Dirección", self.suc_dir)]:
+        if self._is_admin_user():
+            self._suc_layout.add_toolbar_button("+ Crear sucursal", self._open_sucursal_create)
+            form = self._suc_layout.panel_form
+            for label, var in [("Nombre", self.suc_nombre), ("Dirección", self.suc_dir)]:
+                row = ttk.Frame(form)
+                row.pack(fill="x", pady=4)
+                ttk.Label(row, text=label, width=14).pack(side="left")
+                ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
+
             row = ttk.Frame(form)
             row.pack(fill="x", pady=4)
-            ttk.Label(row, text=label, width=14).pack(side="left")
-            ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
+            ttk.Label(row, text="Código invitación", width=14).pack(side="left")
+            ttk.Entry(row, textvariable=self.suc_codigo, state="readonly", width=24).pack(side="left")
 
-        row = ttk.Frame(form)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text="Código invitación", width=14).pack(side="left")
-        ttk.Entry(row, textvariable=self.suc_codigo, state="readonly", width=24).pack(side="left")
-
-        actions = ttk.Frame(form)
-        actions.pack(fill="x", pady=(8, 0))
-        ttk.Button(actions, text="Generar código", command=self._nuevo_codigo_sucursal).pack(side="right", padx=(8, 0))
-        ttk.Button(
-            actions,
-            text="Crear sucursal",
-            style="Accent.TButton",
-            command=self._save_sucursal,
-        ).pack(side="right")
+            actions = ttk.Frame(form)
+            actions.pack(fill="x", pady=(8, 0))
+            ttk.Button(actions, text="Generar código", command=self._nuevo_codigo_sucursal).pack(side="right", padx=(8, 0))
+            ttk.Button(
+                actions,
+                text="Crear sucursal",
+                style="Accent.TButton",
+                command=self._save_sucursal,
+            ).pack(side="right")
 
         self.sucursales_tree = self._make_tree(
             self._suc_layout.tree_host,
@@ -1247,8 +1302,20 @@ class MainApp(tk.Tk):
             height=10,
             pady=0,
         )
+        if not self._is_admin_user():
+            self.sucursales_tree.bind("<<TreeviewSelect>>", self._on_sucursal_tree_select)
         self._load_sucursales()
         return frame
+
+    def _on_sucursal_tree_select(self, _event=None) -> None:
+        if self._is_admin_user():
+            return
+        sel = self.sucursales_tree.selection()
+        if not sel:
+            return
+        self._switch_sucursal(int(sel[0]))
+        if hasattr(self, "sucursal_var"):
+            self.sucursal_var.set(self._sucursal_nombre())
 
     def _open_sucursal_create(self) -> None:
         self.suc_nombre.set("")
@@ -1293,12 +1360,20 @@ class MainApp(tk.Tk):
             self.suc_dir.set("")
             self.suc_codigo.set("")
             self._load_sucursales()
+            self._reload_sucursal_selector()
+            if not self.id_sucursal:
+                self._switch_sucursal(id_sucursal)
             self._suc_layout.hide()
         except Exception as exc:
             messagebox.showerror("Sucursales", str(exc))
 
     def _load_sucursales(self):
-        rows = catalog_service.list_sucursales()
+        if self._is_admin_user():
+            rows = catalog_service.list_sucursales()
+        elif self.user:
+            rows = catalog_service.list_sucursales_usuario(self.user["id"])
+        else:
+            rows = []
         for r in rows:
             r["activo"] = "Sí" if r.get("activo", 1) else "No"
         self._fill_tree(self.sucursales_tree, rows)
@@ -1315,6 +1390,7 @@ class MainApp(tk.Tk):
         self.u_pass = tk.StringVar()
         self.u_suc_map = {}
         self.u_puesto_map = {}
+        self.u_sucursales_rows = []
 
         form = self._usr_layout.panel_form
 
@@ -1325,8 +1401,6 @@ class MainApp(tk.Tk):
             ttk.Label(row, text=label, width=14).pack(side="left")
             ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
 
-        self.u_suc_cb = self._add_combo_row(form, "Sucursal", width=14)
-
         ttk.Label(form, text="Seguridad", style="Section.TLabel").pack(anchor="w", pady=(8, 4))
         row = ttk.Frame(form)
         row.pack(fill="x", pady=4)
@@ -1335,10 +1409,21 @@ class MainApp(tk.Tk):
 
         self.u_puesto_cb = self._add_combo_row(form, "Puesto", width=14)
 
-        sucursales = catalog_service.list_sucursales()
-        self.u_suc_map = self._fill_combo(self.u_suc_cb, sucursales, lambda s: s["nombre"], "id")
+        row = ttk.Frame(form)
+        row.pack(fill="x", pady=4)
+        ttk.Label(row, text="Sucursales", width=14).pack(side="left", anchor="n")
+        lb_wrap = ttk.Frame(row)
+        lb_wrap.pack(side="left", fill="x", expand=True)
+        self.u_sucursales_lb = tk.Listbox(lb_wrap, selectmode=tk.EXTENDED, height=5, exportselection=False)
+        style_listbox(self.u_sucursales_lb)
+        self.u_sucursales_lb.pack(side="left", fill="x", expand=True)
+        scroll = ttk.Scrollbar(lb_wrap, orient="vertical", command=self.u_sucursales_lb.yview)
+        scroll.pack(side="right", fill="y")
+        self.u_sucursales_lb.configure(yscrollcommand=scroll.set)
+
         puestos = catalog_service.list_puestos()
         self.u_puesto_map = self._fill_combo(self.u_puesto_cb, puestos, lambda p: p["nombre"], "id")
+        self._reload_usuario_sucursales_list()
 
         btn_row = ttk.Frame(form)
         btn_row.pack(fill="x", pady=(12, 0))
@@ -1370,18 +1455,32 @@ class MainApp(tk.Tk):
     def _reload_usuario_panel_combos(self) -> None:
         if not hasattr(self, "u_puesto_cb"):
             return
-        sucursales = catalog_service.list_sucursales()
-        self.u_suc_map = self._fill_combo(self.u_suc_cb, sucursales, lambda s: s["nombre"], "id")
         puestos = catalog_service.list_puestos()
         self.u_puesto_map = self._fill_combo(self.u_puesto_cb, puestos, lambda p: p["nombre"], "id")
+        self._reload_usuario_sucursales_list()
+
+    def _reload_usuario_sucursales_list(self) -> None:
+        if not hasattr(self, "u_sucursales_lb"):
+            return
+        self.u_sucursales_rows = catalog_service.list_sucursales()
+        self.u_sucursales_lb.delete(0, tk.END)
+        for s in self.u_sucursales_rows:
+            self.u_sucursales_lb.insert(tk.END, s["nombre"])
+
+    def _get_selected_usuario_sucursales(self) -> list[int]:
+        if not hasattr(self, "u_sucursales_lb"):
+            return []
+        if self.u_puesto_cb.get().strip().lower() == "admin":
+            return []
+        selected = self.u_sucursales_lb.curselection()
+        return [self.u_sucursales_rows[i]["id"] for i in selected]
 
     def _on_usuario_selected(self, _event=None) -> None:
         sel = self.users_tree.selection()
         if not sel:
             return
         id_usuario = int(sel[0])
-        id_sucursal = None if self._is_super_admin_user() else self.id_sucursal
-        usuarios = catalog_service.list_usuarios(id_sucursal)
+        usuarios = catalog_service.list_usuarios()
         usuario = next((u for u in usuarios if u["id"] == id_usuario), None)
         if not usuario:
             return
@@ -1391,8 +1490,11 @@ class MainApp(tk.Tk):
         self.u_pass.set("")
         if usuario.get("puesto") and usuario["puesto"] != "—":
             self.u_puesto_cb.set(usuario["puesto"])
-        if usuario.get("sucursal"):
-            self.u_suc_cb.set(usuario["sucursal"])
+        self.u_sucursales_lb.selection_clear(0, tk.END)
+        asignadas = {s["id"] for s in catalog_service.list_sucursales_usuario(id_usuario)}
+        for idx, s in enumerate(self.u_sucursales_rows):
+            if s["id"] in asignadas:
+                self.u_sucursales_lb.selection_set(idx)
         self._usr_layout.show("Detalles del usuario")
 
     def _save_usuario_panel(self) -> None:
@@ -1410,7 +1512,12 @@ class MainApp(tk.Tk):
             if not puesto_nombre:
                 raise ValueError("Selecciona un puesto.")
             id_puesto = self._combo_id(self.u_puesto_cb, self.u_puesto_map, "puesto")
-            catalog_service.assign_usuario_staff(id_usuario, id_puesto, puesto_nombre)
+            sucursales = self._get_selected_usuario_sucursales()
+            if puesto_nombre.lower() == "mecánico" and not sucursales:
+                raise ValueError("Selecciona al menos una sucursal para el mecánico.")
+            catalog_service.assign_usuario_staff(
+                id_usuario, id_puesto, puesto_nombre, id_sucursales=sucursales or None,
+            )
             messagebox.showinfo("Usuarios", "Usuario actualizado.")
             self._load_usuarios()
             self._usr_layout.hide()
@@ -1432,14 +1539,19 @@ class MainApp(tk.Tk):
             if not puesto_sel:
                 raise ValueError("Selecciona un puesto.")
             id_puesto = self._combo_id(self.u_puesto_cb, self.u_puesto_map, "puesto")
-            catalog_service.create_usuario({
+            sucursales = self._get_selected_usuario_sucursales()
+            if puesto_sel.lower() == "mecánico" and not sucursales:
+                raise ValueError("Selecciona al menos una sucursal para el mecánico.")
+            id_usuario = catalog_service.create_usuario({
                 "nombre": self.u_nombre.get().strip(),
                 "email": email,
                 "password": password,
                 "puesto_nombre": puesto_sel,
-                "id_sucursal": self._combo_id(self.u_suc_cb, self.u_suc_map, "sucursal"),
+                "id_sucursal": sucursales[0] if sucursales else None,
                 "id_puesto": id_puesto,
             })
+            if sucursales and puesto_sel.lower() == "mecánico":
+                catalog_service.set_usuario_sucursales(id_usuario, sucursales)
             messagebox.showinfo("Usuarios", "Usuario creado.")
             self._load_usuarios()
             self._reload_cliente_usuarios()
@@ -1449,9 +1561,7 @@ class MainApp(tk.Tk):
             messagebox.showerror("Usuarios", str(exc))
 
     def _load_usuarios(self):
-        id_sucursal = None if self._is_super_admin_user() else self.id_sucursal
-        rows = catalog_service.list_usuarios(id_sucursal)
-        rows = [r for r in rows if r.get("rol") != "CLIENTE"]
+        rows = catalog_service.list_usuarios()
         for r in rows:
             r["puesto"] = r.get("puesto") or "—"
         self._fill_tree(self.users_tree, rows)

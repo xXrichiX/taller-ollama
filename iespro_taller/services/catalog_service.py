@@ -5,7 +5,7 @@ from db.connection import execute, fetch_all, fetch_one
 
 
 def login(email: str, password: str) -> dict[str, Any] | None:
-    return fetch_one(
+    user = fetch_one(
         """
         SELECT u.*, r.nombre AS rol_nombre, p.nombre AS puesto_nombre
         FROM usuarios u
@@ -15,6 +15,44 @@ def login(email: str, password: str) -> dict[str, Any] | None:
         """,
         (email, password),
     )
+    if not user:
+        return None
+    return enrich_user_session(user)
+
+
+def list_sucursales_usuario(id_usuario: int) -> list[dict]:
+    return fetch_all(
+        """
+        SELECT s.id, s.nombre, s.direccion
+        FROM usuario_sucursales us
+        JOIN sucursales s ON s.id = us.id_sucursal
+        WHERE us.id_usuario = %s AND s.activo = 1
+        ORDER BY s.nombre
+        """,
+        (id_usuario,),
+    )
+
+
+def set_usuario_sucursales(id_usuario: int, id_sucursales: list[int]) -> None:
+    execute("DELETE FROM usuario_sucursales WHERE id_usuario = %s", (id_usuario,))
+    for id_sucursal in id_sucursales:
+        execute(
+            "INSERT IGNORE INTO usuario_sucursales (id_usuario, id_sucursal) VALUES (%s, %s)",
+            (id_usuario, id_sucursal),
+        )
+
+
+def enrich_user_session(user: dict) -> dict:
+    from services.user_roles import is_admin, is_mecanico
+
+    if is_admin(user.get("rol_nombre")):
+        user["sucursales_ids"] = [s["id"] for s in list_sucursales()]
+    elif is_mecanico(user.get("rol_nombre")):
+        user["sucursales_ids"] = [s["id"] for s in list_sucursales_usuario(user["id"])]
+    else:
+        sid = user.get("id_sucursal")
+        user["sucursales_ids"] = [sid] if sid else []
+    return user
 
 
 def list_sucursales() -> list[dict]:
@@ -43,29 +81,58 @@ def rol_from_puesto(puesto_nombre: str) -> tuple[int, str]:
     return int(row["id"]), row["nombre"]
 
 
-def assign_usuario_staff(id_usuario: int, id_puesto: int, puesto_nombre: str) -> dict[str, Any]:
-    """Asigna puesto en el taller y el rol de sistema correspondiente."""
+def assign_usuario_staff(
+    id_usuario: int,
+    id_puesto: int,
+    puesto_nombre: str,
+    id_sucursales: list[int] | None = None,
+) -> dict[str, Any]:
+    """Asigna puesto y rol. Mecánico: una o varias sucursales. Admin: todas."""
     id_rol, rol_nombre = rol_from_puesto(puesto_nombre)
     update_usuario_puesto(id_usuario, id_puesto)
-    return update_usuario_rol(id_usuario, id_rol, rol_nombre)
+    result = update_usuario_rol(id_usuario, id_rol, rol_nombre)
+    if rol_nombre == "ADMIN":
+        execute("UPDATE usuarios SET id_sucursal = NULL WHERE id = %s", (id_usuario,))
+        set_usuario_sucursales(id_usuario, [])
+    elif id_sucursales:
+        set_usuario_sucursales(id_usuario, id_sucursales)
+        execute(
+            "UPDATE usuarios SET id_sucursal = %s WHERE id = %s",
+            (id_sucursales[0], id_usuario),
+        )
+    return result
 
 
 def list_usuarios(id_sucursal: int | None = None) -> list[dict]:
     query = """
-        SELECT u.id, u.nombre, u.email, r.nombre AS rol, s.nombre AS sucursal,
-               p.nombre AS puesto, u.activo, u.id_sucursal, u.id_rol
+        SELECT u.id, u.nombre, u.email, r.nombre AS rol, p.nombre AS puesto,
+               u.activo, u.id_sucursal, u.id_rol
         FROM usuarios u
         JOIN roles r ON r.id = u.id_rol
-        LEFT JOIN sucursales s ON s.id = u.id_sucursal
         LEFT JOIN puestos p ON p.id = u.id_puesto
-        WHERE 1=1
+        WHERE r.nombre IN ('ADMIN', 'MECANICO', 'PENDIENTE')
     """
     params: list[Any] = []
     if id_sucursal:
-        query += " AND u.id_sucursal = %s"
-        params.append(id_sucursal)
+        query += """
+          AND (
+            u.id_rol = (SELECT id FROM roles WHERE nombre = 'ADMIN' LIMIT 1)
+            OR u.id IN (SELECT id_usuario FROM usuario_sucursales WHERE id_sucursal = %s)
+            OR u.id_sucursal = %s
+          )
+        """
+        params.extend([id_sucursal, id_sucursal])
     query += " ORDER BY u.id"
-    return fetch_all(query, tuple(params))
+    rows = fetch_all(query, tuple(params))
+    for row in rows:
+        sucursales = list_sucursales_usuario(row["id"])
+        if sucursales:
+            row["sucursal"] = ", ".join(s["nombre"] for s in sucursales)
+        elif row.get("rol") == "ADMIN":
+            row["sucursal"] = "Todas"
+        else:
+            row["sucursal"] = "—"
+    return rows
 
 
 def update_usuario_rol(id_usuario: int, id_rol: int, rol_nombre: str | None = None) -> dict[str, Any]:
@@ -141,7 +208,7 @@ def register_usuario(
         return inv
 
     rol = fetch_one("SELECT id FROM roles WHERE nombre = 'PENDIENTE'")
-    id_rol = rol["id"] if rol else 6
+    id_rol = rol["id"] if rol else 3
 
     id_usuario = create_usuario({
         "nombre": nombre,
@@ -153,6 +220,7 @@ def register_usuario(
         "es_trabajador": 0,
         "id_puesto": None,
     })
+    set_usuario_sucursales(id_usuario, [int(inv["id_sucursal"])])
     consumir_codigo(inv["id_codigo"])
     return {
         "ok": True,
@@ -189,6 +257,19 @@ def create_usuario(data: dict) -> int:
 
 
 def list_clientes(id_sucursal: int | None = None, id_mecanico: int | None = None) -> list[dict]:
+    if id_sucursal:
+        return fetch_all(
+            """
+            SELECT DISTINCT c.id, c.nombre, c.telefono, c.email, c.id_usuario, u.email AS usuario_email
+            FROM clientes c
+            LEFT JOIN usuarios u ON u.id = c.id_usuario
+            LEFT JOIN vehiculos v ON v.id_cliente = c.id AND v.id_sucursal = %s
+            LEFT JOIN citas ct ON ct.id_cliente = c.id AND ct.id_sucursal = %s
+            WHERE v.id IS NOT NULL OR ct.id IS NOT NULL
+            ORDER BY c.nombre
+            """,
+            (id_sucursal, id_sucursal),
+        )
     if id_mecanico:
         return fetch_all(
             """

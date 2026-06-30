@@ -48,11 +48,11 @@ from services.chat_intents import (
 )
 from services.estado_labels import estado_a_etiqueta
 from services.user_roles import (
+    is_admin,
     is_cliente,
     is_mecanico,
     is_pending,
     is_staff_manager,
-    is_super_admin,
     is_workshop_staff,
 )
 from services.rag_service import RagService
@@ -104,13 +104,14 @@ Reglas para admin de sucursal:
 - No asumas "mi auto" ni vehículos del usuario logueado; el personal no tiene autos personales aquí.
 """
 
-SUPER_ADMIN_PROMPT = """
-ROL ACTUAL: Administrador superior. Tienes visibilidad de todas las sucursales.
+ADMIN_PROMPT = """
+ROL ACTUAL: Administrador. Tienes visibilidad de todas las sucursales.
 
 Reglas:
 - Puedes consultar información de cualquier sucursal si el usuario lo pide.
-- Gestiona sucursales, usuarios, roles y códigos de invitación desde la aplicación.
+- Gestiona sucursales, usuarios, códigos de invitación y asignaciones desde la aplicación.
 """
+SUPER_ADMIN_PROMPT = ADMIN_PROMPT
 
 MECANICO_PROMPT = """
 ROL ACTUAL: Mecánico. Trabajas en tu sucursal.
@@ -312,8 +313,8 @@ class ChatService:
 
     def _build_system_prompt(self) -> str:
         prompt = SYSTEM_PROMPT + f"\nSucursal activa: {self.id_sucursal}"
-        if is_super_admin(self.rol_nombre):
-            prompt += SUPER_ADMIN_PROMPT
+        if is_admin(self.rol_nombre):
+            prompt += ADMIN_PROMPT
         elif is_staff_manager(self.rol_nombre):
             prompt += STAFF_MANAGER_PROMPT
         elif is_mecanico(self.rol_nombre):
