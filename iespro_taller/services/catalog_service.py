@@ -42,7 +42,7 @@ def list_usuarios() -> list[dict]:
 
 
 def register_usuario(nombre: str, email: str, password: str, id_sucursal: int = DEFAULT_SUCURSAL_ID) -> dict[str, Any]:
-    """Registro público: crea usuario CLIENTE y ficha en clientes."""
+    """Registro público: crea usuario ADMIN con acceso completo al taller."""
     from services.password_policy import normalize_password, validate_password
 
     nombre = (nombre or "").strip()
@@ -61,8 +61,10 @@ def register_usuario(nombre: str, email: str, password: str, id_sucursal: int = 
     if fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
         return {"ok": False, "error": "Ese correo ya está registrado."}
 
-    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'CLIENTE'")
-    id_rol = rol["id"] if rol else 4
+    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'ADMIN'")
+    id_rol = rol["id"] if rol else 1
+    puesto = fetch_one("SELECT id FROM puestos WHERE nombre = 'Gerente'")
+    id_puesto = puesto["id"] if puesto else None
 
     id_usuario = create_usuario({
         "nombre": nombre,
@@ -70,11 +72,10 @@ def register_usuario(nombre: str, email: str, password: str, id_sucursal: int = 
         "password": password,
         "id_rol": id_rol,
         "id_sucursal": id_sucursal,
-        "es_cliente": 1,
-        "es_trabajador": 0,
-        "id_puesto": None,
+        "es_cliente": 0,
+        "es_trabajador": 1,
+        "id_puesto": id_puesto,
     })
-    create_cliente(nombre, "", email, id_usuario)
     return {"ok": True, "id_usuario": id_usuario}
 
 

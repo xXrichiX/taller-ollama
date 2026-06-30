@@ -43,12 +43,12 @@ class LoginFrame(ttk.Frame):
         self.footer = ttk.Frame(box)
         self.footer.pack(fill="x", pady=(16, 0))
 
-        self.footer_hint = ttk.Label(self.footer, text="¿Eres cliente y no tienes cuenta?")
+        self.footer_hint = ttk.Label(self.footer, text="¿No tienes cuenta?")
         self.footer_hint.pack()
 
         self.footer_link = ttk.Label(
             self.footer,
-            text="Regístrate como cliente",
+            text="Regístrate",
             foreground=COLORS["accent"],
             cursor="hand2",
             font=("Helvetica", 10, "bold"),
@@ -80,7 +80,7 @@ class LoginFrame(ttk.Frame):
         ttk.Button(card, text="Entrar", style="Accent.TButton", command=self._login).pack(fill="x", pady=(4, 0))
 
     def _build_register_panel(self, parent: ttk.Frame) -> None:
-        card = ttk.LabelFrame(parent, text="Registro de cliente", padding=16)
+        card = ttk.LabelFrame(parent, text="Registro", padding=16)
         card.pack(fill="x")
 
         self._field(card, "Nombre", self.reg_nombre_var)
@@ -115,8 +115,8 @@ class LoginFrame(ttk.Frame):
     def _show_login(self) -> None:
         self.register_panel.pack_forget()
         self.login_panel.pack(fill="x")
-        self.footer_hint.configure(text="¿Eres cliente y no tienes cuenta?")
-        self.footer_link.configure(text="Regístrate como cliente")
+        self.footer_hint.configure(text="¿No tienes cuenta?")
+        self.footer_link.configure(text="Regístrate")
         self.footer_link.unbind("<Button-1>")
         self.footer_link.bind("<Button-1>", lambda _e: self._show_register())
 
@@ -152,7 +152,7 @@ class LoginFrame(ttk.Frame):
 
         user = login(email, password)
         if user:
-            messagebox.showinfo("Registro", "Cuenta creada. Bienvenido.")
+            messagebox.showinfo("Registro", "Cuenta de administrador creada. Bienvenido.")
             self._finish_login(user)
             return
 
