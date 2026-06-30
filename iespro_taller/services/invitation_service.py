@@ -73,6 +73,15 @@ def list_codigos(id_sucursal: int | None = None) -> list[dict]:
     return fetch_all(query, tuple(params))
 
 
+def generar_codigo_aleatorio() -> str:
+    """Código corto aleatorio para invitación (reintenta si ya existe)."""
+    for _ in range(8):
+        codigo = secrets.token_hex(4).upper()
+        if not fetch_one("SELECT id FROM codigos_invitacion WHERE UPPER(codigo) = %s", (codigo,)):
+            return codigo
+    return secrets.token_hex(6).upper()
+
+
 def crear_codigo(
     id_sucursal: int,
     *,

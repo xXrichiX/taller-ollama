@@ -100,7 +100,6 @@ class MainApp(tk.Tk):
 
         if is_super_admin(user.get("rol_nombre")):
             notebook.add(self._build_sucursales_tab(), text="  Sucursales  ")
-            notebook.add(self._build_codigos_tab(), text="  Invitaciones  ")
 
         if can_manage_branch(user.get("rol_nombre")):
             notebook.add(self._build_clientes_tab(), text="  Clientes  ")
@@ -124,8 +123,6 @@ class MainApp(tk.Tk):
 
         if can_manage_branch(user.get("rol_nombre")):
             notebook.add(self._build_taller_tab(), text="  Mi Taller  ")
-        if is_staff_manager(user.get("rol_nombre")) and not is_super_admin(user.get("rol_nombre")):
-            notebook.add(self._build_codigos_tab(), text="  Invitaciones  ")
         if is_staff_manager(user.get("rol_nombre")):
             notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
 
@@ -1019,8 +1016,58 @@ class MainApp(tk.Tk):
             r["estado"] = estado_a_etiqueta(r.get("estado"))
         self._fill_tree(self.citas_tree, rows)
 
+    def _nuevo_codigo_taller(self) -> None:
+        from services.invitation_service import generar_codigo_aleatorio
+
+        if hasattr(self, "taller_codigo"):
+            self.taller_codigo.set(generar_codigo_aleatorio())
+
+    def _guardar_codigo_taller(self) -> None:
+        from services import invitation_service
+
+        try:
+            codigo = self.taller_codigo.get().strip()
+            if not codigo:
+                raise ValueError("Genera un código primero.")
+            creado_por = self.user["id"] if self.user else None
+            result = invitation_service.crear_codigo(
+                self.id_sucursal,
+                codigo=codigo,
+                usos_maximos=50,
+                creado_por=creado_por,
+                permite_admin_sucursal=False,
+            )
+            if not result.get("ok"):
+                raise ValueError(result.get("error", "No se pudo guardar el código."))
+            messagebox.showinfo("Código guardado", f"Código de invitación: {result['codigo']}")
+            self._nuevo_codigo_taller()
+        except Exception as exc:
+            messagebox.showerror("Código de invitación", str(exc))
+
     def _build_taller_tab(self):
         frame = ttk.Frame(padding=10)
+
+        if can_manage_branch(self.user.get("rol_nombre") if self.user else None) and not self._is_super_admin_user():
+            inv = ttk.LabelFrame(frame, text="Código de invitación de tu sucursal", padding=10)
+            inv.pack(fill="x", pady=(0, 8))
+            ttk.Label(
+                inv,
+                text=f"Sucursal: {self._sucursal_nombre()}",
+                foreground=COLORS["muted"],
+            ).pack(anchor="w", pady=(0, 6))
+            self.taller_codigo = tk.StringVar()
+            row = ttk.Frame(inv)
+            row.pack(fill="x", pady=4)
+            ttk.Label(row, text="Código", width=14).pack(side="left")
+            ttk.Entry(row, textvariable=self.taller_codigo, state="readonly", width=24).pack(side="left")
+            ttk.Button(row, text="Generar código", command=self._nuevo_codigo_taller).pack(side="left", padx=8)
+            ttk.Button(
+                inv,
+                text="Guardar código",
+                style="Accent.TButton",
+                command=self._guardar_codigo_taller,
+            ).pack(anchor="e", pady=(4, 0))
+            self._nuevo_codigo_taller()
 
         isla_form = ttk.LabelFrame(frame, text="Nueva isla", padding=10)
         isla_form.pack(fill="x")
@@ -1090,30 +1137,82 @@ class MainApp(tk.Tk):
 
         self.suc_nombre = tk.StringVar()
         self.suc_dir = tk.StringVar()
+        self.suc_codigo = tk.StringVar()
+
         for label, var in [("Nombre", self.suc_nombre), ("Dirección", self.suc_dir)]:
             row = ttk.Frame(form)
             row.pack(fill="x", pady=4)
             ttk.Label(row, text=label, width=14).pack(side="left")
             ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
-        ttk.Button(form, text="Crear sucursal", command=self._save_sucursal).pack(anchor="e", pady=6)
+
+        row = ttk.Frame(form)
+        row.pack(fill="x", pady=4)
+        ttk.Label(row, text="Código invitación", width=14).pack(side="left")
+        ttk.Entry(row, textvariable=self.suc_codigo, state="readonly", width=24).pack(side="left")
+
+        actions = ttk.Frame(form)
+        actions.pack(fill="x", pady=(8, 0))
+        ttk.Button(actions, text="Generar código", command=self._nuevo_codigo_sucursal).pack(side="right", padx=(8, 0))
+        ttk.Button(
+            actions,
+            text="Crear sucursal",
+            style="Accent.TButton",
+            command=self._save_sucursal,
+        ).pack(side="right")
+
+        ttk.Label(
+            frame,
+            text="Genera un código, créala cuando te guste, y al guardar la sucursal se almacena ese código.",
+            foreground=COLORS["muted"],
+            wraplength=720,
+        ).pack(anchor="w", pady=(8, 4))
 
         self.sucursales_tree = self._make_tree(
             frame,
             ("nombre", "direccion", "activo"),
             headers={"nombre": "Nombre", "direccion": "Dirección", "activo": "Activa"},
+            height=10,
         )
+        self._nuevo_codigo_sucursal()
         self._load_sucursales()
         return frame
 
+    def _nuevo_codigo_sucursal(self) -> None:
+        from services.invitation_service import generar_codigo_aleatorio
+
+        if hasattr(self, "suc_codigo"):
+            self.suc_codigo.set(generar_codigo_aleatorio())
+
     def _save_sucursal(self):
+        from services import invitation_service
+
         try:
             nombre = self.suc_nombre.get().strip()
             if not nombre:
                 raise ValueError("Indica el nombre de la sucursal.")
-            catalog_service.create_sucursal(nombre, self.suc_dir.get().strip())
-            messagebox.showinfo("Sucursales", "Sucursal creada.")
+            codigo = self.suc_codigo.get().strip()
+            if not codigo:
+                raise ValueError("Genera un código de invitación antes de crear la sucursal.")
+
+            id_sucursal = catalog_service.create_sucursal(nombre, self.suc_dir.get().strip())
+            creado_por = self.user["id"] if self.user else None
+            result = invitation_service.crear_codigo(
+                id_sucursal,
+                codigo=codigo,
+                usos_maximos=50,
+                creado_por=creado_por,
+                permite_admin_sucursal=True,
+            )
+            if not result.get("ok"):
+                raise ValueError(result.get("error", "Sucursal creada pero falló el código."))
+
+            messagebox.showinfo(
+                "Sucursales",
+                f"Sucursal creada.\nCódigo de invitación: {result['codigo']}",
+            )
             self.suc_nombre.set("")
             self.suc_dir.set("")
+            self._nuevo_codigo_sucursal()
             self._load_sucursales()
         except Exception as exc:
             messagebox.showerror("Sucursales", str(exc))
@@ -1123,90 +1222,6 @@ class MainApp(tk.Tk):
         for r in rows:
             r["activo"] = "Sí" if r.get("activo", 1) else "No"
         self._fill_tree(self.sucursales_tree, rows)
-
-    def _build_codigos_tab(self):
-        from services import invitation_service
-
-        frame = ttk.Frame(padding=10)
-        form = ttk.LabelFrame(frame, text="Generar código de invitación", padding=10)
-        form.pack(fill="x")
-
-        self.cod_suc_map = {}
-        self.codigo_manual = tk.StringVar()
-        self.cod_usos = tk.StringVar(value="10")
-        self.cod_expira = tk.StringVar()
-        self.cod_permite_admin = tk.BooleanVar(value=False)
-
-        sucursales = catalog_service.list_sucursales()
-        self.cod_suc_cb = self._add_combo_row(form, "Sucursal", width=18)
-        self.cod_suc_map = self._fill_combo(self.cod_suc_cb, sucursales, lambda s: s["nombre"], "id")
-
-        row = ttk.Frame(form)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text="Código (opcional)", width=18).pack(side="left")
-        ttk.Entry(row, textvariable=self.codigo_manual).pack(side="left", fill="x", expand=True)
-
-        row = ttk.Frame(form)
-        row.pack(fill="x", pady=4)
-        ttk.Label(row, text="Usos máximos", width=18).pack(side="left")
-        ttk.Entry(row, textvariable=self.cod_usos, width=10).pack(side="left")
-        ttk.Label(row, text="Expira (AAAA-MM-DD)").pack(side="left", padx=(12, 4))
-        ttk.Entry(row, textvariable=self.cod_expira, width=14).pack(side="left")
-
-        ttk.Checkbutton(
-            form, text="Permitir que admin de sucursal genere códigos", variable=self.cod_permite_admin,
-        ).pack(anchor="w", pady=4)
-
-        ttk.Button(form, text="Generar código", command=self._save_codigo).pack(anchor="e", pady=6)
-
-        self.codigos_tree = self._make_tree(
-            frame,
-            ("codigo", "sucursal", "usos_maximos", "usos_actuales", "expira_en", "activo"),
-            headers={
-                "codigo": "Código", "sucursal": "Sucursal",
-                "usos_maximos": "Máx. usos", "usos_actuales": "Usados",
-                "expira_en": "Expira", "activo": "Activo",
-            },
-        )
-        self._load_codigos()
-        return frame
-
-    def _save_codigo(self):
-        from services import invitation_service
-
-        try:
-            id_sucursal = self._combo_id(self.cod_suc_cb, self.cod_suc_map, "sucursal")
-            usos = int(self.cod_usos.get().strip() or "1")
-            expira = self.cod_expira.get().strip() or None
-            if expira:
-                expira = f"{expira} 23:59:59"
-            creado_por = self.user["id"] if self.user else None
-            result = invitation_service.crear_codigo(
-                id_sucursal,
-                codigo=self.codigo_manual.get().strip() or None,
-                usos_maximos=usos,
-                expira_en=expira,
-                creado_por=creado_por,
-                permite_admin_sucursal=self.cod_permite_admin.get(),
-            )
-            if not result.get("ok"):
-                raise ValueError(result.get("error", "No se pudo crear el código."))
-            messagebox.showinfo("Invitaciones", f"Código creado: {result['codigo']}")
-            self.codigo_manual.set("")
-            self._load_codigos()
-        except Exception as exc:
-            messagebox.showerror("Invitaciones", str(exc))
-
-    def _load_codigos(self):
-        from services import invitation_service
-
-        id_sucursal = None if self._is_super_admin_user() else self.id_sucursal
-        rows = invitation_service.list_codigos(id_sucursal)
-        for r in rows:
-            r["activo"] = "Sí" if r.get("activo") else "No"
-            if r.get("expira_en"):
-                r["expira_en"] = str(r["expira_en"])[:10]
-        self._fill_tree(self.codigos_tree, rows)
 
     def _build_usuarios_tab(self):
         frame = ttk.Frame(padding=10)
