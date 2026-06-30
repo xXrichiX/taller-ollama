@@ -228,12 +228,12 @@ INSERT IGNORE INTO puestos (id, nombre) VALUES
 (4, 'Mecánico');
 
 INSERT IGNORE INTO usuarios (id, nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto) VALUES
-(1, 'Admin Sistema', 'admin@iespro.mx', 'admin123', 1, 1, 0, 1, 1),
-(2, 'Jefe Taller Centro', 'jefe@iespro.mx', 'jefe123', 2, 1, 0, 1, 2),
-(3, 'Carlos Mecánico', 'carlos@iespro.mx', 'mec123', 3, 1, 0, 1, 4),
-(4, 'Ana Mecánica', 'ana@iespro.mx', 'mec123', 3, 1, 0, 1, 4),
-(5, 'Roberto García', 'roberto@cliente.mx', 'cli123', 4, 1, 1, 0, NULL),
-(6, 'María López', 'maria@cliente.mx', 'cli123', 4, 1, 1, 0, NULL);
+(1, 'Admin Sistema', 'admin@iespro.mx', 'admin1234', 1, 1, 0, 1, 1),
+(2, 'Jefe Taller Centro', 'jefe@iespro.mx', 'jefe1234', 2, 1, 0, 1, 2),
+(3, 'Carlos Mecánico', 'carlos@iespro.mx', 'mec12345', 3, 1, 0, 1, 4),
+(4, 'Ana Mecánica', 'ana@iespro.mx', 'mec12345', 3, 1, 0, 1, 4),
+(5, 'Roberto García', 'roberto@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
+(6, 'María López', 'maria@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL);
 
 INSERT IGNORE INTO clientes (id, nombre, telefono, email, id_usuario) VALUES
 (1, 'Roberto García', '555-1001', 'roberto@cliente.mx', 5),
@@ -306,13 +306,13 @@ INSERT IGNORE INTO fallas_registradas (id_cita, id_vehiculo, descripcion, diagno
 -- ---------------------------------------------------------------------------
 
 INSERT IGNORE INTO usuarios (id, nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto) VALUES
-(7, 'Jorge Medina', 'jorge@cliente.mx', 'cli123', 4, 1, 1, 0, NULL),
-(8, 'Patricia Ruiz', 'patricia@cliente.mx', 'cli123', 4, 1, 1, 0, NULL),
-(9, 'Luis Hernández', 'luis@cliente.mx', 'cli123', 4, 1, 1, 0, NULL),
-(10, 'Carmen Vega', 'carmen@cliente.mx', 'cli123', 4, 1, 1, 0, NULL),
-(11, 'Diego Morales', 'diego@cliente.mx', 'cli123', 4, 1, 1, 0, NULL),
-(12, 'Miguel Torre', 'miguel@iespro.mx', 'mec123', 3, 1, 0, 1, 3),
-(13, 'Laura Recepción', 'laura@iespro.mx', 'rec123', 2, 1, 0, 1, 2);
+(7, 'Jorge Medina', 'jorge@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
+(8, 'Patricia Ruiz', 'patricia@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
+(9, 'Luis Hernández', 'luis@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
+(10, 'Carmen Vega', 'carmen@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
+(11, 'Diego Morales', 'diego@cliente.mx', 'cli12345', 4, 1, 1, 0, NULL),
+(12, 'Miguel Torre', 'miguel@iespro.mx', 'mec12345', 3, 1, 0, 1, 3),
+(13, 'Laura Recepción', 'laura@iespro.mx', 'rec12345', 2, 1, 0, 1, 2);
 
 INSERT IGNORE INTO clientes (id, nombre, telefono, email, id_usuario) VALUES
 (3, 'Jorge Medina', '555-1003', 'jorge@cliente.mx', 7),
@@ -395,3 +395,10 @@ INSERT IGNORE INTO fallas_registradas (id_cita, id_vehiculo, descripcion, diagno
 (NULL, 8, 'Fuga de aceite en tapa de balancines', 'Empaque endurecido', 1),
 (NULL, 9, 'Parabrisas con rajadura pequeña lado conductor', 'Reparación con resina', 1),
 (NULL, 10, 'Batería descargada tras 3 días sin uso', 'Prueba de carga: alternador OK, batería al 40%', 1);
+
+-- Contraseñas demo (mín. 8 caracteres, letra + número). Si la BD ya existía:
+UPDATE usuarios SET password = 'admin1234' WHERE email = 'admin@iespro.mx';
+UPDATE usuarios SET password = 'jefe1234' WHERE email = 'jefe@iespro.mx';
+UPDATE usuarios SET password = 'mec12345' WHERE email IN ('carlos@iespro.mx', 'ana@iespro.mx', 'miguel@iespro.mx');
+UPDATE usuarios SET password = 'cli12345' WHERE email LIKE '%@cliente.mx';
+UPDATE usuarios SET password = 'rec12345' WHERE email = 'laura@iespro.mx';

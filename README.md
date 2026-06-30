@@ -153,7 +153,7 @@ La primera vez crea la base de datos, tablas, datos demo y sincroniza el RAG en 
 | Campo | Valor |
 |-------|-------|
 | Email | `admin@iespro.mx` |
-| Contraseña | `admin123` |
+| Contraseña | `admin1234` |
 
 ### 8. Usar el asistente
 
@@ -203,7 +203,7 @@ Debe bloquearse y quedar `was_blocked = 1` en la tabla.
 - [ ] `ollama list` muestra `llama3.2:3b` y `nomic-embed-text`
 - [ ] `source .venv/bin/activate` activo
 - [ ] `python3 main.py --ui` abre sin errores
-- [ ] Login con `admin@iespro.mx` / `admin123`
+- [ ] Login con `admin@iespro.mx` / `admin1234`
 - [ ] Chat responde con streaming
 - [ ] (Opcional) Botón Voz transcribe
 

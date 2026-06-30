@@ -1,5 +1,6 @@
 from typing import Any
 
+from config import DEFAULT_SUCURSAL_ID
 from db.connection import execute, fetch_all, fetch_one
 
 
@@ -38,6 +39,43 @@ def list_usuarios() -> list[dict]:
         ORDER BY u.id
         """
     )
+
+
+def register_usuario(nombre: str, email: str, password: str, id_sucursal: int = DEFAULT_SUCURSAL_ID) -> dict[str, Any]:
+    """Registro público: crea usuario CLIENTE y ficha en clientes."""
+    from services.password_policy import normalize_password, validate_password
+
+    nombre = (nombre or "").strip()
+    email = (email or "").strip().lower()
+    password = normalize_password(password)
+
+    if not nombre or not email or not password:
+        return {"ok": False, "error": "Nombre, correo y contraseña son obligatorios."}
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return {"ok": False, "error": "Indica un correo válido."}
+
+    ok, msg = validate_password(password, email)
+    if not ok:
+        return {"ok": False, "error": msg}
+
+    if fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
+        return {"ok": False, "error": "Ese correo ya está registrado."}
+
+    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'CLIENTE'")
+    id_rol = rol["id"] if rol else 4
+
+    id_usuario = create_usuario({
+        "nombre": nombre,
+        "email": email,
+        "password": password,
+        "id_rol": id_rol,
+        "id_sucursal": id_sucursal,
+        "es_cliente": 1,
+        "es_trabajador": 0,
+        "id_puesto": None,
+    })
+    create_cliente(nombre, "", email, id_usuario)
+    return {"ok": True, "id_usuario": id_usuario}
 
 
 def create_usuario(data: dict) -> int:

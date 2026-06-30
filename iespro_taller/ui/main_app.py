@@ -5,8 +5,9 @@ from config import DEFAULT_SUCURSAL_ID
 from services import catalog_service, cita_service
 from services.chat_service import ChatService
 from ui.chat_window import ChatWindow
-from ui.login_window import LoginWindow
+from ui.login_window import LoginFrame
 from ui.theme import COLORS, apply_theme, set_button_enabled, style_listbox
+from ui.user_menu import UserProfileMenu
 
 
 class MainApp(tk.Tk):
@@ -14,13 +15,14 @@ class MainApp(tk.Tk):
         super().__init__()
         apply_theme(self)
         self.title("IESPRO-Taller")
-        self.geometry("1180x760")
-        self.minsize(1000, 650)
+        self.geometry("540x580")
+        self.minsize(500, 520)
 
         self.user = None
         self.id_sucursal = DEFAULT_SUCURSAL_ID
         self.chat_service = ChatService(self.id_sucursal)
         self.chat_window = None
+        self.user_menu: UserProfileMenu | None = None
 
         # Barra de estado de BD/RAG desactivada en UI para demo limpia.
         # La inicialización sigue ejecutándose en _init_db().
@@ -33,7 +35,7 @@ class MainApp(tk.Tk):
         self.container.pack(fill="both", expand=True)
 
         self._init_db()
-        LoginWindow(self, self._on_login)
+        LoginFrame(self.container, self._on_login)
     def _init_db(self):
         from db.init_db import ensure_data_dir, init_database
 
@@ -54,37 +56,85 @@ class MainApp(tk.Tk):
         for w in self.container.winfo_children():
             w.destroy()
 
-        sucursal_nombre = self._sucursal_nombre()
+        self._maximize_window()
+        self._build_main_shell(user)
 
-        header = ttk.Frame(self.container, style="Header.TFrame", padding=(16, 12))
+    def _maximize_window(self) -> None:
+        self.update_idletasks()
+        w = self.winfo_screenwidth()
+        h = self.winfo_screenheight()
+        self.geometry(f"{w}x{h}")
+        self.minsize(900, 600)
+
+    def _build_main_shell(self, user: dict) -> None:
+        sucursal_nombre = self._sucursal_nombre()
+        self._build_header(user, sucursal_nombre)
+
+        notebook = ttk.Notebook(self.container)
+        notebook.pack(fill="both", expand=True, padx=0, pady=0)
+
+        notebook.add(self._build_dashboard_tab(), text="  Inicio  ")
+        if user.get("rol_nombre") != "CLIENTE":
+            notebook.add(self._build_clientes_tab(), text="  Clientes  ")
+        notebook.add(self._build_vehiculos_tab(), text="  Vehículos  ")
+        notebook.add(self._build_citas_tab(), text="  Citas  ")
+        notebook.add(self._build_taller_tab(), text="  Mi Taller  ")
+        if user.get("rol_nombre") in ("ADMIN", "JEFE_TALLER"):
+            notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
+
+    def _build_header(self, user: dict, sucursal_nombre: str) -> None:
+        header = tk.Frame(self.container, bg=COLORS["header"], padx=20, pady=14)
         header.pack(fill="x")
 
-        left = ttk.Frame(header, style="Header.TFrame")
+        left = tk.Frame(header, bg=COLORS["header"])
         left.pack(side="left", fill="x", expand=True)
-        ttk.Label(left, text="IESPRO-Taller", style="Header.TLabel").pack(anchor="w")
-        ttk.Label(
-            left,
-            text=f"{user['nombre']}  ·  {user['rol_nombre']}  ·  {sucursal_nombre}",
-            style="SubHeader.TLabel",
-        ).pack(anchor="w")
 
-        chat_btn = ttk.Button(
+        self.user_menu = UserProfileMenu(
+            left,
+            nombre=user["nombre"],
+            rol=user["rol_nombre"],
+            on_profile=self._show_profile,
+            on_logout=self._logout,
+        )
+        self.user_menu.pack(anchor="w")
+
+        ttk.Button(
             header,
             text="Abrir asistente IA",
             style="Accent.TButton",
             command=self._open_chat,
+        ).pack(side="right")
+
+    def _show_profile(self) -> None:
+        if not self.user:
+            return
+        u = self.user
+        messagebox.showinfo(
+            "Mi Perfil",
+            f"Nombre: {u['nombre']}\n"
+            f"Correo: {u['email']}\n"
+            f"Rol: {u['rol_nombre']}\n"
+            f"Sucursal: {self._sucursal_nombre()}",
         )
-        chat_btn.pack(side="right")
 
-        notebook = ttk.Notebook(self.container)
-        notebook.pack(fill="both", expand=True, padx=12, pady=12)
+    def _logout(self) -> None:
+        if self.user_menu:
+            self.user_menu.close_menu()
 
-        notebook.add(self._build_dashboard_tab(), text="  Inicio  ")
-        notebook.add(self._build_clientes_tab(), text="  Clientes  ")
-        notebook.add(self._build_vehiculos_tab(), text="  Vehículos  ")
-        notebook.add(self._build_citas_tab(), text="  Citas  ")
-        notebook.add(self._build_taller_tab(), text="  Mi Taller  ")
-        notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
+        if self.chat_window and self.chat_window.winfo_exists():
+            self.chat_window.destroy()
+        self.chat_window = None
+        self.user = None
+        self.user_menu = None
+        self.id_sucursal = DEFAULT_SUCURSAL_ID
+        self.chat_service = ChatService(self.id_sucursal)
+
+        for w in self.container.winfo_children():
+            w.destroy()
+
+        self.geometry("540x580")
+        self.minsize(500, 520)
+        LoginFrame(self.container, self._on_login)
 
     def _sucursal_nombre(self):
         for s in catalog_service.list_sucursales():
@@ -110,13 +160,6 @@ class MainApp(tk.Tk):
         self.dash_cards = ttk.Frame(frame)
         self.dash_cards.pack(fill="x", pady=(0, 12))
 
-        self.dash_db_var = tk.StringVar(value="MySQL: comprobando...")
-        db_outer = tk.Frame(frame, bg=COLORS["border"], padx=1, pady=1)
-        db_outer.pack(fill="x", pady=(0, 12))
-        db_bar = tk.Frame(db_outer, bg=COLORS["card"], padx=12, pady=8)
-        db_bar.pack(fill="x")
-        tk.Label(db_bar, textvariable=self.dash_db_var, bg=COLORS["card"], fg=COLORS["text"], font=("Helvetica", 10)).pack(anchor="w")
-
         ttk.Label(frame, text="Citas recientes", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
         self.dash_citas_tree = self._make_tree(
             frame,
@@ -129,7 +172,7 @@ class MainApp(tk.Tk):
                 "isla": "Isla",
                 "descripcion_fallo": "Falla",
             },
-            height=14,
+            height=20,
         )
 
         self._refresh_dashboard()
@@ -146,9 +189,6 @@ class MainApp(tk.Tk):
         return outer
 
     def _refresh_dashboard(self):
-        from db.connection import test_connection
-
-        ok, db_msg = test_connection()
         citas = cita_service.list_citas(self.id_sucursal)
         islas = cita_service.list_islas(self.id_sucursal)
         clientes = catalog_service.list_clientes()
@@ -194,10 +234,6 @@ class MainApp(tk.Tk):
         self.dash_stat_vars["completadas"].set(str(completadas))
         self.dash_stat_vars["islas"].set(str(len(islas)))
         self.dash_stat_vars["mecanicos"].set(str(len(mecanicos)))
-
-        self.dash_db_var.set(
-            f"MySQL: {'Conectado' if ok else 'Error'} — {db_msg}  ·  Sucursal {self.id_sucursal}: {self._sucursal_nombre()}"
-        )
 
         rows = []
         for c in citas[:12]:
@@ -640,7 +676,7 @@ class MainApp(tk.Tk):
 
         self.u_nombre = tk.StringVar()
         self.u_email = tk.StringVar()
-        self.u_pass = tk.StringVar(value="pass123")
+        self.u_pass = tk.StringVar(value="pass1234")
         self.u_es_cli = tk.BooleanVar(value=False)
         self.u_es_tra = tk.BooleanVar(value=True)
         self.u_rol_map = {}
@@ -683,13 +719,22 @@ class MainApp(tk.Tk):
         return frame
 
     def _save_usuario(self):
+        from services.password_policy import normalize_password, validate_password
+
         try:
+            email = self.u_email.get().strip()
+            password = normalize_password(self.u_pass.get())
+            ok, msg = validate_password(password, email)
+            if not ok:
+                messagebox.showerror("Usuarios", msg)
+                return
+
             puesto_sel = self.u_puesto_cb.get()
             id_puesto = self.u_puesto_map.get(puesto_sel)
             catalog_service.create_usuario({
                 "nombre": self.u_nombre.get().strip(),
-                "email": self.u_email.get().strip(),
-                "password": self.u_pass.get().strip(),
+                "email": email,
+                "password": password,
                 "id_rol": self._combo_id(self.u_rol_cb, self.u_rol_map, "rol"),
                 "id_sucursal": self._combo_id(self.u_suc_cb, self.u_suc_map, "sucursal"),
                 "es_cliente": int(self.u_es_cli.get()),
