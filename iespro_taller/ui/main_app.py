@@ -91,6 +91,8 @@ class MainApp(tk.Tk):
             self.id_sucursal = None
         if self.id_sucursal:
             self.chat_service.id_sucursal = self.id_sucursal
+        else:
+            self.chat_service.id_sucursal = None
         self.chat_service.set_user(user)
 
         for w in self.container.winfo_children():
@@ -176,7 +178,7 @@ class MainApp(tk.Tk):
 
         ttk.Button(
             header,
-            text="Abrir asistente IA",
+            text="Abrir asistente",
             style="Accent.TButton",
             command=self._open_chat,
         ).pack(side="right", pady=4)
@@ -288,8 +290,19 @@ class MainApp(tk.Tk):
             self.chat_window.lift()
             self.chat_window.focus_force()
             return
-        self.chat_service.ensure_conversation()
-        self.chat_window = ChatWindow(self, self.chat_service)
+        if not self.id_sucursal:
+            messagebox.showinfo(
+                "Asistente",
+                "Selecciona una sucursal en el menú superior,\n"
+                "o crea una en la pestaña Sucursales.",
+            )
+            return
+        try:
+            self.chat_service.id_sucursal = self.id_sucursal
+            self.chat_service.ensure_conversation()
+            self.chat_window = ChatWindow(self, self.chat_service)
+        except Exception as exc:
+            messagebox.showerror("Asistente", f"No se pudo abrir el asistente:\n{exc}")
     def _build_dashboard_tab(self):
         frame = ttk.Frame(padding=12)
 

@@ -193,6 +193,8 @@ class ChatService:
     def ensure_conversation(self) -> int | None:
         if not self.id_usuario:
             return None
+        if not self.id_sucursal:
+            raise ValueError("Selecciona una sucursal para usar el asistente.")
 
         if self.id_conversacion:
             return self.id_conversacion
