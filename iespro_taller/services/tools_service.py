@@ -261,6 +261,18 @@ CLIENTE_DENIED_TOOLS = frozenset({
 })
 
 
+MECANICO_DENIED_TOOLS = frozenset({
+    "listar_clientes",
+    "buscar_cliente",
+    "listar_mecanicos",
+    "listar_islas",
+    "mecanicos_en_isla",
+    "crear_cita_natural",
+    "editar_cita_natural",
+    "cancelar_cita_natural",
+})
+
+
 class ToolsService:
     def __init__(
         self,
@@ -269,11 +281,15 @@ class ToolsService:
         id_cliente: int | None = None,
         nombre_cliente: str | None = None,
         es_cliente: bool = False,
+        id_mecanico: int | None = None,
+        es_mecanico: bool = False,
     ):
         self.rag = rag_service
         self.id_cliente = id_cliente
         self.nombre_cliente = nombre_cliente
         self.es_cliente = es_cliente
+        self.id_mecanico = id_mecanico
+        self.es_mecanico = es_mecanico
         self._handlers: dict[str, Callable[[dict], Any]] = {
             "contar_citas": self._contar_citas,
             "listar_citas": self._listar_citas,
@@ -306,6 +322,12 @@ class ToolsService:
                 "error": "Esa acción solo la puede hacer el personal del taller.",
                 "recoverable": True,
             }
+        if self.es_mecanico and name in MECANICO_DENIED_TOOLS:
+            return {
+                "ok": False,
+                "error": "Como mecánico solo puedes consultar y actualizar estado de tus citas asignadas.",
+                "recoverable": True,
+            }
         try:
             scoped_args = self._scope_arguments(name, arguments or {})
             result = self._handlers[name](scoped_args)
@@ -322,16 +344,21 @@ class ToolsService:
             return sanitize_tool_result(name, None, exc=exc)
 
     def _scope_arguments(self, name: str, args: dict) -> dict:
-        if not self.es_cliente or not self.id_cliente:
-            return args
         scoped = dict(args)
-        if name in ("listar_citas", "contar_citas", "listar_vehiculos", "vehiculos_de_cliente", "buscar_vehiculo"):
-            scoped["id_cliente"] = self.id_cliente
-        if name == "crear_cita_natural" and self.nombre_cliente:
-            scoped["nombre_cliente"] = self.nombre_cliente
-            scoped.setdefault("asignacion_automatica", True)
-        if name in ("cancelar_cita_natural",) and scoped.get("placa"):
-            scoped["id_cliente"] = self.id_cliente
+        if self.es_cliente and self.id_cliente:
+            if name in ("listar_citas", "contar_citas", "listar_vehiculos", "vehiculos_de_cliente", "buscar_vehiculo"):
+                scoped["id_cliente"] = self.id_cliente
+            if name == "crear_cita_natural" and self.nombre_cliente:
+                scoped["nombre_cliente"] = self.nombre_cliente
+                scoped.setdefault("asignacion_automatica", True)
+            if name in ("cancelar_cita_natural",) and scoped.get("placa"):
+                scoped["id_cliente"] = self.id_cliente
+            return scoped
+        if self.es_mecanico and self.id_mecanico:
+            if name in ("listar_citas", "contar_citas"):
+                scoped["id_mecanico"] = self.id_mecanico
+            if name in ("cancelar_cita_natural", "cambiar_estado_cita_natural") and scoped.get("placa"):
+                scoped["id_mecanico"] = self.id_mecanico
         return scoped
 
     def _assert_cita_del_cliente(self, id_cita: int) -> dict | None:
@@ -344,16 +371,31 @@ class ToolsService:
             return {"ok": False, "error": "Solo puedes gestionar tus propias citas."}
         return None
 
+    def _assert_cita_del_mecanico(self, id_cita: int) -> dict | None:
+        if not self.es_mecanico or not self.id_mecanico:
+            return None
+        cita = cita_service.get_cita_by_id(id_cita)
+        if not cita:
+            return {"ok": False, "error": "Cita no encontrada."}
+        if cita.get("id_mecanico") != self.id_mecanico:
+            return {"ok": False, "error": "Solo puedes gestionar citas asignadas a ti."}
+        return None
+
     def _contar_citas(self, args: dict) -> dict:
         total = cita_service.count_citas(
             args.get("estado"),
             args.get("id_sucursal"),
             args.get("id_cliente"),
+            args.get("id_mecanico"),
         )
         return {"total": total, "estado": args.get("estado"), "id_sucursal": args.get("id_sucursal")}
 
     def _listar_citas(self, args: dict) -> list[dict]:
-        citas = cita_service.list_citas(args.get("id_sucursal"), args.get("id_cliente"))
+        citas = cita_service.list_citas(
+            args.get("id_sucursal"),
+            args.get("id_cliente"),
+            args.get("id_mecanico"),
+        )
         return citas[:15]
 
     def _mecanicos_en_isla(self, args: dict) -> list[dict]:
@@ -461,13 +503,22 @@ class ToolsService:
         id_cita = args.get("id_cita")
 
         if not id_cita and args.get("placa"):
-            cita_res = cita_service.find_cita_activa_por_placa(args["placa"], id_sucursal)
+            cita_res = cita_service.find_cita_activa_por_placa(
+                args["placa"],
+                id_sucursal,
+                args.get("id_cliente"),
+                args.get("id_mecanico"),
+            )
             if not cita_res.get("ok"):
                 return cita_res
             id_cita = cita_res["cita"]["id"]
 
         if not id_cita:
             return {"ok": False, "error": "Indica placa o id_cita."}
+
+        denied = self._assert_cita_del_mecanico(id_cita)
+        if denied:
+            return denied
 
         return self._cambiar_estado_cita({"id_cita": id_cita, "estado": args["estado"]})
 
@@ -482,6 +533,7 @@ class ToolsService:
                 args["placa"],
                 id_sucursal,
                 args.get("id_cliente"),
+                args.get("id_mecanico"),
             )
             if not cita_res.get("ok"):
                 return cita_res
@@ -540,6 +592,9 @@ class ToolsService:
         return self.rag.search_similar(args["descripcion"], n_results=limite)
 
     def _cambiar_estado_cita(self, args: dict) -> dict:
+        denied = self._assert_cita_del_mecanico(args["id_cita"])
+        if denied:
+            return denied
         return cita_service.cambiar_estado_cita(args["id_cita"], args["estado"])
 
 

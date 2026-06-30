@@ -47,7 +47,7 @@ from services.chat_intents import (
     STAFF_MI_AUTO_ANSWER,
 )
 from services.estado_labels import estado_a_etiqueta
-from services.user_roles import is_cliente, is_staff_manager, is_workshop_staff
+from services.user_roles import is_cliente, is_mecanico, is_staff_manager, is_workshop_staff
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
 from services.tool_response_format import format_tool_calls_log, format_tool_result
@@ -118,6 +118,7 @@ class ChatService:
         self.user_nombre: str | None = None
         self.id_cliente: int | None = None
         self.nombre_cliente: str | None = None
+        self.id_mecanico_scope: int | None = None
         self.id_conversacion: int | None = None
         self._pending_new_conversation = False
         self.rag = RagService()
@@ -137,6 +138,7 @@ class ChatService:
             self.user_nombre = user.get("nombre")
             self.id_cliente = None
             self.nombre_cliente = None
+            self.id_mecanico_scope = None
             if is_cliente(self.rol_nombre) and self.id_usuario:
                 from services import catalog_service
 
@@ -144,17 +146,22 @@ class ChatService:
                 if cliente:
                     self.id_cliente = cliente["id"]
                     self.nombre_cliente = cliente["nombre"]
+            elif is_mecanico(self.rol_nombre) and self.id_usuario:
+                self.id_mecanico_scope = self.id_usuario
         else:
             self.id_usuario = user
             self.rol_nombre = None
             self.user_nombre = None
             self.id_cliente = None
             self.nombre_cliente = None
+            self.id_mecanico_scope = None
         self.tools = ToolsService(
             self.rag,
             id_cliente=self.id_cliente,
             nombre_cliente=self.nombre_cliente,
             es_cliente=is_cliente(self.rol_nombre),
+            id_mecanico=self.id_mecanico_scope,
+            es_mecanico=is_mecanico(self.rol_nombre),
         )
 
     def ensure_conversation(self) -> int | None:
@@ -394,6 +401,24 @@ class ChatService:
         ]
         return {**rag_result, "matches": filtered}
 
+    def _mecanico_placas(self) -> set[str]:
+        if not self.id_mecanico_scope:
+            return set()
+        from services import cita_service
+
+        citas = cita_service.list_citas(self.id_sucursal, id_mecanico=self.id_mecanico_scope)
+        return {norm_placa_token(c["placa"]) for c in citas if c.get("placa")}
+
+    def _filter_rag_for_mecanico(self, rag_result: dict) -> dict:
+        placas = self._mecanico_placas()
+        if not placas:
+            return {**rag_result, "matches": []}
+        filtered = [
+            m for m in rag_result.get("matches", [])
+            if norm_placa_token(m.get("placa") or "") in placas
+        ]
+        return {**rag_result, "matches": filtered}
+
     def _maybe_set_titulo(self, question: str) -> None:
         if not self.id_conversacion:
             return
@@ -608,7 +633,7 @@ class ChatService:
             )
 
         emit_status("searching", "Consultando base de datos...")
-        if not is_cliente(self.rol_nombre):
+        if not is_cliente(self.rol_nombre) and not is_mecanico(self.rol_nombre):
             sql_answer = run_sql_query(question, self.id_sucursal)
             if sql_answer:
                 emit_status("thinking", "Preparando respuesta...")
@@ -644,6 +669,13 @@ class ChatService:
                 if not rag_result.get("matches"):
                     answer = stream_answer(
                         "No encontré fallas similares en el historial de tus vehículos registrados."
+                    )
+                    return finalize(answer, "rag")
+            if is_mecanico(self.rol_nombre):
+                rag_result = self._filter_rag_for_mecanico(rag_result)
+                if not rag_result.get("matches"):
+                    answer = stream_answer(
+                        "No encontré fallas similares en las citas que tienes asignadas."
                     )
                     return finalize(answer, "rag")
             emit_status("thinking", "Analizando casos encontrados...")

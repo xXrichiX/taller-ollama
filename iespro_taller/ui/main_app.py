@@ -5,7 +5,7 @@ from config import DEFAULT_SUCURSAL_ID
 from services import catalog_service, cita_service
 from services.chat_service import ChatService
 from services.estado_labels import ESTADOS_UI, estado_a_etiqueta, etiqueta_a_estado
-from services.user_roles import is_cliente, is_staff_manager, is_workshop_staff
+from services.user_roles import is_cliente, is_mecanico, is_staff_manager, is_workshop_staff
 from ui.chat_window import ChatWindow
 from ui.login_window import LoginFrame
 from ui.theme import COLORS, apply_theme, set_button_enabled, style_listbox
@@ -84,11 +84,18 @@ class MainApp(tk.Tk):
             notebook.add(self._build_clientes_tab(), text="  Clientes  ")
 
         veh_label = "  Mis Vehículos  " if is_cliente(user.get("rol_nombre")) else "  Vehículos  "
-        cita_label = "  Mis Citas  " if is_cliente(user.get("rol_nombre")) else "  Citas  "
-        notebook.add(self._build_vehiculos_tab(), text=veh_label)
+        if is_mecanico(user.get("rol_nombre")):
+            cita_label = "  Mis citas asignadas  "
+        elif is_cliente(user.get("rol_nombre")):
+            cita_label = "  Mis Citas  "
+        else:
+            cita_label = "  Citas  "
+
+        if not is_mecanico(user.get("rol_nombre")):
+            notebook.add(self._build_vehiculos_tab(), text=veh_label)
         notebook.add(self._build_citas_tab(), text=cita_label)
 
-        if not is_cliente(user.get("rol_nombre")):
+        if is_staff_manager(user.get("rol_nombre")):
             notebook.add(self._build_taller_tab(), text="  Mi Taller  ")
         if is_staff_manager(user.get("rol_nombre")):
             notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
@@ -192,13 +199,36 @@ class MainApp(tk.Tk):
     def _dashboard_title(self) -> str:
         if self.user and is_cliente(self.user.get("rol_nombre")):
             return "Mi panel"
+        if self.user and is_mecanico(self.user.get("rol_nombre")):
+            return "Mis citas asignadas"
         return "Panel del taller"
 
     def _is_cliente_user(self) -> bool:
         return bool(self.user and is_cliente(self.user.get("rol_nombre")))
 
+    def _is_mecanico_user(self) -> bool:
+        return bool(self.user and is_mecanico(self.user.get("rol_nombre")))
+
+    def _citas_filters(self) -> dict:
+        filters: dict = {"id_sucursal": self.id_sucursal}
+        if self._is_cliente_user() and self.id_cliente:
+            filters["id_cliente"] = self.id_cliente
+        elif self._is_mecanico_user() and self.user:
+            filters["id_mecanico"] = self.user["id"]
+        return filters
+
+    def _can_reassign_citas(self) -> bool:
+        return bool(self.user and is_staff_manager(self.user.get("rol_nombre")))
+
     def _can_manage_citas(self) -> bool:
         return bool(self.user and is_workshop_staff(self.user.get("rol_nombre")))
+
+    def _can_create_citas(self) -> bool:
+        return bool(
+            self.user
+            and not is_cliente(self.user.get("rol_nombre"))
+            and not is_mecanico(self.user.get("rol_nombre"))
+        )
 
     def _stat_card(self, parent, title: str, value_var: tk.StringVar, accent: bool = False):
         outer = tk.Frame(parent, bg=COLORS["border"], padx=1, pady=1)
@@ -211,10 +241,11 @@ class MainApp(tk.Tk):
         return outer
 
     def _refresh_dashboard(self):
-        id_cliente = self.id_cliente if self._is_cliente_user() else None
-        citas = cita_service.list_citas(self.id_sucursal, id_cliente)
-        vehiculos = cita_service.list_vehiculos(id_cliente)
-        if self._is_cliente_user():
+        filters = self._citas_filters()
+        citas = cita_service.list_citas(**filters)
+        id_cliente = filters.get("id_cliente")
+        vehiculos = cita_service.list_vehiculos(id_cliente) if id_cliente else []
+        if self._is_cliente_user() or self._is_mecanico_user():
             clientes = []
             islas = []
             mecanicos = []
@@ -246,6 +277,17 @@ class MainApp(tk.Tk):
                 self.dash_stat_vars["completadas"] = tk.StringVar(value="0")
                 self._stat_card(row2, "En proceso", self.dash_stat_vars["proceso"])
                 self._stat_card(row2, "Completadas", self.dash_stat_vars["completadas"])
+            elif self._is_mecanico_user():
+                self.dash_stat_vars["citas"] = tk.StringVar(value="0")
+                self.dash_stat_vars["pendientes"] = tk.StringVar(value="0")
+                self.dash_stat_vars["proceso"] = tk.StringVar(value="0")
+                self._stat_card(row1, "Citas asignadas", self.dash_stat_vars["citas"], accent=True)
+                self._stat_card(row1, "Pendientes", self.dash_stat_vars["pendientes"], accent=True)
+                self._stat_card(row1, "En proceso", self.dash_stat_vars["proceso"])
+                row2 = ttk.Frame(self.dash_cards)
+                row2.pack(fill="x", pady=(10, 0))
+                self.dash_stat_vars["completadas"] = tk.StringVar(value="0")
+                self._stat_card(row2, "Completadas", self.dash_stat_vars["completadas"])
             else:
                 self.dash_stat_vars = {
                     "clientes": tk.StringVar(value="0"),
@@ -270,6 +312,11 @@ class MainApp(tk.Tk):
 
         if self._is_cliente_user():
             self.dash_stat_vars["vehiculos"].set(str(len(vehiculos)))
+            self.dash_stat_vars["citas"].set(str(len(citas)))
+            self.dash_stat_vars["pendientes"].set(str(pendientes))
+            self.dash_stat_vars["proceso"].set(str(en_proceso))
+            self.dash_stat_vars["completadas"].set(str(completadas))
+        elif self._is_mecanico_user():
             self.dash_stat_vars["citas"].set(str(len(citas)))
             self.dash_stat_vars["pendientes"].set(str(pendientes))
             self.dash_stat_vars["proceso"].set(str(en_proceso))
@@ -483,74 +530,84 @@ class MainApp(tk.Tk):
 
     def _build_citas_tab(self):
         frame = ttk.Frame(padding=10)
-        form_title = "Solicitar cita" if self._is_cliente_user() else "Nueva cita"
-        form = ttk.LabelFrame(frame, text=form_title, padding=10)
-        form.pack(fill="x")
-
         self.c_fecha = tk.StringVar(value="2026-06-11")
         self.c_fallo = tk.StringVar()
         self.c_fcomp = tk.StringVar(value="2026-06-11")
         self.c_hcomp = tk.StringVar(value="18:00:00")
-
         self.c_cliente_map = {}
         self.c_vehiculo_map = {}
         self.c_horario_map = {}
         self.c_mecanico_map = {}
         self.c_isla_map = {}
         self.c_servicio_rows = []
-
         self.c_cliente_cb = None
-        if not self._is_cliente_user():
-            self.c_cliente_cb = self._add_combo_row(form, "Cliente")
-            self.c_cliente_cb.bind("<<ComboboxSelected>>", lambda e: self._reload_cita_vehiculos())
-        else:
-            ttk.Label(
-                form,
-                text="El taller asignará mecánico e isla después de tu solicitud.",
-                foreground=COLORS["muted"],
-            ).pack(anchor="w", pady=(0, 6))
-
-        self.c_vehiculo_cb = self._add_combo_row(form, "Vehículo")
-
-        row = ttk.Frame(form)
-        row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Fecha cita", width=26).pack(side="left")
-        ttk.Entry(row, textvariable=self.c_fecha, width=14).pack(side="left")
-        ttk.Button(row, text="Cargar horarios", command=self._reload_cita_horarios).pack(side="left", padx=8)
-
-        self.c_horario_cb = self._add_combo_row(form, "Hora de la cita")
         self.c_mecanico_cb = None
         self.c_isla_cb = None
-        if not self._is_cliente_user():
-            self.c_mecanico_cb = self._add_combo_row(form, "Mecánico asignado")
-            self.c_isla_cb = self._add_combo_row(form, "Isla asignada")
+        self.c_vehiculo_cb = None
+        self.c_horario_cb = None
+        self.c_servicios_lb = None
 
-        row = ttk.Frame(form)
-        row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Descripción del fallo", width=26).pack(side="left", anchor="n")
-        ttk.Entry(row, textvariable=self.c_fallo).pack(side="left", fill="x", expand=True)
+        if self._can_create_citas() or self._is_cliente_user():
+            form_title = "Solicitar cita" if self._is_cliente_user() else "Nueva cita"
+            form = ttk.LabelFrame(frame, text=form_title, padding=10)
+            form.pack(fill="x")
 
-        row = ttk.Frame(form)
-        row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Fecha compromiso", width=26).pack(side="left")
-        ttk.Entry(row, textvariable=self.c_fcomp, width=14).pack(side="left")
-        ttk.Label(row, text="Hora compromiso").pack(side="left", padx=(12, 4))
-        ttk.Entry(row, textvariable=self.c_hcomp, width=10).pack(side="left")
+            if self._can_create_citas():
+                self.c_cliente_cb = self._add_combo_row(form, "Cliente")
+                self.c_cliente_cb.bind("<<ComboboxSelected>>", lambda e: self._reload_cita_vehiculos())
+            elif self._is_cliente_user():
+                ttk.Label(
+                    form,
+                    text="El taller asignará mecánico e isla después de tu solicitud.",
+                    foreground=COLORS["muted"],
+                ).pack(anchor="w", pady=(0, 6))
 
-        row = ttk.Frame(form)
-        row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Tipos de mantenimiento", width=26).pack(side="left", anchor="n")
-        serv_wrap = ttk.Frame(row)
-        serv_wrap.pack(side="left", fill="x", expand=True)
-        self.c_servicios_lb = tk.Listbox(serv_wrap, selectmode=tk.EXTENDED, height=5, exportselection=False)
-        style_listbox(self.c_servicios_lb)
-        self.c_servicios_lb.pack(side="left", fill="x", expand=True)
-        scroll = ttk.Scrollbar(serv_wrap, orient="vertical", command=self.c_servicios_lb.yview)
-        scroll.pack(side="right", fill="y")
-        self.c_servicios_lb.configure(yscrollcommand=scroll.set)
+            self.c_vehiculo_cb = self._add_combo_row(form, "Vehículo")
 
-        btn_text = "Solicitar cita" if self._is_cliente_user() else "Crear cita"
-        ttk.Button(form, text=btn_text, command=self._save_cita).pack(anchor="e", pady=6)
+            row = ttk.Frame(form)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text="Fecha cita", width=26).pack(side="left")
+            ttk.Entry(row, textvariable=self.c_fecha, width=14).pack(side="left")
+            ttk.Button(row, text="Cargar horarios", command=self._reload_cita_horarios).pack(side="left", padx=8)
+
+            self.c_horario_cb = self._add_combo_row(form, "Hora de la cita")
+            if self._can_create_citas():
+                self.c_mecanico_cb = self._add_combo_row(form, "Mecánico asignado")
+                self.c_isla_cb = self._add_combo_row(form, "Isla asignada")
+
+            row = ttk.Frame(form)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text="Descripción del fallo", width=26).pack(side="left", anchor="n")
+            ttk.Entry(row, textvariable=self.c_fallo).pack(side="left", fill="x", expand=True)
+
+            row = ttk.Frame(form)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text="Fecha compromiso", width=26).pack(side="left")
+            ttk.Entry(row, textvariable=self.c_fcomp, width=14).pack(side="left")
+            ttk.Label(row, text="Hora compromiso").pack(side="left", padx=(12, 4))
+            ttk.Entry(row, textvariable=self.c_hcomp, width=10).pack(side="left")
+
+            row = ttk.Frame(form)
+            row.pack(fill="x", pady=2)
+            ttk.Label(row, text="Tipos de mantenimiento", width=26).pack(side="left", anchor="n")
+            serv_wrap = ttk.Frame(row)
+            serv_wrap.pack(side="left", fill="x", expand=True)
+            self.c_servicios_lb = tk.Listbox(serv_wrap, selectmode=tk.EXTENDED, height=5, exportselection=False)
+            style_listbox(self.c_servicios_lb)
+            self.c_servicios_lb.pack(side="left", fill="x", expand=True)
+            scroll = ttk.Scrollbar(serv_wrap, orient="vertical", command=self.c_servicios_lb.yview)
+            scroll.pack(side="right", fill="y")
+            self.c_servicios_lb.configure(yscrollcommand=scroll.set)
+
+            btn_text = "Solicitar cita" if self._is_cliente_user() else "Crear cita"
+            ttk.Button(form, text=btn_text, command=self._save_cita).pack(anchor="e", pady=6)
+        elif self._is_mecanico_user():
+            ttk.Label(
+                frame,
+                text="Aquí ves solo las citas asignadas a ti. Selecciona una para cambiar su estado.",
+                foreground=COLORS["muted"],
+                wraplength=700,
+            ).pack(anchor="w", pady=(0, 8))
 
         if self._is_cliente_user():
             ttk.Label(
@@ -581,11 +638,18 @@ class MainApp(tk.Tk):
         self.citas_tree.bind("<<TreeviewSelect>>", self._on_cita_selected)
 
         if self._can_manage_citas():
-            manage = ttk.LabelFrame(frame, text="Actualizar cita seleccionada", padding=10)
+            manage_title = (
+                "Actualizar estado de la cita"
+                if self._is_mecanico_user()
+                else "Actualizar cita seleccionada"
+            )
+            manage = ttk.LabelFrame(frame, text=manage_title, padding=10)
             manage.pack(fill="x", pady=(0, 8))
             self.c_manage_estado = tk.StringVar()
             self.c_manage_mec_map = {}
             self.c_manage_isla_map = {}
+            self.c_manage_mec_cb = None
+            self.c_manage_isla_cb = None
             row = ttk.Frame(manage)
             row.pack(fill="x", pady=2)
             ttk.Label(row, text="Estado", width=14).pack(side="left")
@@ -593,21 +657,23 @@ class MainApp(tk.Tk):
                 row, textvariable=self.c_manage_estado, values=ESTADOS_UI, state="readonly", width=18,
             )
             self.c_manage_estado_cb.pack(side="left")
-            self.c_manage_mec_cb = self._add_combo_row(manage, "Mecánico", width=14)
-            self.c_manage_isla_cb = self._add_combo_row(manage, "Isla", width=14)
-            self._reload_cita_manage_combos()
+            if self._can_reassign_citas():
+                self.c_manage_mec_cb = self._add_combo_row(manage, "Mecánico", width=14)
+                self.c_manage_isla_cb = self._add_combo_row(manage, "Isla", width=14)
+                self._reload_cita_manage_combos()
+            hint = (
+                "Selecciona una de tus citas para cambiar su estado."
+                if self._is_mecanico_user()
+                else "Selecciona una cita de la lista para cambiar estado, mecánico o isla."
+            )
             ttk.Button(manage, text="Guardar cambios", command=self._update_cita_staff).pack(anchor="e", pady=6)
-            ttk.Label(
-                manage,
-                text="Selecciona una cita de la lista para cambiar estado, mecánico o isla.",
-                foreground=COLORS["muted"],
-            ).pack(anchor="w")
+            ttk.Label(manage, text=hint, foreground=COLORS["muted"]).pack(anchor="w")
 
         self._load_citas()
         return frame
 
     def _reload_cita_manage_combos(self):
-        if not self._can_manage_citas() or not hasattr(self, "c_manage_mec_cb"):
+        if not self._can_reassign_citas() or not hasattr(self, "c_manage_mec_cb") or not self.c_manage_mec_cb:
             return
         mecanicos = cita_service.list_mecanicos(self.id_sucursal)
         self.c_manage_mec_map = self._fill_combo(self.c_manage_mec_cb, mecanicos, lambda m: m["nombre"], "id")
@@ -625,9 +691,9 @@ class MainApp(tk.Tk):
         if not cita:
             return
         self.c_manage_estado.set(estado_a_etiqueta(cita.get("estado")))
-        if cita.get("mecanico"):
+        if self.c_manage_mec_cb and cita.get("mecanico"):
             self.c_manage_mec_cb.set(cita["mecanico"])
-        if cita.get("isla"):
+        if self.c_manage_isla_cb and cita.get("isla"):
             self.c_manage_isla_cb.set(cita["isla"])
 
     def _update_cita_staff(self) -> None:
@@ -636,6 +702,13 @@ class MainApp(tk.Tk):
             if not sel:
                 raise ValueError("Selecciona una cita de la lista.")
             id_cita = int(sel[0])
+            cita = cita_service.get_cita_by_id(id_cita)
+            if not cita:
+                raise ValueError("Cita no encontrada.")
+            if self._is_mecanico_user() and self.user:
+                if cita.get("id_mecanico") != self.user["id"]:
+                    raise ValueError("Solo puedes actualizar citas asignadas a ti.")
+
             estado = etiqueta_a_estado(self.c_manage_estado.get())
             if not estado:
                 raise ValueError("Selecciona un estado válido.")
@@ -643,16 +716,20 @@ class MainApp(tk.Tk):
             updates: dict = {}
             if estado != "CANCELADA":
                 updates["estado"] = estado
-            if self.c_manage_mec_map:
+            if self._can_reassign_citas() and self.c_manage_mec_map:
                 updates["id_mecanico"] = self._combo_id(
                     self.c_manage_mec_cb, self.c_manage_mec_map, "mecánico"
                 )
-            if self.c_manage_isla_map:
+            if self._can_reassign_citas() and self.c_manage_isla_map:
                 updates["id_isla"] = self._combo_id(
                     self.c_manage_isla_cb, self.c_manage_isla_map, "isla"
                 )
 
             if estado == "CANCELADA":
+                if self._is_mecanico_user():
+                    raise ValueError("Solo el administrador puede cancelar citas.")
+                result = cita_service.cambiar_estado_cita(id_cita, estado)
+            elif self._is_mecanico_user():
                 result = cita_service.cambiar_estado_cita(id_cita, estado)
             else:
                 result = cita_service.update_cita(id_cita, updates)
@@ -660,13 +737,16 @@ class MainApp(tk.Tk):
             if not result.get("ok"):
                 raise ValueError(result.get("error", "No se pudo actualizar la cita."))
 
-            messagebox.showinfo("Citas", "Cita actualizada. El cliente verá el nuevo estado y asignación.")
+            msg = "Estado actualizado." if self._is_mecanico_user() else "Cita actualizada. El cliente verá el nuevo estado y asignación."
+            messagebox.showinfo("Citas", msg)
             self._load_citas()
             self._refresh_dashboard()
         except Exception as exc:
             messagebox.showerror("Citas", str(exc))
 
     def _reload_cita_form(self):
+        if self._is_mecanico_user():
+            return
         self._reload_cita_clientes()
         self._reload_cita_mecanicos()
         self._reload_cita_islas()
@@ -676,6 +756,8 @@ class MainApp(tk.Tk):
     def _reload_cita_clientes(self):
         if self._is_cliente_user():
             self._reload_cita_vehiculos()
+            return
+        if not self.c_cliente_cb:
             return
         clientes = catalog_service.list_clientes()
         self.c_cliente_map = self._fill_combo(
@@ -815,8 +897,7 @@ class MainApp(tk.Tk):
             messagebox.showerror("Citas", str(exc))
 
     def _load_citas(self):
-        id_cliente = self.id_cliente if self._is_cliente_user() else None
-        rows = cita_service.list_citas(self.id_sucursal, id_cliente)
+        rows = cita_service.list_citas(**self._citas_filters())
         for r in rows:
             r["fecha_cita"] = str(r["fecha_cita"])
             r["descripcion_fallo"] = (r["descripcion_fallo"] or "")[:80]

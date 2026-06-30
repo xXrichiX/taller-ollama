@@ -131,6 +131,7 @@ def find_cita_activa_por_placa(
     placa: str,
     id_sucursal: int | None = None,
     id_cliente: int | None = None,
+    id_mecanico: int | None = None,
 ) -> dict:
     query = """
         SELECT c.id, c.estado, cl.nombre AS cliente, v.placa, c.descripcion_fallo
@@ -147,6 +148,9 @@ def find_cita_activa_por_placa(
     if id_cliente:
         query += " AND c.id_cliente = %s"
         params.append(id_cliente)
+    if id_mecanico:
+        query += " AND c.id_mecanico = %s"
+        params.append(id_mecanico)
     query += " ORDER BY c.fecha_cita DESC LIMIT 5"
     citas = fetch_all(query, tuple(params))
     if not citas:
@@ -287,7 +291,11 @@ def list_horarios_disponibles(fecha: str, id_sucursal: int) -> list[dict]:
     )
 
 
-def list_citas(id_sucursal: int | None = None, id_cliente: int | None = None) -> list[dict]:
+def list_citas(
+    id_sucursal: int | None = None,
+    id_cliente: int | None = None,
+    id_mecanico: int | None = None,
+) -> list[dict]:
     query = """
         SELECT c.id, cl.nombre AS cliente, v.placa, v.modelo,
                c.fecha_cita, c.descripcion_fallo, c.estado,
@@ -308,6 +316,9 @@ def list_citas(id_sucursal: int | None = None, id_cliente: int | None = None) ->
     if id_cliente:
         query += " AND c.id_cliente = %s"
         params.append(id_cliente)
+    if id_mecanico:
+        query += " AND c.id_mecanico = %s"
+        params.append(id_mecanico)
     query += " ORDER BY c.fecha_cita DESC"
     return fetch_all(query, tuple(params))
 
@@ -470,6 +481,7 @@ def count_citas(
     estado: str | None = None,
     id_sucursal: int | None = None,
     id_cliente: int | None = None,
+    id_mecanico: int | None = None,
 ) -> int:
     query = "SELECT COUNT(*) AS total FROM citas WHERE 1=1"
     params: list[Any] = []
@@ -482,6 +494,9 @@ def count_citas(
     if id_cliente:
         query += " AND id_cliente = %s"
         params.append(id_cliente)
+    if id_mecanico:
+        query += " AND id_mecanico = %s"
+        params.append(id_mecanico)
     row = fetch_one(query, tuple(params))
     return int(row["total"]) if row else 0
 
