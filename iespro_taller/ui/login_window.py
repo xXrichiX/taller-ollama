@@ -94,13 +94,6 @@ class LoginFrame(ttk.Frame):
         )
         self._field(card, "Código de invitación", self.reg_codigo_var)
 
-        ttk.Label(
-            card,
-            text="El código te lo proporciona el administrador de tu taller.",
-            foreground=COLORS["muted"],
-            font=("Helvetica", 9),
-        ).pack(anchor="w", pady=(0, 8))
-
         ttk.Button(card, text="Crear cuenta", style="Accent.TButton", command=self._register_user).pack(
             fill="x", pady=(4, 8)
         )
