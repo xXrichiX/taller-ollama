@@ -139,8 +139,6 @@ class MainApp(tk.Tk):
         notebook.add(self._build_citas_tab(), text=cita_label)
 
         if is_admin(user.get("rol_nombre")):
-            notebook.add(self._build_taller_tab(), text="  Mi Taller  ")
-        if is_admin(user.get("rol_nombre")):
             notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
 
     def _build_header(self, user: dict, sucursal_nombre: str) -> None:
