@@ -45,8 +45,9 @@ class MainApp(tk.Tk):
         self.container = ttk.Frame(self)
         self.container.pack(fill="both", expand=True)
 
-        self._init_db()
         LoginFrame(self.container, self._on_login)
+        self.after_idle(self._init_db)
+
     def _init_db(self):
         from db.init_db import ensure_data_dir, init_database
 
@@ -73,8 +74,17 @@ class MainApp(tk.Tk):
         if is_cliente(user.get("rol_nombre")) and user.get("id"):
             cliente = catalog_service.get_cliente_by_usuario(user["id"])
             self.id_cliente = cliente["id"] if cliente else None
-        if self.sucursales_ids:
-            self.id_sucursal = self.sucursales_ids[0]
+        if is_mecanico(user.get("rol_nombre")):
+            if self.sucursales_ids:
+                self.id_sucursal = self.sucursales_ids[0]
+            elif user.get("id_sucursal"):
+                self.id_sucursal = user["id_sucursal"]
+            else:
+                self.id_sucursal = None
+        elif is_admin(user.get("rol_nombre")):
+            sucursales = catalog_service.list_sucursales()
+            self.sucursales_ids = [s["id"] for s in sucursales]
+            self.id_sucursal = None
         elif user.get("id_sucursal"):
             self.id_sucursal = user["id_sucursal"]
         else:
@@ -134,33 +144,35 @@ class MainApp(tk.Tk):
             notebook.add(self._build_usuarios_tab(), text="  Usuarios  ")
 
     def _build_header(self, user: dict, sucursal_nombre: str) -> None:
-        header = tk.Frame(self.container, bg=COLORS["header"], padx=20, pady=14)
+        header = tk.Frame(self.container, bg=COLORS["header"], padx=20, pady=10)
         header.pack(fill="x")
 
         left = tk.Frame(header, bg=COLORS["header"])
         left.pack(side="left", fill="x", expand=True)
 
+        profile_row = tk.Frame(left, bg=COLORS["header"])
+        profile_row.pack(anchor="w")
+
         self.user_menu = UserProfileMenu(
-            left,
+            profile_row,
             nombre=user["nombre"],
             rol=user["rol_nombre"],
             on_profile=self._show_profile,
             on_logout=self._logout,
         )
-        self.user_menu.pack(anchor="w")
+        self.user_menu.pack(side="left")
 
         if is_admin(user.get("rol_nombre")) or is_mecanico(user.get("rol_nombre")):
-            suc_frame = tk.Frame(header, bg=COLORS["header"])
-            suc_frame.pack(side="right", padx=(0, 12))
-            tk.Label(
-                suc_frame, text="Sucursal activa:", bg=COLORS["header"],
-                fg="#cbd5e1", font=("Helvetica", 10),
-            ).pack(side="left", padx=(0, 6))
             self.sucursal_var = tk.StringVar()
             self.sucursal_cb = ttk.Combobox(
-                suc_frame, textvariable=self.sucursal_var, state="readonly", width=28,
+                profile_row,
+                textvariable=self.sucursal_var,
+                state="readonly",
+                width=24,
+                style="Header.TCombobox",
+                font=("Helvetica", 11),
             )
-            self.sucursal_cb.pack(side="left")
+            self.sucursal_cb.pack(side="left", padx=(18, 0), pady=8)
             self.sucursal_cb.bind("<<ComboboxSelected>>", self._on_sucursal_changed)
             self._reload_sucursal_selector()
 
@@ -169,7 +181,7 @@ class MainApp(tk.Tk):
             text="Abrir asistente IA",
             style="Accent.TButton",
             command=self._open_chat,
-        ).pack(side="right")
+        ).pack(side="right", pady=4)
 
     def _show_profile(self) -> None:
         if not self.user:
@@ -197,18 +209,22 @@ class MainApp(tk.Tk):
         self._sucursal_map = {s["nombre"]: s["id"] for s in rows}
         names = list(self._sucursal_map.keys())
         self.sucursal_cb["values"] = names
-        if names:
+        if self.id_sucursal:
             current = self._sucursal_nombre()
             if current in names:
                 self.sucursal_var.set(current)
-            else:
+            elif names:
                 self.sucursal_var.set(names[0])
                 self._switch_sucursal(self._sucursal_map[names[0]])
+            else:
+                self.sucursal_var.set("— Sin sucursal —")
         else:
-            self.sucursal_var.set("")
+            self.sucursal_var.set("— Sin sucursal —")
 
     def _on_sucursal_changed(self, _event=None) -> None:
         nombre = self.sucursal_var.get()
+        if nombre in ("", "— Sin sucursal —"):
+            return
         if nombre and hasattr(self, "_sucursal_map") and nombre in self._sucursal_map:
             self._switch_sucursal(self._sucursal_map[nombre])
 
@@ -221,6 +237,10 @@ class MainApp(tk.Tk):
             self._load_vehiculos()
         if hasattr(self, "citas_tree"):
             self._load_citas()
+        if hasattr(self, "users_tree"):
+            self._load_usuarios()
+        if hasattr(self, "islas_tree"):
+            self._load_islas()
         if hasattr(self, "sucursales_tree") and not self._is_admin_user():
             pass
         if hasattr(self, "dash_citas_tree"):
@@ -244,6 +264,13 @@ class MainApp(tk.Tk):
         self.geometry("540x580")
         self.minsize(500, 520)
         LoginFrame(self.container, self._on_login)
+
+    def _requires_sucursal_data(self) -> bool:
+        return bool(
+            self.user
+            and (is_admin(self.user.get("rol_nombre")) or is_mecanico(self.user.get("rol_nombre")))
+            and not self.id_sucursal
+        )
 
     def _sucursal_nombre(self):
         if not self.id_sucursal:
@@ -304,9 +331,6 @@ class MainApp(tk.Tk):
     def _is_admin_user(self) -> bool:
         return bool(self.user and is_admin(self.user.get("rol_nombre")))
 
-    def _is_super_admin_user(self) -> bool:
-        return self._is_admin_user()
-
     def _is_cliente_user(self) -> bool:
         return bool(self.user and is_cliente(self.user.get("rol_nombre")))
 
@@ -355,31 +379,40 @@ class MainApp(tk.Tk):
         return outer
 
     def _refresh_dashboard(self):
-        filters = self._citas_filters()
-        citas = cita_service.list_citas(**filters)
-        id_cliente = filters.get("id_cliente")
-        vehiculos: list = []
-        if id_cliente:
-            vehiculos = cita_service.list_vehiculos(id_cliente=id_cliente)
-        elif self._is_mecanico_user() and self.id_sucursal:
-            vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
-        elif self._is_admin_user() and self.id_sucursal:
-            vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
-        elif self._is_admin_user():
-            vehiculos = cita_service.list_vehiculos()
-
-        if self._is_cliente_user() or self._is_mecanico_user():
-            clientes = []
-            islas = []
-            mecanicos = []
-        elif self._is_super_admin_user():
-            clientes = catalog_service.list_clientes()
-            islas = []
-            mecanicos = []
+        if self._requires_sucursal_data():
+            citas: list = []
+            vehiculos: list = []
+            clientes: list = []
+            islas: list = []
+            mecanicos: list = []
         else:
-            clientes = catalog_service.list_clientes()
-            islas = cita_service.list_islas(self.id_sucursal)
-            mecanicos = cita_service.list_mecanicos(self.id_sucursal)
+            filters = self._citas_filters()
+            citas = cita_service.list_citas(**filters)
+            id_cliente = filters.get("id_cliente")
+            vehiculos = []
+            if id_cliente:
+                vehiculos = cita_service.list_vehiculos(id_cliente=id_cliente)
+            elif self._is_mecanico_user() and self.id_sucursal:
+                vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
+            elif self._is_admin_user() and self.id_sucursal:
+                vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
+
+            if self._is_cliente_user() or self._is_mecanico_user():
+                clientes = []
+                islas = []
+                mecanicos = []
+            elif self._is_admin_user():
+                clientes = (
+                    catalog_service.list_clientes(**self._clientes_filters())
+                    if self.id_sucursal
+                    else []
+                )
+                islas = cita_service.list_islas(self.id_sucursal) if self.id_sucursal else []
+                mecanicos = cita_service.list_mecanicos(self.id_sucursal) if self.id_sucursal else []
+            else:
+                clientes = catalog_service.list_clientes(**self._clientes_filters())
+                islas = cita_service.list_islas(self.id_sucursal) if self.id_sucursal else []
+                mecanicos = cita_service.list_mecanicos(self.id_sucursal) if self.id_sucursal else []
 
         pendientes = sum(1 for c in citas if c["estado"] in ("PENDIENTE", "RECIBIDO"))
         en_proceso = sum(1 for c in citas if c["estado"] in ("EN_PROCESO", "DIAGNOSTICO", "EN_REPARACION", "ESPERANDO_REFACCIONES"))
@@ -545,6 +578,9 @@ class MainApp(tk.Tk):
             messagebox.showerror("Clientes", str(exc))
 
     def _load_clientes(self):
+        if self._requires_sucursal_data():
+            self._fill_tree(self.clientes_tree, [])
+            return
         self._fill_tree(self.clientes_tree, catalog_service.list_clientes(**self._clientes_filters()))
 
     def _build_vehiculos_tab(self):
@@ -710,14 +746,14 @@ class MainApp(tk.Tk):
             messagebox.showerror("Vehículos", str(exc))
 
     def _load_vehiculos(self):
-        if self._is_cliente_user():
+        if self._requires_sucursal_data():
+            rows = []
+        elif self._is_cliente_user():
             rows = cita_service.list_vehiculos(id_cliente=self.id_cliente)
         elif self._is_mecanico_user() and self.id_sucursal:
             rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
         elif self._is_admin_user() and self.id_sucursal:
             rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
-        elif self._is_admin_user():
-            rows = cita_service.list_vehiculos()
         else:
             rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
         self._fill_tree(self.veh_tree, rows)
@@ -875,6 +911,8 @@ class MainApp(tk.Tk):
     def _reload_cita_manage_combos(self):
         if not self._can_reassign_citas() or not hasattr(self, "c_manage_mec_cb") or not self.c_manage_mec_cb:
             return
+        if not self.id_sucursal:
+            return
         mecanicos = cita_service.list_mecanicos(self.id_sucursal)
         self.c_manage_mec_map = self._fill_combo(self.c_manage_mec_cb, mecanicos, lambda m: m["nombre"], "id")
         islas = cita_service.list_islas(self.id_sucursal)
@@ -1014,6 +1052,11 @@ class MainApp(tk.Tk):
 
     def _reload_cita_horarios(self):
         fecha = self.c_fecha.get().strip()
+        if not self.id_sucursal:
+            self.c_horario_cb.set("")
+            self.c_horario_cb["values"] = ()
+            self.c_horario_map = {}
+            return
         horarios = cita_service.list_horarios_disponibles(fecha, self.id_sucursal)
         if not horarios:
             self.c_horario_cb.set("")
@@ -1032,6 +1075,11 @@ class MainApp(tk.Tk):
     def _reload_cita_mecanicos(self):
         if self._is_cliente_user() or not self.c_mecanico_cb:
             return
+        if not self.id_sucursal:
+            self.c_mecanico_cb.set("")
+            self.c_mecanico_cb["values"] = ()
+            self.c_mecanico_map = {}
+            return
         mecanicos = cita_service.list_mecanicos(self.id_sucursal)
         self.c_mecanico_map = self._fill_combo(
             self.c_mecanico_cb,
@@ -1043,6 +1091,11 @@ class MainApp(tk.Tk):
     def _reload_cita_islas(self):
         if self._is_cliente_user() or not self.c_isla_cb:
             return
+        if not self.id_sucursal:
+            self.c_isla_cb.set("")
+            self.c_isla_cb["values"] = ()
+            self.c_isla_map = {}
+            return
         islas = cita_service.list_islas(self.id_sucursal)
         self.c_isla_map = self._fill_combo(
             self.c_isla_cb,
@@ -1052,6 +1105,10 @@ class MainApp(tk.Tk):
         )
 
     def _reload_cita_servicios(self):
+        if not self.id_sucursal:
+            self.c_servicio_rows = []
+            self.c_servicios_lb.delete(0, tk.END)
+            return
         servicios = catalog_service.list_tipos_mantenimiento(self.id_sucursal)
         self.c_servicio_rows = servicios
         self.c_servicios_lb.delete(0, tk.END)
@@ -1124,7 +1181,10 @@ class MainApp(tk.Tk):
             messagebox.showerror("Citas", str(exc))
 
     def _load_citas(self):
-        rows = cita_service.list_citas(**self._citas_filters())
+        if self._requires_sucursal_data():
+            rows = []
+        else:
+            rows = cita_service.list_citas(**self._citas_filters())
         for r in rows:
             r["fecha_cita"] = str(r["fecha_cita"])
             r["descripcion_fallo"] = (r["descripcion_fallo"] or "")[:80]
@@ -1260,6 +1320,9 @@ class MainApp(tk.Tk):
         )
 
     def _load_islas(self):
+        if not self.id_sucursal:
+            self._fill_tree(self.islas_tree, [])
+            return
         self._fill_tree(self.islas_tree, cita_service.list_islas(self.id_sucursal))
 
     def _build_sucursales_tab(self):
@@ -1561,7 +1624,10 @@ class MainApp(tk.Tk):
             messagebox.showerror("Usuarios", str(exc))
 
     def _load_usuarios(self):
-        rows = catalog_service.list_usuarios()
+        if self._requires_sucursal_data():
+            rows = []
+        else:
+            rows = catalog_service.list_usuarios(self.id_sucursal if self._is_admin_user() else None)
         for r in rows:
             r["puesto"] = r.get("puesto") or "—"
         self._fill_tree(self.users_tree, rows)

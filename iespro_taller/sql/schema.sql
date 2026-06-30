@@ -246,12 +246,19 @@ CREATE TABLE IF NOT EXISTS llm_observability_logs (
 );
 
 
+CREATE TABLE IF NOT EXISTS app_meta (
+  meta_key VARCHAR(64) PRIMARY KEY,
+  meta_value VARCHAR(255) NOT NULL
+);
+
+
 -- Catálogo mínimo (referencia para formularios). El resto se crea desde la app.
 INSERT IGNORE INTO roles (id, nombre, descripcion) VALUES
 (1, 'ADMIN', 'Administrador del sistema'),
 (2, 'MECANICO', 'Mecánico de taller'),
 (3, 'PENDIENTE', 'Registro con código, pendiente de activación'),
-(4, 'CLIENTE', 'Cliente con acceso a la app');
+(4, 'CLIENTE', 'Cliente con acceso a la app'),
+(5, 'SUPER_ADMIN', 'Alias legacy de administrador');
 
 INSERT IGNORE INTO puestos (id, nombre) VALUES
 (1, 'Admin'),

@@ -1,6 +1,6 @@
 """Roles y permisos — solo Admin y Mecánico en el taller."""
 
-ADMIN_ROLES = frozenset({"ADMIN"})
+ADMIN_ROLES = frozenset({"ADMIN", "SUPER_ADMIN"})
 WORKSHOP_STAFF_ROLES = ADMIN_ROLES | frozenset({"MECANICO"})
 PENDING_ROLES = frozenset({"PENDIENTE"})
 

@@ -231,6 +231,8 @@ def create_vehiculo(data: dict) -> int:
 
 
 def get_mi_taller(id_sucursal: int) -> dict | None:
+    if not id_sucursal:
+        return None
     row = fetch_one("SELECT id, nombre FROM mi_taller WHERE id_sucursal = %s", (id_sucursal,))
     if row:
         return row
@@ -261,6 +263,8 @@ def create_isla(nombre: str, id_sucursal: int) -> int:
 
 def list_mecanicos(id_sucursal: int) -> list[dict]:
     """Personal asignable a citas/vehículos (por rol MECANICO o puesto en el taller)."""
+    if not id_sucursal:
+        return []
     rows = fetch_all(
         """
         SELECT u.id, u.nombre, r.nombre AS rol, p.nombre AS puesto
@@ -307,6 +311,8 @@ def list_isla_mecanicos(id_isla: int) -> list[dict]:
 
 
 def list_horarios_disponibles(fecha: str, id_sucursal: int) -> list[dict]:
+    if not id_sucursal:
+        return []
     return fetch_all(
         """
         SELECT id, fecha, hora, disponible

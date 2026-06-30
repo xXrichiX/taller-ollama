@@ -51,6 +51,27 @@ def apply_theme(root):
     style.configure("Section.TLabel", background=COLORS["bg"], foreground=COLORS["text"], font=("Helvetica", 12, "bold"))
 
     _configure_action_buttons(style)
+    _configure_header_combobox(style)
+
+
+def _configure_header_combobox(style: ttk.Style) -> None:
+    style.configure(
+        "Header.TCombobox",
+        fieldbackground="#2a4a72",
+        background="#2a4a72",
+        foreground="#ffffff",
+        bordercolor="#4b6a94",
+        lightcolor="#2a4a72",
+        darkcolor="#1e3a5f",
+        arrowcolor="#ffffff",
+        padding=(10, 7),
+    )
+    style.map(
+        "Header.TCombobox",
+        fieldbackground=[("readonly", "#2a4a72"), ("disabled", "#334155")],
+        foreground=[("readonly", "#ffffff"), ("disabled", "#94a3b8")],
+        arrowcolor=[("disabled", "#94a3b8")],
+    )
 
 
 def _configure_action_buttons(style: ttk.Style) -> None:

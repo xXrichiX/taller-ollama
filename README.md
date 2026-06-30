@@ -146,7 +146,7 @@ source .venv/bin/activate
 python3 main.py --ui
 ```
 
-La primera vez crea la base de datos, tablas, datos demo y sincroniza el RAG en `../db_vectorial/`.
+La primera vez crea la base de datos, tablas, catálogos mínimos (admin + selects) y sincroniza el RAG en `../db_vectorial/`.
 
 ### 7. Iniciar sesión
 
@@ -231,7 +231,7 @@ iespro_taller/
 ├── agent_cli.py         # Agente en consola
 ├── config.py            # MySQL, Ollama, rutas
 ├── requirements.txt
-├── sql/schema.sql       # Tablas + datos demo
+├── sql/schema.sql       # Tablas + catálogo mínimo (admin, marcas, tipos)
 ├── db/                  # Conexión MySQL, observabilidad
 ├── services/            # chat, RAG, tools, guardrails, voz
 └── ui/                  # Ventanas Tkinter (login, panel, chat)
