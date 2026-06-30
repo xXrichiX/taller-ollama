@@ -126,6 +126,13 @@ CREATE TABLE IF NOT EXISTS tipos_mantenimiento (
   FOREIGN KEY (id_sucursal) REFERENCES sucursales(id)
 );
 
+CREATE TABLE IF NOT EXISTS tipos_mantenimiento_plantilla (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(120) NOT NULL UNIQUE,
+  descripcion TEXT,
+  precio DECIMAL(10,2) NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS horarios (
   id INT AUTO_INCREMENT PRIMARY KEY,
   fecha DATE NOT NULL,
@@ -275,3 +282,11 @@ INSERT IGNORE INTO tipos_combustible (id, nombre) VALUES
 
 INSERT IGNORE INTO tipos_unidad (id, nombre) VALUES
 (1, 'Sedán'), (2, 'Pickup'), (3, 'SUV'), (4, 'Camioneta');
+
+INSERT IGNORE INTO tipos_mantenimiento_plantilla (nombre, descripcion, precio) VALUES
+('Cambio de aceite', 'Aceite y filtro', 850.00),
+('Diagnóstico general', 'Escaneo y revisión', 500.00),
+('Frenos delanteros', 'Balatas y discos', 2800.00),
+('Alineación y balanceo', 'Alineación de dirección', 650.00),
+('Servicio de transmisión', 'Cambio de aceite CVT/ATF', 1200.00),
+('Revisión eléctrica', 'Batería, alternador, luces', 450.00);
