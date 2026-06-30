@@ -524,7 +524,6 @@ class MainApp(tk.Tk):
         self.cli_nombre = tk.StringVar()
         self.cli_tel = tk.StringVar()
         self.cli_email = tk.StringVar()
-        self.cli_usuario_map = {}
 
         form = self._cli_layout.panel_form
         for label, var in [("Nombre", self.cli_nombre), ("Teléfono", self.cli_tel), ("Email", self.cli_email)]:
@@ -533,15 +532,14 @@ class MainApp(tk.Tk):
             ttk.Label(row, text=label, width=14).pack(side="left")
             ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
 
-        self.cli_usuario_cb = self._add_combo_row(form, "Usuario vinculado", width=14)
         ttk.Button(form, text="Guardar cliente", style="Accent.TButton", command=self._save_cliente).pack(
             anchor="e", pady=8
         )
 
         self.clientes_tree = self._make_tree(
             self._cli_layout.tree_host,
-            ("nombre", "telefono", "email", "usuario_email"),
-            headers={"nombre": "Nombre", "telefono": "Teléfono", "email": "Email", "usuario_email": "Usuario"},
+            ("nombre", "telefono", "email"),
+            headers={"nombre": "Nombre", "telefono": "Teléfono", "email": "Email"},
             pady=0,
         )
         self._load_clientes()
@@ -551,36 +549,18 @@ class MainApp(tk.Tk):
         self.cli_nombre.set("")
         self.cli_tel.set("")
         self.cli_email.set("")
-        self._reload_cliente_usuarios()
         self._cli_layout.show("Nuevo cliente")
-
-    def _reload_cliente_usuarios(self):
-        usuarios = [u for u in catalog_service.list_usuarios() if u.get("es_cliente")]
-        opciones = [{"id": None, "nombre": "— Sin usuario (mostrador) —", "email": ""}] + [
-            {"id": u["id"], "nombre": u["nombre"], "email": u["email"]} for u in usuarios
-        ]
-        self.cli_usuario_map = self._fill_combo(
-            self.cli_usuario_cb,
-            opciones,
-            lambda u: u["nombre"] if u["id"] else "— Sin usuario (mostrador) —",
-            "id",
-        )
 
     def _save_cliente(self):
         try:
-            sel = self.cli_usuario_cb.get()
-            id_usuario = self.cli_usuario_map.get(sel)
-            if id_usuario == "":
-                id_usuario = None
             catalog_service.create_cliente(
                 self.cli_nombre.get().strip(),
                 self.cli_tel.get().strip(),
                 self.cli_email.get().strip(),
-                id_usuario,
+                None,
             )
             messagebox.showinfo("Clientes", "Cliente guardado.")
             self._load_clientes()
-            self._reload_cliente_usuarios()
             if hasattr(self, "c_cliente_cb"):
                 self._reload_cita_clientes()
             if hasattr(self, "_cli_layout"):
