@@ -396,9 +396,4 @@ INSERT IGNORE INTO fallas_registradas (id_cita, id_vehiculo, descripcion, diagno
 (NULL, 9, 'Parabrisas con rajadura pequeña lado conductor', 'Reparación con resina', 1),
 (NULL, 10, 'Batería descargada tras 3 días sin uso', 'Prueba de carga: alternador OK, batería al 40%', 1);
 
--- Contraseñas demo (mín. 8 caracteres, letra + número). Si la BD ya existía:
-UPDATE usuarios SET password = 'admin1234' WHERE email = 'admin@iespro.mx';
-UPDATE usuarios SET password = 'jefe1234' WHERE email = 'jefe@iespro.mx';
-UPDATE usuarios SET password = 'mec12345' WHERE email IN ('carlos@iespro.mx', 'ana@iespro.mx', 'miguel@iespro.mx');
-UPDATE usuarios SET password = 'cli12345' WHERE email LIKE '%@cliente.mx';
-UPDATE usuarios SET password = 'rec12345' WHERE email = 'laura@iespro.mx';
+

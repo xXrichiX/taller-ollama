@@ -24,21 +24,30 @@ from db.observability_repository import ObservabilityRepository
 from services.guardrails import BLOCKED_MESSAGE, validate_user_prompt
 from services.chat_intents import (
     ACKNOWLEDGMENT_ANSWER,
-    CAPABILITIES_ANSWER,
-    FRIENDLY_FALLBACK_ANSWER,
-    GREETING_ANSWER,
+    CLIENTE_SIN_VEHICULOS_ANSWER,
     INVALID_INPUT_ANSWER,
     allows_mutating_tool,
+    extract_placa_from_text,
+    get_capabilities_answer,
+    get_friendly_fallback_answer,
+    get_greeting_answer,
     is_acknowledgment,
     is_capabilities_question,
     is_casual_nonsense,
     is_greeting,
     is_invalid_input,
     is_memory_recall_question,
+    is_mi_cita_question,
+    is_personal_vehicle_question,
+    is_similarity_question,
     looks_like_workshop_request,
+    norm_placa_token,
     normalize_workshop_question,
     parse_cancel_cita_request,
+    STAFF_MI_AUTO_ANSWER,
 )
+from services.estado_labels import estado_a_etiqueta
+from services.user_roles import is_cliente, is_staff_manager, is_workshop_staff
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
 from services.tool_response_format import format_tool_calls_log, format_tool_result
@@ -78,11 +87,37 @@ Reglas:
 7. Para cancelar usa cancelar_cita_natural (también si el usuario dice eliminar o calear por error de voz).
 """ + PLAIN_TEXT_RULE
 
+STAFF_MANAGER_PROMPT = """
+ROL ACTUAL: Personal del taller (ADMIN o JEFE). Operas en nombre de cualquier cliente.
+
+Reglas para staff:
+- Puedes crear, editar y cancelar citas de cualquier placa o cliente del taller.
+- Para fallas similares, busca por placa, nombre de cliente o síntoma en todo el historial.
+- No asumas "mi auto" ni vehículos del usuario logueado; el personal no tiene autos personales aquí.
+- Si registran en mostrador, usa nombre del cliente y placa que te den explícitamente.
+"""
+
+CLIENTE_PROMPT = """
+ROL ACTUAL: Cliente del taller. Solo puedes consultar y gestionar TUS vehículos y TUS citas.
+
+Reglas para cliente:
+- No listes ni modifiques datos de otros clientes, mecánicos, islas ni el taller completo.
+- Si dice "mi auto" o "mi cita", usa solo sus vehículos registrados (por placa).
+- Si no tiene vehículos registrados, dilo claro y pídele registrar en Mis Vehículos. No des ejemplos de otros clientes ni del taller completo.
+- Si no tiene vehículos registrados, indícale que primero registre uno en la pestaña Vehículos.
+- Puede solicitar cita con placa y falla; el taller asignará mecánico e isla.
+- Puede cancelar sus citas activas indicando la placa de su vehículo.
+"""
+
 
 class ChatService:
     def __init__(self, id_sucursal: int = DEFAULT_SUCURSAL_ID):
         self.id_sucursal = id_sucursal
         self.id_usuario: int | None = None
+        self.rol_nombre: str | None = None
+        self.user_nombre: str | None = None
+        self.id_cliente: int | None = None
+        self.nombre_cliente: str | None = None
         self.id_conversacion: int | None = None
         self._pending_new_conversation = False
         self.rag = RagService()
@@ -95,8 +130,32 @@ class ChatService:
         except Exception:
             logger.exception("No se pudo inicializar tabla de observabilidad")
 
-    def set_user(self, id_usuario: int) -> None:
-        self.id_usuario = id_usuario
+    def set_user(self, user: int | dict) -> None:
+        if isinstance(user, dict):
+            self.id_usuario = user.get("id")
+            self.rol_nombre = user.get("rol_nombre")
+            self.user_nombre = user.get("nombre")
+            self.id_cliente = None
+            self.nombre_cliente = None
+            if is_cliente(self.rol_nombre) and self.id_usuario:
+                from services import catalog_service
+
+                cliente = catalog_service.get_cliente_by_usuario(self.id_usuario)
+                if cliente:
+                    self.id_cliente = cliente["id"]
+                    self.nombre_cliente = cliente["nombre"]
+        else:
+            self.id_usuario = user
+            self.rol_nombre = None
+            self.user_nombre = None
+            self.id_cliente = None
+            self.nombre_cliente = None
+        self.tools = ToolsService(
+            self.rag,
+            id_cliente=self.id_cliente,
+            nombre_cliente=self.nombre_cliente,
+            es_cliente=is_cliente(self.rol_nombre),
+        )
 
     def ensure_conversation(self) -> int | None:
         if not self.id_usuario:
@@ -220,11 +279,120 @@ class ChatService:
         )
 
     def _build_system_prompt(self) -> str:
-        return (
-            SYSTEM_PROMPT
-            + f"\nSucursal activa: {self.id_sucursal}"
-            + self._memory_from_other_conversations()
-        )
+        prompt = SYSTEM_PROMPT + f"\nSucursal activa: {self.id_sucursal}"
+        if is_staff_manager(self.rol_nombre):
+            prompt += STAFF_MANAGER_PROMPT
+            if self.user_nombre:
+                prompt += f"\nUsuario logueado: {self.user_nombre} ({self.rol_nombre})."
+        elif is_workshop_staff(self.rol_nombre):
+            prompt += (
+                "\nROL ACTUAL: Personal del taller (mecánico). "
+                "Puedes actualizar estado de citas y reasignar mecánico o isla."
+            )
+            if self.user_nombre:
+                prompt += f"\nUsuario logueado: {self.user_nombre} ({self.rol_nombre})."
+        elif is_cliente(self.rol_nombre):
+            prompt += CLIENTE_PROMPT
+            if self.nombre_cliente:
+                prompt += f"\nCliente logueado: {self.nombre_cliente} (id_cliente={self.id_cliente})."
+            vehiculos = []
+            if self.id_usuario:
+                from services import cita_service
+
+                vehiculos = cita_service.list_vehiculos_por_usuario(self.id_usuario)
+            if vehiculos:
+                placas = ", ".join(v["placa"] for v in vehiculos)
+                prompt += f"\nVehículos registrados del cliente: {placas}."
+            else:
+                prompt += "\nEl cliente aún no tiene vehículos registrados."
+        return prompt + self._memory_from_other_conversations()
+
+    def _get_cliente_vehiculos(self) -> list[dict]:
+        if not self.id_usuario:
+            return []
+        from services import cita_service
+
+        return cita_service.list_vehiculos_por_usuario(self.id_usuario)
+
+    def _cliente_placas(self) -> set[str]:
+        return {norm_placa_token(v["placa"]) for v in self._get_cliente_vehiculos() if v.get("placa")}
+
+    def _format_cliente_vehiculos_list(self) -> str:
+        vehiculos = self._get_cliente_vehiculos()
+        if not vehiculos:
+            return CLIENTE_SIN_VEHICULOS_ANSWER
+        lines = ["Tus vehículos registrados:"]
+        for v in vehiculos:
+            marca = v.get("marca") or ""
+            modelo = v.get("modelo") or ""
+            detalle = f"{marca} {modelo}".strip()
+            lines.append(f"- {v['placa']}" + (f" ({detalle})" if detalle else ""))
+        lines.append("Dime la placa y qué necesitas: estado de cita, agendar servicio o una falla.")
+        return "\n".join(lines)
+
+    def _try_cliente_personal_answer(self, question: str) -> str | None:
+        if not is_cliente(self.rol_nombre):
+            return None
+
+        vehiculos = self._get_cliente_vehiculos()
+        placas_cliente = self._cliente_placas()
+        placa = extract_placa_from_text(question)
+
+        if placa and placas_cliente and norm_placa_token(placa) not in placas_cliente:
+            return (
+                f"La placa {placa} no está entre tus vehículos registrados.\n\n"
+                + self._format_cliente_vehiculos_list()
+            )
+
+        if is_mi_cita_question(question):
+            if not self.id_cliente:
+                return "No encontré tu ficha de cliente. Cierra sesión e intenta de nuevo."
+            from services import cita_service
+
+            citas = cita_service.list_citas(self.id_sucursal, self.id_cliente)
+            if not citas:
+                if not vehiculos:
+                    return CLIENTE_SIN_VEHICULOS_ANSWER
+                return (
+                    "No tienes citas registradas todavía.\n\n"
+                    "Puedes solicitar una en Mis Citas o dime la placa de tu vehículo y la falla."
+                )
+            lines = ["Tus citas:"]
+            for c in citas[:8]:
+                estado = estado_a_etiqueta(c.get("estado"))
+                lines.append(
+                    f"- {c.get('placa')}: {estado} | Mecánico: {c.get('mecanico') or 'por asignar'} | "
+                    f"Isla: {c.get('isla') or 'por asignar'}"
+                )
+            return "\n".join(lines)
+
+        if is_personal_vehicle_question(question):
+            if not vehiculos:
+                return CLIENTE_SIN_VEHICULOS_ANSWER
+            if is_similarity_question(question) and len(vehiculos) == 1:
+                return None
+            if len(vehiculos) == 1:
+                v = vehiculos[0]
+                marca = v.get("marca") or ""
+                modelo = v.get("modelo") or ""
+                detalle = f"{marca} {modelo}".strip()
+                base = f"Tu vehículo registrado es {v['placa']}"
+                if detalle:
+                    base += f" ({detalle})"
+                return base + ". ¿Quieres ver tus citas, el estado o reportar una falla?"
+            return self._format_cliente_vehiculos_list()
+
+        return None
+
+    def _filter_rag_for_cliente(self, rag_result: dict) -> dict:
+        placas = self._cliente_placas()
+        if not placas:
+            return {**rag_result, "matches": []}
+        filtered = [
+            m for m in rag_result.get("matches", [])
+            if norm_placa_token(m.get("placa") or "") in placas
+        ]
+        return {**rag_result, "matches": filtered}
 
     def _maybe_set_titulo(self, question: str) -> None:
         if not self.id_conversacion:
@@ -368,11 +536,11 @@ class ChatService:
         emit_status("thinking", "Pensando...")
 
         if is_invalid_input(question):
-            answer = stream_answer(FRIENDLY_FALLBACK_ANSWER)
+            answer = stream_answer(get_friendly_fallback_answer(self.rol_nombre))
             return finalize(answer, "help")
 
         if is_greeting(question):
-            answer = stream_answer(GREETING_ANSWER)
+            answer = stream_answer(get_greeting_answer(self.rol_nombre))
             return finalize(answer, "help")
 
         if is_acknowledgment(question):
@@ -380,11 +548,11 @@ class ChatService:
             return finalize(answer, "help")
 
         if is_casual_nonsense(question):
-            answer = stream_answer(FRIENDLY_FALLBACK_ANSWER)
+            answer = stream_answer(get_friendly_fallback_answer(self.rol_nombre))
             return finalize(answer, "help")
 
         if is_capabilities_question(question):
-            answer = stream_answer(CAPABILITIES_ANSWER)
+            answer = stream_answer(get_capabilities_answer(self.rol_nombre))
             return finalize(answer, "help")
 
         if is_memory_recall_question(question):
@@ -392,13 +560,36 @@ class ChatService:
             answer = stream_answer(self._format_recall_answer(question))
             return finalize(answer, "memory_recall")
 
+        personal_answer = self._try_cliente_personal_answer(question)
+        if personal_answer:
+            answer = stream_answer(personal_answer)
+            return finalize(answer, "help")
+
+        if (
+            is_workshop_staff(self.rol_nombre)
+            and not is_cliente(self.rol_nombre)
+            and is_personal_vehicle_question(question)
+        ):
+            answer = stream_answer(STAFF_MI_AUTO_ANSWER)
+            return finalize(answer, "help")
+
         cancel_args = parse_cancel_cita_request(question)
         if cancel_args:
             if not cancel_args.get("placa"):
-                answer = stream_answer(
-                    "Para cancelar una cita necesito la placa del vehículo. "
-                    "Por ejemplo: cancela la cita de ABC-123."
-                )
+                if is_cliente(self.rol_nombre):
+                    vehiculos = self._get_cliente_vehiculos()
+                    if not vehiculos:
+                        answer = stream_answer(CLIENTE_SIN_VEHICULOS_ANSWER)
+                        return finalize(answer, "help")
+                    answer = stream_answer(
+                        "Para cancelar una cita necesito la placa de tu vehículo. "
+                        + self._format_cliente_vehiculos_list().split("\n", 1)[0]
+                    )
+                else:
+                    answer = stream_answer(
+                        "Para cancelar una cita necesito la placa del vehículo. "
+                        "Por ejemplo: cancela la cita de ABC-123."
+                    )
                 return finalize(answer, "help")
             emit_status("acting", "Cancelando cita...")
             tool_args = {**cancel_args, "id_sucursal": self.id_sucursal}
@@ -417,11 +608,12 @@ class ChatService:
             )
 
         emit_status("searching", "Consultando base de datos...")
-        sql_answer = run_sql_query(question, self.id_sucursal)
-        if sql_answer:
-            emit_status("thinking", "Preparando respuesta...")
-            answer = stream_answer(sql_answer)
-            return finalize(answer, "sql")
+        if not is_cliente(self.rol_nombre):
+            sql_answer = run_sql_query(question, self.id_sucursal)
+            if sql_answer:
+                emit_status("thinking", "Preparando respuesta...")
+                answer = stream_answer(sql_answer)
+                return finalize(answer, "sql")
 
         q_lower = question.lower()
         rag_keywords = (
@@ -429,11 +621,31 @@ class ChatService:
             "chirrido", "ruido", "vibración", "vibracion", "como el", "como la",
         )
         if any(k in q_lower for k in rag_keywords):
+            if is_cliente(self.rol_nombre):
+                vehiculos = self._get_cliente_vehiculos()
+                if not vehiculos:
+                    answer = stream_answer(CLIENTE_SIN_VEHICULOS_ANSWER)
+                    return finalize(answer, "help")
+                if is_personal_vehicle_question(question) or not extract_placa_from_text(question):
+                    if len(vehiculos) > 1 and not extract_placa_from_text(question):
+                        answer = stream_answer(
+                            "Para buscar fallas de tu auto necesito que indiques la placa.\n\n"
+                            + self._format_cliente_vehiculos_list()
+                        )
+                        return finalize(answer, "help")
+
             emit_status("searching", "Buscando fallas similares en el historial...")
             rag_result = self.tools.execute(
                 "buscar_fallas_similares",
                 {"descripcion": question, "limite": 5},
             )
+            if is_cliente(self.rol_nombre):
+                rag_result = self._filter_rag_for_cliente(rag_result)
+                if not rag_result.get("matches"):
+                    answer = stream_answer(
+                        "No encontré fallas similares en el historial de tus vehículos registrados."
+                    )
+                    return finalize(answer, "rag")
             emit_status("thinking", "Analizando casos encontrados...")
             answer = self._answer_from_rag_stream(question, rag_result, emit_token)
             return finalize(
@@ -443,7 +655,7 @@ class ChatService:
             )
 
         if not looks_like_workshop_request(question):
-            answer = stream_answer(FRIENDLY_FALLBACK_ANSWER)
+            answer = stream_answer(get_friendly_fallback_answer(self.rol_nombre))
             return finalize(answer, "help")
 
         return self._ask_with_tools_stream(question, emit_status, emit_token, finalize)
@@ -475,7 +687,10 @@ class ChatService:
     ) -> str:
         matches = rag_result.get("matches", [])
         if not matches:
-            text = "No encontré fallas históricas similares en la base vectorial."
+            if is_cliente(self.rol_nombre):
+                text = "No encontré fallas similares en el historial de tus vehículos registrados."
+            else:
+                text = "No encontré fallas históricas similares en la base vectorial."
             for word in text.split(" "):
                 emit_token(word + " ")
             return text
@@ -487,6 +702,7 @@ class ChatService:
         memoria = self._memory_from_other_conversations()
         prompt = f"""Eres el asistente del taller IESPRO. Responde SOLO en texto plano en español.
 NO uses asteriscos, markdown ni encabezados con #.
+{"Responde solo sobre los vehículos del cliente logueado; no cites casos de otros clientes." if is_cliente(self.rol_nombre) else ""}
 
 Pregunta: {question}
 {memoria}
@@ -563,7 +779,15 @@ No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
                     }
                 else:
                     seen_signatures.add(sig)
-                    if not allows_mutating_tool(question, name):
+                    if not allows_mutating_tool(
+                        question,
+                        name,
+                        staff_manage=is_staff_manager(self.rol_nombre)
+                        or (
+                            is_workshop_staff(self.rol_nombre)
+                            and name in ("cambiar_estado_cita_natural", "cambiar_estado_cita", "editar_cita_natural")
+                        ),
+                    ):
                         result = {
                             "ok": False,
                             "error": (

@@ -103,11 +103,58 @@ def list_clientes() -> list[dict]:
     )
 
 
+def get_cliente_by_usuario(id_usuario: int) -> dict | None:
+    return fetch_one(
+        """
+        SELECT c.id, c.nombre, c.telefono, c.email, c.id_usuario
+        FROM clientes c
+        WHERE c.id_usuario = %s
+        """,
+        (id_usuario,),
+    )
+
+
 def create_cliente(nombre: str, telefono: str, email: str, id_usuario: int | None) -> int:
     return execute(
         "INSERT INTO clientes (nombre, telefono, email, id_usuario) VALUES (%s, %s, %s, %s)",
         (nombre, telefono, email, id_usuario),
     )
+
+
+def ensure_cliente_usuario(id_cliente: int) -> int:
+    """Vincula un usuario CLIENTE si el cliente llegó al mostrador sin app."""
+    cliente = fetch_one(
+        "SELECT id, nombre, telefono, email, id_usuario FROM clientes WHERE id = %s",
+        (id_cliente,),
+    )
+    if not cliente:
+        raise ValueError("Cliente no encontrado.")
+    if cliente.get("id_usuario"):
+        return int(cliente["id_usuario"])
+
+    email = (cliente.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        email = f"walkin.cliente{id_cliente}@iespro.local"
+    elif fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
+        email = f"walkin.cliente{id_cliente}@iespro.local"
+
+    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'CLIENTE'")
+    id_rol = rol["id"] if rol else 4
+    nombre = (cliente.get("nombre") or "Cliente").strip() or "Cliente"
+    password = f"walkin{id_cliente:04d}"
+
+    id_usuario = create_usuario({
+        "nombre": nombre,
+        "email": email,
+        "password": password,
+        "id_rol": id_rol,
+        "id_sucursal": DEFAULT_SUCURSAL_ID,
+        "es_cliente": 1,
+        "es_trabajador": 0,
+        "id_puesto": None,
+    })
+    execute("UPDATE clientes SET id_usuario = %s WHERE id = %s", (id_usuario, id_cliente))
+    return id_usuario
 
 
 def list_marcas() -> list[dict]:

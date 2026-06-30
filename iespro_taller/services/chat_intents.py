@@ -79,6 +79,65 @@ def extract_placa_from_text(text: str) -> str | None:
     return raw
 
 
+PERSONAL_VEHICLE_MARKERS = (
+    "mi auto", "mi carro", "mis autos", "mis carros",
+    "mi vehiculo", "mi vehículo", "mis vehiculos", "mis vehículos",
+    "mi coche", "mi unidad", "de mi auto", "de mi carro",
+    "en mi auto", "en mi carro", "para mi auto", "para mi carro",
+)
+
+MI_CITA_MARKERS = (
+    "mi cita", "mis citas", "mi turno", "mis turnos",
+    "estado de mi cita", "estado de mis citas",
+)
+
+
+def is_personal_vehicle_question(question: str) -> bool:
+    q = _norm(question)
+    return any(m in q for m in PERSONAL_VEHICLE_MARKERS)
+
+
+def is_mi_cita_question(question: str) -> bool:
+    q = _norm(question)
+    return any(m in q for m in MI_CITA_MARKERS)
+
+
+def norm_placa_token(placa: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", _norm(placa or ""))
+
+
+RAG_SIMILARITY_HINTS = (
+    "similar", "parecido", "parecida", "casos similares", "caso similar",
+)
+
+STAFF_MI_AUTO_ANSWER = """Eres personal del taller: aquí no aplica "mi auto".
+
+Dime la placa o el cliente, por ejemplo: fallas similares a la placa ABC-123 o del cliente Roberto García."""
+
+
+def is_similarity_question(question: str) -> bool:
+    q = _norm(question)
+    return any(h in q for h in RAG_SIMILARITY_HINTS)
+
+
+CLIENTE_SIN_VEHICULOS_ANSWER = """No tienes ningún vehículo registrado en el sistema.
+
+Regístralo primero en la pestaña Mis Vehículos. Después podré ayudarte con tu auto, tus citas o fallas de tu placa."""
+
+CLIENTE_FALLBACK_ANSWER = """No entendí bien eso.
+
+Puedo ayudarte con tus vehículos y tus citas. Si aún no registras un auto, hazlo en Mis Vehículos.
+Si ya tienes uno, dime la placa o pregunta por mis citas."""
+
+
+def get_friendly_fallback_answer(rol_nombre: str | None = None) -> str:
+    from services.user_roles import is_cliente
+
+    if is_cliente(rol_nombre):
+        return CLIENTE_FALLBACK_ANSWER
+    return FRIENDLY_FALLBACK_ANSWER
+
+
 def normalize_workshop_question(question: str) -> str:
     """Corrige typos de voz y mapea 'eliminar cita' → cancelar."""
     text = (question or "").strip()
@@ -86,6 +145,9 @@ def normalize_workshop_question(question: str) -> str:
         return text
 
     typo_map = (
+        (r"\bmi\s+audo\b", "mi auto"),
+        (r"\bmi\s+oto\b", "mi auto"),
+        (r"\bmi\s+auro\b", "mi auto"),
         (r"\bcalear\b", "cancelar"),
         (r"\bcalea\b", "cancela"),
         (r"\bcanselar\b", "cancelar"),
@@ -107,7 +169,9 @@ def normalize_workshop_question(question: str) -> str:
             flags=re.IGNORECASE,
         )
 
-    return text.strip()
+    from services.spoken_number_normalize import normalize_spoken_numbers
+
+    return normalize_spoken_numbers(text.strip())
 
 
 def is_cancel_cita_request(question: str) -> bool:
@@ -205,8 +269,10 @@ def looks_like_workshop_request(question: str) -> bool:
     return False
 
 
-def allows_mutating_tool(question: str, tool_name: str) -> bool:
+def allows_mutating_tool(question: str, tool_name: str, *, staff_manage: bool = False) -> bool:
     """Evita crear o cambiar citas si el usuario no lo pidió con claridad."""
+    if staff_manage and tool_name in MUTATING_TOOLS:
+        return True
     if tool_name not in MUTATING_TOOLS:
         return True
     if _is_action_request(question):
@@ -372,6 +438,70 @@ Acciones que ejecuto en el sistema:
 - Cancela (o elimina) la cita de la placa ABC-123 — queda inactiva, no se borra de la base
 
 También puedo listar citas, clientes, vehículos, mecánicos e islas. Dime qué necesitas en español claro."""
+
+
+CAPABILITIES_ANSWER_STAFF = """Como personal del taller puedo ayudarte así:
+
+Consultas del taller completo:
+- ¿Cuántas citas hay? ¿Cuántos clientes o vehículos?
+- Fallas similares por placa, cliente o síntoma en todo el historial
+
+Flujo de mostrador (cliente sin app):
+- Registra cliente, vehículo y cita desde las pestañas Clientes, Vehículos y Citas
+- O pídeme por chat, por ejemplo:
+  Crea una cita para María López, placa XYZ-789, mecánico Carlos, isla 2, falla: ruido en frenos
+
+Acciones en el sistema:
+- Crear, editar o cancelar citas de cualquier placa
+- Cambiar mecánico, isla, falla o estado de una cita
+- Listar citas, clientes, vehículos, mecánicos e islas
+
+No uses "mi auto": actúa siempre con el nombre del cliente o la placa que te indiquen."""
+
+
+def get_capabilities_answer(rol_nombre: str | None = None) -> str:
+    from services.user_roles import is_cliente, is_staff_manager
+
+    if is_staff_manager(rol_nombre):
+        return CAPABILITIES_ANSWER_STAFF
+    if is_cliente(rol_nombre):
+        return CAPABILITIES_ANSWER_CLIENTE
+    return CAPABILITIES_ANSWER
+
+
+def get_greeting_answer(rol_nombre: str | None = None) -> str:
+    from services.user_roles import is_cliente, is_staff_manager
+
+    if is_staff_manager(rol_nombre):
+        return GREETING_ANSWER_STAFF
+    if is_cliente(rol_nombre):
+        return GREETING_ANSWER_CLIENTE
+    return GREETING_ANSWER
+
+
+CAPABILITIES_ANSWER_CLIENTE = """Puedo ayudarte con tus vehículos y citas:
+
+- Ver cuántas citas tienes o listar las tuyas
+- Agendar cita con la placa de tu auto y la falla (el taller asigna mecánico e isla)
+- Cancelar una cita activa de tu vehículo, por ejemplo: cancela la cita de ABC-123
+- Buscar fallas similares si mencionas la placa de tu auto
+
+Primero registra tu vehículo en la pestaña Vehículos si aún no lo has hecho.
+No puedo ver datos de otros clientes ni gestionar el taller completo."""
+
+
+GREETING_ANSWER_CLIENTE = """Hola. Soy el asistente de IESPRO-Taller.
+
+Puedo ayudarte con tus citas y tus vehículos registrados.
+
+Dime qué necesitas, por ejemplo: lista mis citas, o agenda cita para mi placa ABC-123 con falla de frenos."""
+
+
+GREETING_ANSWER_STAFF = """Hola. Soy el asistente de IESPRO-Taller.
+
+Estás en modo personal del taller: puedo consultar todo el historial, buscar fallas por placa o cliente, y crear o modificar citas en nombre de cualquier cliente.
+
+Dime qué necesitas, por ejemplo: fallas similares a la placa ABC-123, o crea una cita para Roberto García."""
 
 
 GREETING_ANSWER = """Hola. Soy el asistente de IESPRO-Taller.

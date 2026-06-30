@@ -42,6 +42,16 @@ _vosk_model = None
 _vosk_model_lock = threading.Lock()
 
 
+from services.spoken_number_normalize import normalize_spoken_numbers
+
+
+def _clean_transcript(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return ""
+    return normalize_spoken_numbers(text)
+
+
 def _whisper_available() -> bool:
     try:
         import torch  # noqa: F401
@@ -121,6 +131,8 @@ class VoskStreamProcessor:
         if partial:
             parts.append(partial)
         full = " ".join(parts).strip()
+        if full:
+            full = _clean_transcript(full)
         if full and full != self._last_sent:
             self._last_sent = full
             return full
@@ -135,7 +147,7 @@ class VoskStreamProcessor:
             partial = json.loads(self._rec.PartialResult()).get("partial", "").strip()
             if partial:
                 result = partial
-        return result
+        return _clean_transcript(result)
 
 
 def _create_vosk_processor() -> VoskStreamProcessor | None:
@@ -335,7 +347,7 @@ def transcribe_from_microphone() -> tuple[bool, str]:
     if _whisper_available():
         try:
             text = recognizer.recognize_whisper(audio, model="base", language="es")
-            cleaned = (text or "").strip()
+            cleaned = _clean_transcript(text or "")
             if cleaned:
                 return True, cleaned
         except Exception as exc:
@@ -352,7 +364,7 @@ def _transcribe_google(recognizer, audio) -> tuple[bool, str]:
         import speech_recognition as sr
 
         text = recognizer.recognize_google(audio, language="es-ES")
-        cleaned = (text or "").strip()
+        cleaned = _clean_transcript(text or "")
         if not cleaned:
             return False, "No se detectó texto en el audio."
         return True, cleaned
@@ -378,13 +390,13 @@ def _transcribe_pcm(pcm: bytes, sample_rate: int = SAMPLE_RATE) -> str:
     if _whisper_available():
         try:
             text = recognizer.recognize_whisper(audio, model="base", language="es")
-            return (text or "").strip()
+            return _clean_transcript(text or "")
         except Exception:
             pass
 
     try:
         text = recognizer.recognize_google(audio, language="es-ES")
-        return (text or "").strip()
+        return _clean_transcript(text or "")
     except Exception:
         return ""
 

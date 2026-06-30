@@ -127,7 +127,11 @@ def find_isla_by_referencia(referencia: str, id_sucursal: int) -> dict:
     }
 
 
-def find_cita_activa_por_placa(placa: str, id_sucursal: int | None = None) -> dict:
+def find_cita_activa_por_placa(
+    placa: str,
+    id_sucursal: int | None = None,
+    id_cliente: int | None = None,
+) -> dict:
     query = """
         SELECT c.id, c.estado, cl.nombre AS cliente, v.placa, c.descripcion_fallo
         FROM citas c
@@ -140,6 +144,9 @@ def find_cita_activa_por_placa(placa: str, id_sucursal: int | None = None) -> di
     if id_sucursal:
         query += " AND c.id_sucursal = %s"
         params.append(id_sucursal)
+    if id_cliente:
+        query += " AND c.id_cliente = %s"
+        params.append(id_cliente)
     query += " ORDER BY c.fecha_cita DESC LIMIT 5"
     citas = fetch_all(query, tuple(params))
     if not citas:
@@ -280,24 +287,29 @@ def list_horarios_disponibles(fecha: str, id_sucursal: int) -> list[dict]:
     )
 
 
-def list_citas(id_sucursal: int | None = None) -> list[dict]:
+def list_citas(id_sucursal: int | None = None, id_cliente: int | None = None) -> list[dict]:
     query = """
         SELECT c.id, cl.nombre AS cliente, v.placa, v.modelo,
                c.fecha_cita, c.descripcion_fallo, c.estado,
                u.nombre AS mecanico, i.nombre AS isla,
+               c.id_mecanico, c.id_isla,
                c.fecha_compromiso, c.hora_compromiso
         FROM citas c
         JOIN clientes cl ON cl.id = c.id_cliente
         JOIN vehiculos v ON v.id = c.id_vehiculo
         JOIN usuarios u ON u.id = c.id_mecanico
         JOIN islas i ON i.id = c.id_isla
+        WHERE 1=1
     """
-    params: tuple = ()
+    params: list[Any] = []
     if id_sucursal:
-        query += " WHERE c.id_sucursal = %s"
-        params = (id_sucursal,)
+        query += " AND c.id_sucursal = %s"
+        params.append(id_sucursal)
+    if id_cliente:
+        query += " AND c.id_cliente = %s"
+        params.append(id_cliente)
     query += " ORDER BY c.fecha_cita DESC"
-    return fetch_all(query, params)
+    return fetch_all(query, tuple(params))
 
 
 def create_cita(data: dict, servicio_ids: list[int]) -> int:
@@ -350,7 +362,8 @@ def create_cita(data: dict, servicio_ids: list[int]) -> int:
 def get_cita_by_id(id_cita: int) -> dict | None:
     return fetch_one(
         """
-        SELECT c.id, c.estado, c.descripcion_fallo, c.fecha_cita, c.id_horario,
+        SELECT c.id, c.id_cliente, c.estado, c.descripcion_fallo, c.fecha_cita, c.id_horario,
+               c.id_mecanico, c.id_isla,
                cl.nombre AS cliente, v.placa, u.nombre AS mecanico, i.nombre AS isla
         FROM citas c
         JOIN clientes cl ON cl.id = c.id_cliente
@@ -444,7 +457,20 @@ def update_cita(id_cita: int, updates: dict) -> dict:
     }
 
 
-def count_citas(estado: str | None = None, id_sucursal: int | None = None) -> int:
+def cambiar_estado_cita(id_cita: int, estado: str) -> dict:
+    estado = (estado or "").upper()
+    if estado == "CANCELADA":
+        return cancelar_cita(id_cita)
+    if estado not in ("PENDIENTE", "EN_PROCESO", "COMPLETADA"):
+        return {"ok": False, "error": f"Estado no válido: {estado}"}
+    return update_cita(id_cita, {"estado": estado})
+
+
+def count_citas(
+    estado: str | None = None,
+    id_sucursal: int | None = None,
+    id_cliente: int | None = None,
+) -> int:
     query = "SELECT COUNT(*) AS total FROM citas WHERE 1=1"
     params: list[Any] = []
     if estado:
@@ -453,8 +479,21 @@ def count_citas(estado: str | None = None, id_sucursal: int | None = None) -> in
     if id_sucursal:
         query += " AND id_sucursal = %s"
         params.append(id_sucursal)
+    if id_cliente:
+        query += " AND id_cliente = %s"
+        params.append(id_cliente)
     row = fetch_one(query, tuple(params))
     return int(row["total"]) if row else 0
+
+
+def get_default_asignacion_taller(id_sucursal: int) -> dict:
+    mecanicos = list_mecanicos(id_sucursal)
+    islas = list_islas(id_sucursal)
+    if not mecanicos:
+        raise ValueError("No hay mecánicos disponibles en el taller.")
+    if not islas:
+        raise ValueError("No hay islas configuradas en el taller.")
+    return {"id_mecanico": mecanicos[0]["id"], "id_isla": islas[0]["id"]}
 
 
 def get_mecanicos_por_isla(id_isla: int) -> list[dict]:
