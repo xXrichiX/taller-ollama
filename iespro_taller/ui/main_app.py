@@ -14,6 +14,7 @@ from services.user_roles import (
     is_pending,
     is_staff_manager,
     is_workshop_staff,
+    role_display_label,
 )
 from ui.chat_window import ChatWindow
 from ui.date_picker import DatePickerRow
@@ -158,7 +159,7 @@ class MainApp(tk.Tk):
         self.user_menu = UserProfileMenu(
             profile_row,
             nombre=user["nombre"],
-            rol=user["rol_nombre"],
+            rol=role_display_label(user["rol_nombre"]),
             on_profile=self._show_profile,
             on_logout=self._logout,
         )
@@ -194,7 +195,7 @@ class MainApp(tk.Tk):
             "Mi Perfil",
             f"Nombre: {u['nombre']}\n"
             f"Correo: {u['email']}\n"
-            f"Rol (permisos): {u['rol_nombre']}\n"
+            f"Rol (permisos): {role_display_label(u['rol_nombre'])}\n"
             f"Puesto: {puesto}\n"
             f"Sucursal activa: {self._sucursal_nombre()}",
         )
@@ -358,9 +359,13 @@ class MainApp(tk.Tk):
             filters["id_cliente"] = self.id_cliente
         if self.id_sucursal:
             filters["id_sucursal"] = self.id_sucursal
+        if self._is_mecanico_user() and self.user:
+            filters["id_mecanico"] = self.user["id"]
         return filters
 
     def _clientes_filters(self) -> dict:
+        if self._is_mecanico_user() and self.user:
+            return {"id_mecanico": self.user["id"]}
         if self.id_sucursal:
             return {"id_sucursal": self.id_sucursal}
         return {}
@@ -407,8 +412,8 @@ class MainApp(tk.Tk):
             vehiculos = []
             if id_cliente:
                 vehiculos = cita_service.list_vehiculos(id_cliente=id_cliente)
-            elif self._is_mecanico_user() and self.id_sucursal:
-                vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
+            elif self._is_mecanico_user() and self.user:
+                vehiculos = cita_service.list_vehiculos(id_mecanico_asignado=self.user["id"])
             elif self._is_admin_user() and self.id_sucursal:
                 vehiculos = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
 
@@ -745,8 +750,8 @@ class MainApp(tk.Tk):
             rows = []
         elif self._is_cliente_user():
             rows = cita_service.list_vehiculos(id_cliente=self.id_cliente)
-        elif self._is_mecanico_user() and self.id_sucursal:
-            rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
+        elif self._is_mecanico_user() and self.user:
+            rows = cita_service.list_vehiculos(id_mecanico_asignado=self.user["id"])
         elif self._is_admin_user() and self.id_sucursal:
             rows = cita_service.list_vehiculos(id_sucursal=self.id_sucursal)
         else:

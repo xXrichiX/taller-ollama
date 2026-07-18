@@ -59,6 +59,20 @@ def flags_for_role(rol_nombre: str | None) -> tuple[int, int]:
     return 0, 0
 
 
+def role_display_label(rol_nombre: str | None) -> str:
+    """Etiqueta visible: el admin es un mecánico con más permisos."""
+    rol = _norm(rol_nombre)
+    if rol in ADMIN_ROLES:
+        return "Mecánico (todos los permisos)"
+    if rol == "MECANICO":
+        return "Mecánico"
+    if rol == "CLIENTE":
+        return "Cliente"
+    if rol in PENDING_ROLES:
+        return "Pendiente de asignación"
+    return rol_nombre or ""
+
+
 def can_assign_work_as_mecanico(rol_nombre: str | None, puesto_nombre: str | None = None) -> bool:
     if is_mecanico(rol_nombre):
         return True
