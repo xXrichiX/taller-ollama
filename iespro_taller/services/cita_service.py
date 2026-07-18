@@ -42,8 +42,14 @@ def find_vehiculo_por_referencia(
     placa: str | None = None,
     id_cliente: int | None = None,
     modelo: str | None = None,
+    id_sucursal: int | None = None,
+    id_mecanico_asignado: int | None = None,
 ) -> dict:
-    vehiculos = list_vehiculos(id_cliente)
+    vehiculos = list_vehiculos(
+        id_cliente=id_cliente,
+        id_sucursal=id_sucursal,
+        id_mecanico_asignado=id_mecanico_asignado,
+    )
     if placa:
         norm_placa = _norm_placa(placa)
         matches = [v for v in vehiculos if _norm_placa(v["placa"]) == norm_placa]
@@ -175,7 +181,7 @@ def list_vehiculos(
     query = """
         SELECT v.id, v.numero_economico, v.placa, v.modelo, m.nombre AS marca,
                c.nombre AS cliente, v.kilometraje, v.activo,
-               um.nombre AS mecanico_asignado, v.id_mecanico_asignado
+               um.nombre AS mecanico_asignado, v.id_mecanico_asignado, v.id_sucursal
         FROM vehiculos v
         JOIN marcas m ON m.id = v.id_marca
         JOIN clientes c ON c.id = v.id_cliente
@@ -407,7 +413,7 @@ def get_cita_by_id(id_cita: int) -> dict | None:
     return fetch_one(
         """
         SELECT c.id, c.id_cliente, c.id_vehiculo, c.estado, c.descripcion_fallo, c.fecha_cita, c.id_horario,
-               c.id_mecanico, c.id_isla,
+               c.id_mecanico, c.id_isla, c.id_sucursal,
                cl.nombre AS cliente, v.placa, u.nombre AS mecanico, i.nombre AS isla
         FROM citas c
         JOIN clientes cl ON cl.id = c.id_cliente
@@ -618,14 +624,24 @@ def get_mecanicos_por_isla(id_isla: int) -> list[dict]:
     )
 
 
-def list_fallas() -> list[dict]:
-    return fetch_all(
-        """
+def list_fallas(
+    id_sucursal: int | None = None,
+    id_mecanico: int | None = None,
+) -> list[dict]:
+    query = """
         SELECT f.id, f.descripcion, f.diagnostico, f.solucion, f.resuelto,
-               v.placa, c.id AS id_cita
+               v.placa, c.id AS id_cita, c.id_mecanico, c.id_sucursal
         FROM fallas_registradas f
         JOIN vehiculos v ON v.id = f.id_vehiculo
         LEFT JOIN citas c ON c.id = f.id_cita
-        ORDER BY f.registrado_en DESC
-        """
-    )
+        WHERE 1=1
+    """
+    params: list[Any] = []
+    if id_sucursal:
+        query += " AND c.id_sucursal = %s"
+        params.append(id_sucursal)
+    if id_mecanico:
+        query += " AND c.id_mecanico = %s"
+        params.append(id_mecanico)
+    query += " ORDER BY f.registrado_en DESC"
+    return fetch_all(query, tuple(params))

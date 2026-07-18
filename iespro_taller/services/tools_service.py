@@ -283,6 +283,7 @@ class ToolsService:
         es_cliente: bool = False,
         id_mecanico: int | None = None,
         es_mecanico: bool = False,
+        id_sucursal: int | None = None,
     ):
         self.rag = rag_service
         self.id_cliente = id_cliente
@@ -290,6 +291,7 @@ class ToolsService:
         self.es_cliente = es_cliente
         self.id_mecanico = id_mecanico
         self.es_mecanico = es_mecanico
+        self.id_sucursal = id_sucursal
         self._handlers: dict[str, Callable[[dict], Any]] = {
             "contar_citas": self._contar_citas,
             "listar_citas": self._listar_citas,
@@ -355,8 +357,24 @@ class ToolsService:
                 scoped["id_cliente"] = self.id_cliente
             return scoped
         if self.es_mecanico and self.id_mecanico:
-            if name in ("cancelar_cita_natural", "cambiar_estado_cita_natural") and scoped.get("placa"):
+            # Fuerza siempre el alcance del mecánico + sucursal activa.
+            if self.id_sucursal:
+                scoped["id_sucursal"] = self.id_sucursal
+            if name in (
+                "listar_citas",
+                "contar_citas",
+                "cambiar_estado_cita_natural",
+                "cancelar_cita_natural",
+                "buscar_fallas_similares",
+            ):
                 scoped["id_mecanico"] = self.id_mecanico
+            if name == "listar_vehiculos":
+                scoped["id_mecanico_asignado"] = self.id_mecanico
+                scoped.pop("id_cliente", None)
+            if name == "buscar_vehiculo":
+                scoped["id_mecanico_asignado"] = self.id_mecanico
+                if self.id_sucursal:
+                    scoped["id_sucursal"] = self.id_sucursal
         return scoped
 
     def _assert_cita_del_cliente(self, id_cita: int) -> dict | None:
@@ -377,6 +395,8 @@ class ToolsService:
             return {"ok": False, "error": "Cita no encontrada."}
         if cita.get("id_mecanico") != self.id_mecanico:
             return {"ok": False, "error": "Solo puedes gestionar citas asignadas a ti."}
+        if self.id_sucursal and cita.get("id_sucursal") and cita["id_sucursal"] != self.id_sucursal:
+            return {"ok": False, "error": "Esa cita no pertenece a la sucursal activa."}
         return None
 
     def _contar_citas(self, args: dict) -> dict:
@@ -409,7 +429,11 @@ class ToolsService:
         return catalog_service.list_clientes()
 
     def _listar_vehiculos(self, args: dict) -> list[dict]:
-        return cita_service.list_vehiculos(args.get("id_cliente"))
+        return cita_service.list_vehiculos(
+            id_cliente=args.get("id_cliente"),
+            id_sucursal=args.get("id_sucursal"),
+            id_mecanico_asignado=args.get("id_mecanico_asignado"),
+        )
 
     def _listar_mecanicos(self, args: dict) -> list[dict]:
         return cita_service.list_mecanicos(args.get("id_sucursal", 1))
@@ -492,6 +516,8 @@ class ToolsService:
             placa=args.get("placa"),
             id_cliente=args.get("id_cliente"),
             modelo=args.get("modelo"),
+            id_sucursal=args.get("id_sucursal"),
+            id_mecanico_asignado=args.get("id_mecanico_asignado"),
         )
 
     def _cambiar_estado_cita_natural(self, args: dict) -> dict:
@@ -587,7 +613,30 @@ class ToolsService:
         if not self.rag:
             return {"error": "RAG no activo en este modo"}
         limite = args.get("limite", 5)
-        return self.rag.search_similar(args["descripcion"], n_results=limite)
+        id_sucursal = args.get("id_sucursal") if self.es_mecanico else None
+        id_mecanico = args.get("id_mecanico") if self.es_mecanico else None
+        result = self.rag.search_similar(
+            args["descripcion"],
+            n_results=limite,
+            id_sucursal=id_sucursal,
+            id_mecanico=id_mecanico,
+        )
+        if not self.es_mecanico or not self.id_mecanico:
+            return result
+        # Refuerzo: solo citas del mecánico (cubre docs viejos sin metadata).
+        citas = cita_service.list_citas(
+            id_sucursal or self.id_sucursal,
+            id_mecanico=self.id_mecanico,
+        )
+        cita_ids = {str(c["id"]) for c in citas}
+        placas = {cita_service._norm_placa(c.get("placa") or "") for c in citas if c.get("placa")}
+        filtered = []
+        for m in result.get("matches") or []:
+            id_cita = str(m.get("id_cita") or "")
+            placa = cita_service._norm_placa(m.get("placa") or "")
+            if (id_cita and id_cita in cita_ids) or (placa and placa in placas):
+                filtered.append(m)
+        return {**result, "matches": filtered}
 
     def _cambiar_estado_cita(self, args: dict) -> dict:
         denied = self._assert_cita_del_mecanico(args["id_cita"])

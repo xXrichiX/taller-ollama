@@ -55,6 +55,8 @@ class RagService:
                     "falla_id": str(falla["id"]),
                     "placa": falla.get("placa") or "",
                     "id_cita": str(falla.get("id_cita") or ""),
+                    "id_mecanico": str(falla.get("id_mecanico") or ""),
+                    "id_sucursal": str(falla.get("id_sucursal") or ""),
                     "resuelto": str(falla.get("resuelto", 0)),
                     "origen": "mysql",
                 }],
@@ -63,13 +65,22 @@ class RagService:
 
         return added
 
-    def search_similar(self, query: str, n_results: int = 5) -> dict[str, Any]:
+    def search_similar(
+        self,
+        query: str,
+        n_results: int = 5,
+        *,
+        id_sucursal: int | None = None,
+        id_mecanico: int | None = None,
+    ) -> dict[str, Any]:
         import time
 
         start = time.perf_counter()
+        # Pedimos más resultados si hay filtro, para no quedarnos cortos tras filtrar.
+        fetch_n = n_results * 4 if (id_sucursal or id_mecanico) else n_results
         results = self.collection.query(
             query_embeddings=[self._embed(query)],
-            n_results=n_results,
+            n_results=max(fetch_n, n_results),
         )
         latency_ms = (time.perf_counter() - start) * 1000
 
@@ -79,12 +90,24 @@ class RagService:
 
         matches = []
         for doc, meta, dist in zip(docs, metas, distances):
+            meta = meta or {}
+            meta_suc = str(meta.get("id_sucursal") or "")
+            meta_mec = str(meta.get("id_mecanico") or "")
+            # Docs viejos sin metadata pasan; el filtro fino va en chat_service.
+            if id_sucursal and meta_suc and meta_suc != str(id_sucursal):
+                continue
+            if id_mecanico and meta_mec and meta_mec != str(id_mecanico):
+                continue
             matches.append({
                 "texto": doc,
                 "placa": meta.get("placa", ""),
                 "id_cita": meta.get("id_cita", ""),
+                "id_mecanico": meta_mec,
+                "id_sucursal": meta_suc,
                 "distancia": round(dist, 4),
             })
+            if len(matches) >= n_results:
+                break
 
         return {
             "matches": matches,

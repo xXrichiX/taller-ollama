@@ -18,7 +18,6 @@ _BUSINESS_TABLES = (
     "horarios",
     "vehiculos",
     "clientes",
-    "codigos_invitacion",
     "usuario_sucursales",
     "tipos_mantenimiento",
     "sucursales",

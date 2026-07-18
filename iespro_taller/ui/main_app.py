@@ -1215,38 +1215,6 @@ class MainApp(tk.Tk):
             r["estado"] = estado_a_etiqueta(r.get("estado"))
         self._fill_tree(self.citas_tree, rows)
 
-    def _nuevo_codigo_sucursal_invitacion(self) -> None:
-        from services.invitation_service import generar_codigo_aleatorio
-
-        if hasattr(self, "suc_inv_codigo"):
-            self.suc_inv_codigo.set(generar_codigo_aleatorio())
-
-    def _guardar_codigo_sucursal_invitacion(self) -> None:
-        from services import invitation_service
-
-        try:
-            id_sucursal = self._sucursal_tree_selected_id()
-            if not id_sucursal:
-                raise ValueError("Selecciona una sucursal de la lista.")
-            codigo = self.suc_inv_codigo.get().strip()
-            if not codigo:
-                raise ValueError("Genera un código primero.")
-            creado_por = self.user["id"] if self.user else None
-            result = invitation_service.crear_codigo(
-                id_sucursal,
-                codigo=codigo,
-                usos_maximos=50,
-                creado_por=creado_por,
-                permite_admin_sucursal=False,
-            )
-            if not result.get("ok"):
-                raise ValueError(result.get("error", "No se pudo guardar el código."))
-            messagebox.showinfo("Código guardado", f"Código de invitación: {result['codigo']}")
-            self.suc_inv_codigo.set("")
-            self._suc_layout.hide()
-        except Exception as exc:
-            messagebox.showerror("Código de invitación", str(exc))
-
     def _sucursal_tree_selected_id(self) -> int | None:
         if not hasattr(self, "sucursales_tree"):
             return self.id_sucursal
@@ -1256,7 +1224,7 @@ class MainApp(tk.Tk):
         return self.id_sucursal
 
     def _hide_suc_panel_forms(self) -> None:
-        for frame_name in ("suc_create_frame", "suc_isla_frame", "suc_codigo_frame"):
+        for frame_name in ("suc_create_frame", "suc_isla_frame"):
             frame = getattr(self, frame_name, None)
             if frame:
                 frame.pack_forget()
@@ -1270,22 +1238,6 @@ class MainApp(tk.Tk):
         self.suc_isla_frame.pack(fill="both", expand=True)
         self._reload_isla_mecanico_combo()
         self._suc_layout.show("Nueva isla")
-
-    def _open_suc_codigo_invitacion(self) -> None:
-        id_sucursal = self._sucursal_tree_selected_id()
-        if not id_sucursal:
-            messagebox.showinfo("Códigos", "Selecciona una sucursal de la lista.")
-            return
-        self.suc_inv_codigo.set("")
-        if hasattr(self, "suc_codigo_sucursal_lbl"):
-            nombre = next(
-                (s["nombre"] for s in catalog_service.list_sucursales() if s["id"] == id_sucursal),
-                "—",
-            )
-            self.suc_codigo_sucursal_lbl.configure(text=f"Sucursal: {nombre}")
-        self._hide_suc_panel_forms()
-        self.suc_codigo_frame.pack(fill="both", expand=True)
-        self._suc_layout.show("Código de invitación")
 
     def _save_isla(self):
         try:
@@ -1354,17 +1306,12 @@ class MainApp(tk.Tk):
 
         self.suc_nombre = tk.StringVar()
         self.suc_dir = tk.StringVar()
-        self.suc_codigo = tk.StringVar()
         self.isla_nombre = tk.StringVar()
         self.isla_mec_map = {}
-        self.suc_inv_codigo = tk.StringVar()
 
         if self._is_admin_user():
             self._suc_layout.add_toolbar_button("+ Crear sucursal", self._open_sucursal_create)
             self._suc_layout.add_toolbar_button("+ Crear isla", self._open_suc_isla_create, accent=False)
-            self._suc_layout.add_toolbar_button(
-                "+ Código invitación", self._open_suc_codigo_invitacion, accent=False
-            )
 
             self.suc_create_frame = ttk.Frame(self._suc_layout.panel_form)
             form = self.suc_create_frame
@@ -1374,14 +1321,8 @@ class MainApp(tk.Tk):
                 ttk.Label(row, text=label, width=14).pack(side="left")
                 ttk.Entry(row, textvariable=var).pack(side="left", fill="x", expand=True)
 
-            row = ttk.Frame(form)
-            row.pack(fill="x", pady=4)
-            ttk.Label(row, text="Código invitación", width=14).pack(side="left")
-            ttk.Entry(row, textvariable=self.suc_codigo, state="readonly", width=24).pack(side="left")
-
             actions = ttk.Frame(form)
             actions.pack(fill="x", pady=(8, 0))
-            ttk.Button(actions, text="Generar código", command=self._nuevo_codigo_sucursal).pack(side="right", padx=(8, 0))
             ttk.Button(
                 actions,
                 text="Crear sucursal",
@@ -1398,27 +1339,6 @@ class MainApp(tk.Tk):
             ttk.Button(
                 self.suc_isla_frame, text="Crear isla", style="Accent.TButton", command=self._save_isla
             ).pack(anchor="e", pady=8)
-
-            self.suc_codigo_frame = ttk.Frame(self._suc_layout.panel_form)
-            self.suc_codigo_sucursal_lbl = ttk.Label(
-                self.suc_codigo_frame,
-                text="Sucursal: —",
-                foreground=COLORS["muted"],
-            )
-            self.suc_codigo_sucursal_lbl.pack(anchor="w", pady=(0, 6))
-            row = ttk.Frame(self.suc_codigo_frame)
-            row.pack(fill="x", pady=4)
-            ttk.Label(row, text="Código", width=14).pack(side="left")
-            ttk.Entry(row, textvariable=self.suc_inv_codigo, state="readonly", width=24).pack(side="left")
-            ttk.Button(row, text="Generar código", command=self._nuevo_codigo_sucursal_invitacion).pack(
-                side="left", padx=8
-            )
-            ttk.Button(
-                self.suc_codigo_frame,
-                text="Guardar código",
-                style="Accent.TButton",
-                command=self._guardar_codigo_sucursal_invitacion,
-            ).pack(anchor="e", pady=(4, 0))
 
         tree_host = self._suc_layout.tree_host
         ttk.Label(tree_host, text="Sucursales", style="Section.TLabel").pack(anchor="w")
@@ -1461,47 +1381,20 @@ class MainApp(tk.Tk):
     def _open_sucursal_create(self) -> None:
         self.suc_nombre.set("")
         self.suc_dir.set("")
-        self.suc_codigo.set("")
         self._hide_suc_panel_forms()
         self.suc_create_frame.pack(fill="both", expand=True)
         self._suc_layout.show("Nueva sucursal (taller)")
 
-    def _nuevo_codigo_sucursal(self) -> None:
-        from services.invitation_service import generar_codigo_aleatorio
-
-        if hasattr(self, "suc_codigo"):
-            self.suc_codigo.set(generar_codigo_aleatorio())
-
     def _save_sucursal(self):
-        from services import invitation_service
-
         try:
             nombre = self.suc_nombre.get().strip()
             if not nombre:
                 raise ValueError("Indica el nombre de la sucursal.")
-            codigo = self.suc_codigo.get().strip()
-            if not codigo:
-                raise ValueError("Genera un código de invitación antes de crear la sucursal.")
 
             id_sucursal = catalog_service.create_sucursal(nombre, self.suc_dir.get().strip())
-            creado_por = self.user["id"] if self.user else None
-            result = invitation_service.crear_codigo(
-                id_sucursal,
-                codigo=codigo,
-                usos_maximos=50,
-                creado_por=creado_por,
-                permite_admin_sucursal=True,
-            )
-            if not result.get("ok"):
-                raise ValueError(result.get("error", "Sucursal creada pero falló el código."))
-
-            messagebox.showinfo(
-                "Sucursales",
-                f"Sucursal creada.\nCódigo de invitación: {result['codigo']}",
-            )
+            messagebox.showinfo("Sucursales", "Sucursal creada.")
             self.suc_nombre.set("")
             self.suc_dir.set("")
-            self.suc_codigo.set("")
             self._load_sucursales()
             self._reload_sucursal_selector()
             self._select_sucursal_in_tree(id_sucursal)

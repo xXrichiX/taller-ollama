@@ -8,6 +8,9 @@ CREATE DATABASE IF NOT EXISTS iespro_taller_app
 
 USE iespro_taller_app;
 
+-- El registro ya no usa invitaciones; elimina la tabla legacy si existía.
+DROP TABLE IF EXISTS codigos_invitacion;
+
 CREATE TABLE IF NOT EXISTS sucursales (
   id INT AUTO_INCREMENT PRIMARY KEY,
   nombre VARCHAR(120) NOT NULL,
@@ -24,21 +27,6 @@ CREATE TABLE IF NOT EXISTS roles (
 CREATE TABLE IF NOT EXISTS puestos (
   id INT AUTO_INCREMENT PRIMARY KEY,
   nombre VARCHAR(80) NOT NULL UNIQUE
-);
-
-CREATE TABLE IF NOT EXISTS codigos_invitacion (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  codigo VARCHAR(32) NOT NULL UNIQUE,
-  id_sucursal INT NOT NULL,
-  usos_maximos INT NOT NULL DEFAULT 1,
-  usos_actuales INT NOT NULL DEFAULT 0,
-  expira_en DATETIME NULL,
-  creado_por INT NULL,
-  activo TINYINT(1) NOT NULL DEFAULT 1,
-  permite_admin_sucursal TINYINT(1) NOT NULL DEFAULT 0,
-  creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id),
-  FOREIGN KEY (creado_por) REFERENCES usuarios(id)
 );
 
 CREATE TABLE IF NOT EXISTS usuarios (

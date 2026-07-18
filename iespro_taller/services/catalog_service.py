@@ -183,10 +183,8 @@ def register_usuario(
     nombre: str,
     email: str,
     password: str,
-    codigo_invitacion: str,
 ) -> dict[str, Any]:
-    """Registro público con código de invitación. Rol PENDIENTE hasta que un admin lo asigne."""
-    from services.invitation_service import consumir_codigo, validar_codigo
+    """Registra un mecánico y le crea una sucursal propia automáticamente."""
     from services.password_policy import normalize_password, validate_password
 
     nombre = (nombre or "").strip()
@@ -205,30 +203,29 @@ def register_usuario(
     if fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
         return {"ok": False, "error": "Ese correo ya está registrado."}
 
-    inv = validar_codigo(codigo_invitacion)
-    if not inv.get("ok"):
-        return inv
+    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'MECANICO'")
+    puesto = fetch_one("SELECT id FROM puestos WHERE nombre = 'Mecánico'")
+    if not rol or not puesto:
+        return {"ok": False, "error": "No está configurado el puesto Mecánico."}
 
-    rol = fetch_one("SELECT id FROM roles WHERE nombre = 'PENDIENTE'")
-    id_rol = rol["id"] if rol else 3
-
+    nombre_sucursal = f"Taller de {nombre} — {email}"
+    id_sucursal = create_sucursal(nombre_sucursal, "")
     id_usuario = create_usuario({
         "nombre": nombre,
         "email": email,
         "password": password,
-        "id_rol": id_rol,
-        "id_sucursal": inv["id_sucursal"],
+        "id_rol": int(rol["id"]),
+        "id_sucursal": id_sucursal,
         "es_cliente": 0,
-        "es_trabajador": 0,
-        "id_puesto": None,
+        "es_trabajador": 1,
+        "id_puesto": int(puesto["id"]),
     })
-    set_usuario_sucursales(id_usuario, [int(inv["id_sucursal"])])
-    consumir_codigo(inv["id_codigo"])
+    set_usuario_sucursales(id_usuario, [id_sucursal])
     return {
         "ok": True,
         "id_usuario": id_usuario,
-        "sucursal": inv.get("sucursal_nombre"),
-        "pendiente_rol": True,
+        "id_sucursal": id_sucursal,
+        "sucursal": nombre_sucursal,
     }
 
 

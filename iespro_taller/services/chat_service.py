@@ -114,13 +114,13 @@ Reglas:
 SUPER_ADMIN_PROMPT = ADMIN_PROMPT
 
 MECANICO_PROMPT = """
-ROL ACTUAL: Mecánico. Trabajas en tu sucursal.
+ROL ACTUAL: Mecánico. Solo ves TU historial en la sucursal activa.
 
 Reglas para mecánico:
-- Puedes VER todas las citas, vehículos e historial de reparaciones de tu sucursal (incluso asignados a otros).
+- Solo puedes consultar citas, vehículos, clientes y fallas ASIGNADAS A TI en la sucursal activa.
+- No menciones ni inventes datos de otros mecánicos, ni de otras sucursales.
+- Si no tienes historial propio para una falla, dilo claro: no uses casos ajenos.
 - Solo puedes CAMBIAR estado, diagnóstico u observaciones de citas asignadas a ti.
-- Usa el historial de la sucursal para casos similares y diagnósticos.
-- No modifiques citas de otros mecánicos ni datos de otras sucursales.
 """
 
 CLIENTE_PROMPT = """
@@ -138,7 +138,7 @@ Reglas para cliente:
 
 class ChatService:
     def __init__(self, id_sucursal: int = DEFAULT_SUCURSAL_ID):
-        self.id_sucursal = id_sucursal
+        self._id_sucursal = id_sucursal
         self.id_usuario: int | None = None
         self.rol_nombre: str | None = None
         self.user_nombre: str | None = None
@@ -148,7 +148,7 @@ class ChatService:
         self.id_conversacion: int | None = None
         self._pending_new_conversation = False
         self.rag = RagService()
-        self.tools = ToolsService(self.rag)
+        self.tools = ToolsService(self.rag, id_sucursal=id_sucursal)
         self.repo = ConversationRepository()
         self.obs_repo = ObservabilityRepository()
         self._last_context_meta: dict[str, Any] = {}
@@ -156,6 +156,16 @@ class ChatService:
             self.obs_repo.ensure_table()
         except Exception:
             logger.exception("No se pudo inicializar tabla de observabilidad")
+
+    @property
+    def id_sucursal(self) -> int | None:
+        return self._id_sucursal
+
+    @id_sucursal.setter
+    def id_sucursal(self, value: int | None) -> None:
+        self._id_sucursal = value
+        if getattr(self, "tools", None) is not None:
+            self.tools.id_sucursal = value
 
     def set_user(self, user: int | dict) -> None:
         if isinstance(user, dict):
@@ -188,6 +198,7 @@ class ChatService:
             es_cliente=is_cliente(self.rol_nombre),
             id_mecanico=self.id_mecanico_scope,
             es_mecanico=is_mecanico(self.rol_nombre),
+            id_sucursal=self.id_sucursal,
         )
 
     def ensure_conversation(self) -> int | None:
@@ -430,21 +441,45 @@ class ChatService:
         ]
         return {**rag_result, "matches": filtered}
 
-    def _mecanico_placas(self) -> set[str]:
-        """Placas de toda la sucursal (lectura amplia para diagnóstico)."""
+    def _mecanico_cita_ids(self) -> set[str]:
+        """Solo citas asignadas a este mecánico en la sucursal activa."""
         from services import cita_service
 
-        citas = cita_service.list_citas(self.id_sucursal)
-        return {norm_placa_token(c["placa"]) for c in citas if c.get("placa")}
+        if not self.id_mecanico_scope or not self.id_sucursal:
+            return set()
+        citas = cita_service.list_citas(self.id_sucursal, id_mecanico=self.id_mecanico_scope)
+        return {str(c["id"]) for c in citas if c.get("id")}
+
+    def _mecanico_placas(self) -> set[str]:
+        """Placas de vehículos/citas propias del mecánico en la sucursal activa."""
+        from services import cita_service
+
+        if not self.id_mecanico_scope:
+            return set()
+        placas: set[str] = set()
+        if self.id_sucursal:
+            for c in cita_service.list_citas(self.id_sucursal, id_mecanico=self.id_mecanico_scope):
+                if c.get("placa"):
+                    placas.add(norm_placa_token(c["placa"]))
+        for v in cita_service.list_vehiculos(id_mecanico_asignado=self.id_mecanico_scope):
+            if self.id_sucursal and v.get("id_sucursal") and v["id_sucursal"] != self.id_sucursal:
+                continue
+            if v.get("placa"):
+                placas.add(norm_placa_token(v["placa"]))
+        return placas
 
     def _filter_rag_for_mecanico(self, rag_result: dict) -> dict:
+        """Solo fallas de citas/placas del mecánico en la sucursal activa."""
+        cita_ids = self._mecanico_cita_ids()
         placas = self._mecanico_placas()
-        if not placas:
+        if not cita_ids and not placas:
             return {**rag_result, "matches": []}
-        filtered = [
-            m for m in rag_result.get("matches", [])
-            if norm_placa_token(m.get("placa") or "") in placas
-        ]
+        filtered = []
+        for m in rag_result.get("matches", []):
+            id_cita = str(m.get("id_cita") or "")
+            placa = norm_placa_token(m.get("placa") or "")
+            if (id_cita and id_cita in cita_ids) or (placa and placa in placas):
+                filtered.append(m)
         return {**rag_result, "matches": filtered}
 
     def _maybe_set_titulo(self, question: str) -> None:
@@ -703,7 +738,7 @@ class ChatService:
                 rag_result = self._filter_rag_for_mecanico(rag_result)
                 if not rag_result.get("matches"):
                     answer = stream_answer(
-                        "No encontré fallas similares en el historial de tu sucursal."
+                        "No encontré fallas similares en tu historial de esta sucursal."
                     )
                     return finalize(answer, "rag")
             emit_status("thinking", "Analizando casos encontrados...")
@@ -749,6 +784,8 @@ class ChatService:
         if not matches:
             if is_cliente(self.rol_nombre):
                 text = "No encontré fallas similares en el historial de tus vehículos registrados."
+            elif is_mecanico(self.rol_nombre):
+                text = "No encontré fallas similares en tu historial de esta sucursal."
             else:
                 text = "No encontré fallas históricas similares en la base vectorial."
             for word in text.split(" "):
@@ -760,9 +797,17 @@ class ChatService:
             for m in matches
         )
         memoria = self._memory_from_other_conversations()
+        scope_rule = ""
+        if is_cliente(self.rol_nombre):
+            scope_rule = "Responde solo sobre los vehículos del cliente logueado; no cites casos de otros clientes."
+        elif is_mecanico(self.rol_nombre):
+            scope_rule = (
+                "Responde SOLO con el historial propio del mecánico en la sucursal activa. "
+                "No inventes ni cites casos de otros mecánicos."
+            )
         prompt = f"""Eres el asistente del taller IESPRO. Responde SOLO en texto plano en español.
 NO uses asteriscos, markdown ni encabezados con #.
-{"Responde solo sobre los vehículos del cliente logueado; no cites casos de otros clientes." if is_cliente(self.rol_nombre) else ""}
+{scope_rule}
 
 Pregunta: {question}
 {memoria}

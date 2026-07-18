@@ -131,10 +131,12 @@ Si ya tienes uno, dime la placa o pregunta por mis citas."""
 
 
 def get_friendly_fallback_answer(rol_nombre: str | None = None) -> str:
-    from services.user_roles import is_cliente
+    from services.user_roles import is_cliente, is_mecanico
 
     if is_cliente(rol_nombre):
         return CLIENTE_FALLBACK_ANSWER
+    if is_mecanico(rol_nombre):
+        return MECANICO_FALLBACK_ANSWER
     return FRIENDLY_FALLBACK_ANSWER
 
 
@@ -460,22 +462,26 @@ No uses "mi auto": actúa siempre con el nombre del cliente o la placa que te in
 
 
 def get_capabilities_answer(rol_nombre: str | None = None) -> str:
-    from services.user_roles import is_cliente, is_staff_manager
+    from services.user_roles import is_cliente, is_mecanico, is_staff_manager
 
     if is_staff_manager(rol_nombre):
         return CAPABILITIES_ANSWER_STAFF
     if is_cliente(rol_nombre):
         return CAPABILITIES_ANSWER_CLIENTE
+    if is_mecanico(rol_nombre):
+        return CAPABILITIES_ANSWER_MECANICO
     return CAPABILITIES_ANSWER
 
 
 def get_greeting_answer(rol_nombre: str | None = None) -> str:
-    from services.user_roles import is_cliente, is_staff_manager
+    from services.user_roles import is_cliente, is_mecanico, is_staff_manager
 
     if is_staff_manager(rol_nombre):
         return GREETING_ANSWER_STAFF
     if is_cliente(rol_nombre):
         return GREETING_ANSWER_CLIENTE
+    if is_mecanico(rol_nombre):
+        return GREETING_ANSWER_MECANICO
     return GREETING_ANSWER
 
 
@@ -495,6 +501,32 @@ GREETING_ANSWER_CLIENTE = """Hola. Soy el asistente de IESPRO-Taller.
 Puedo ayudarte con tus citas y tus vehículos registrados.
 
 Dime qué necesitas, por ejemplo: lista mis citas, o agenda cita para mi placa ABC-123 con falla de frenos."""
+
+
+CAPABILITIES_ANSWER_MECANICO = """Como mecánico solo trabajo con TU historial en la sucursal activa:
+
+- Listar o contar TUS citas asignadas
+- Buscar fallas similares en TUS reparaciones previas
+- Cambiar estado / diagnóstico de una cita que te asignaron (por placa)
+
+No puedo ver el trabajo de otros mecánicos ni datos de otras sucursales."""
+
+
+GREETING_ANSWER_MECANICO = """Hola. Soy el asistente de IESPRO-Taller.
+
+Estás en modo mecánico: solo veo tu historial en esta sucursal.
+
+Dime qué necesitas, por ejemplo: lista mis citas, o ¿hay casos míos similares a ruido al frenar?"""
+
+
+MECANICO_FALLBACK_ANSWER = """No entendí bien eso.
+
+Como mecánico solo puedo ayudarte con tu historial en esta sucursal.
+
+Prueba con:
+- Lista mis citas
+- ¿Cuántas citas tengo pendientes?
+- Fallas similares a ruido al frenar"""
 
 
 GREETING_ANSWER_STAFF = """Hola. Soy el asistente de IESPRO-Taller.

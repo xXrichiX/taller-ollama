@@ -19,7 +19,6 @@ class LoginFrame(ttk.Frame):
         self.reg_nombre_var = tk.StringVar(self)
         self.reg_email_var = tk.StringVar(self)
         self.reg_pass_var = tk.StringVar(self)
-        self.reg_codigo_var = tk.StringVar(self)
 
         self.register_panel: ttk.Frame | None = None
         self.login_email_entry: tk.Entry | None = None
@@ -117,7 +116,6 @@ class LoginFrame(ttk.Frame):
             self.reg_pass_var,
             hint=f"Mínimo {MIN_PASSWORD_LEN} caracteres, con letra y número.",
         )
-        self._field(card, "Código de invitación", self.reg_codigo_var)
 
         ttk.Button(card, text="Crear cuenta", style="Accent.TButton", command=self._register_user).pack(
             fill="x", pady=(4, 8)
@@ -185,26 +183,18 @@ class LoginFrame(ttk.Frame):
         email = self.reg_email_var.get().strip().lower()
         password = normalize_password(self.reg_pass_var.get())
 
-        codigo = self.reg_codigo_var.get().strip()
-
-        result = register_usuario(nombre, email, password, codigo)
+        result = register_usuario(nombre, email, password)
         if not result.get("ok"):
             messagebox.showerror("Registro", result.get("error", "No se pudo crear la cuenta."))
             return
 
-        if result.get("pendiente_rol"):
-            sucursal = result.get("sucursal") or "tu taller"
-            messagebox.showinfo(
-                "Registro",
-                f"Cuenta creada en {sucursal}.\n\n"
-                "Un administrador debe asignarte tu puesto antes de que puedas entrar.",
-            )
-            self._show_login()
-            return
-
         user = login(email, password)
         if user:
-            messagebox.showinfo("Registro", "Cuenta creada. Bienvenido.")
+            sucursal = result.get("sucursal") or "tu nueva sucursal"
+            messagebox.showinfo(
+                "Registro",
+                f"Cuenta de mecánico creada.\nSucursal asignada: {sucursal}",
+            )
             self._finish_login(user)
             return
 
