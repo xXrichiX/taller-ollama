@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IESPRO-Taller — Asistente</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --panel: #1a2332;
+      --accent: #3b82f6;
+      --text: #e8edf5;
+      --muted: #94a3b8;
+      --user: #1e3a5f;
+      --bot: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 1rem 1.25rem;
+      background: var(--panel);
+      border-bottom: 1px solid #2d3748;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 1.1rem; }
+    .login, .chat { max-width: 720px; width: 100%; margin: 0 auto; padding: 1rem; flex: 1; display: flex; flex-direction: column; }
+    .hidden { display: none !important; }
+    input, button, select {
+      font: inherit;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      padding: 0.65rem 0.85rem;
+      background: #0b1220;
+      color: var(--text);
+    }
+    button {
+      background: var(--accent);
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .field { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.75rem; }
+    label { color: var(--muted); font-size: 0.85rem; }
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      padding: 0.5rem 0 1rem;
+      min-height: 50vh;
+    }
+    .msg {
+      padding: 0.75rem 1rem;
+      border-radius: 12px;
+      max-width: 92%;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    .msg.user { align-self: flex-end; background: var(--user); }
+    .msg.bot { align-self: flex-start; background: var(--bot); }
+    .meta { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+    .compose {
+      display: flex;
+      gap: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid #2d3748;
+    }
+    .compose input { flex: 1; }
+    .status { color: var(--muted); font-size: 0.85rem; min-height: 1.2rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>IESPRO-Taller — Asistente IA</h1>
+    <span id="userLabel" class="muted"></span>
+  </header>
+
+  <section id="loginView" class="login">
+    <h2>Iniciar sesión</h2>
+    <div class="field">
+      <label>Email</label>
+      <input id="email" type="email" value="admin@iespro.mx" />
+    </div>
+    <div class="field">
+      <label>Contraseña</label>
+      <input id="password" type="password" value="admin1234" />
+    </div>
+    <button id="loginBtn">Entrar</button>
+    <p id="loginError" class="meta" style="color:#f87171"></p>
+  </section>
+
+  <section id="chatView" class="chat hidden">
+    <div class="field">
+      <label>Sucursal</label>
+      <select id="sucursal"></select>
+    </div>
+    <div id="messages"></div>
+    <p id="status" class="status"></p>
+    <form id="composeForm" class="compose">
+      <input id="messageInput" placeholder="Pregunta al asistente..." autocomplete="off" />
+      <button type="submit">Enviar</button>
+    </form>
+  </section>
+
+  <script>
+    const API = window.location.origin;
+    let token = null;
+    let user = null;
+
+    const loginView = document.getElementById("loginView");
+    const chatView = document.getElementById("chatView");
+    const messages = document.getElementById("messages");
+    const statusEl = document.getElementById("status");
+
+    document.getElementById("loginBtn").onclick = async () => {
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      document.getElementById("loginError").textContent = "";
+      try {
+        const res = await fetch(`${API}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Error de login");
+        token = data.token;
+        user = data.user;
+        document.getElementById("userLabel").textContent = `${user.nombre} (${user.rol_nombre})`;
+        const sel = document.getElementById("sucursal");
+        sel.innerHTML = "";
+        (user.sucursales_ids || []).forEach((id, i) => {
+          const opt = document.createElement("option");
+          opt.value = id;
+          opt.textContent = `Sucursal ${id}`;
+          sel.appendChild(opt);
+        });
+        loginView.classList.add("hidden");
+        chatView.classList.remove("hidden");
+        await fetch(`${API}/api/rag/bootstrap`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        addMsg("bot", "Hola, soy el asistente de IESPRO-Taller. ¿En qué te ayudo?");
+      } catch (e) {
+        document.getElementById("loginError").textContent = e.message;
+      }
+    };
+
+    function addMsg(role, text, meta) {
+      const div = document.createElement("div");
+      div.className = `msg ${role}`;
+      div.textContent = text;
+      if (meta) {
+        const m = document.createElement("div");
+        m.className = "meta";
+        m.textContent = meta;
+        div.appendChild(m);
+      }
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+    }
+
+    document.getElementById("composeForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const input = document.getElementById("messageInput");
+      const text = input.value.trim();
+      if (!text || !token) return;
+      input.value = "";
+      addMsg("user", text);
+      statusEl.textContent = "Pensando...";
+      try {
+        const res = await fetch(`${API}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token,
+            message: text,
+            id_sucursal: Number(document.getElementById("sucursal").value),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Error");
+        const route = data.route || "asistente";
+        const metrics = data.metrics || {};
+        const meta = `${route} · ${metrics.total_latency_ms || "?"}ms TTFT ${metrics.ttft_ms ?? "—"}ms`;
+        addMsg("bot", data.answer || "(sin respuesta)", meta);
+      } catch (err) {
+        addMsg("bot", `Error: ${err.message}`);
+      } finally {
+        statusEl.textContent = "";
+      }
+    };
+  </script>
+</body>
+</html>

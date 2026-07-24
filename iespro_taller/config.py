@@ -13,6 +13,7 @@ MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "iespro_taller_app")
 
 # Ollama
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+os.environ.setdefault("OLLAMA_HOST", OLLAMA_HOST)
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "llama3.2:3b")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
@@ -27,6 +28,27 @@ CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "iespro_taller_fallas")
 
 DOCUMENTS_PATH = BASE_DIR / "data" / "documentos"
 DEFAULT_SUCURSAL_ID = int(os.getenv("DEFAULT_SUCURSAL_ID", "1"))
+
+# API / CORS (Semana 6)
+API_HOST = os.getenv("API_HOST", "0.0.0.0")
+API_PORT = int(os.getenv("API_PORT", "8000"))
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000",
+    ).split(",")
+    if o.strip()
+]
+
+# Advanced RAG (Semana 7)
+RAG_HYBRID_FETCH_K = int(os.getenv("RAG_HYBRID_FETCH_K", "10"))
+RAG_RERANK_TOP_K = int(os.getenv("RAG_RERANK_TOP_K", "3"))
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+# Evaluador
+EVAL_API_BASE = os.getenv("EVAL_API_BASE", f"http://localhost:{API_PORT}")
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", OLLAMA_CHAT_MODEL)
 
 # Voz (micrófono): umbrales anti-ruido; ajustables por env si hace falta
 VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "1.2"))

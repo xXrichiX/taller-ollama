@@ -1,0 +1,56 @@
+services:
+  database:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root2919}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iespro_taller_app}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./iespro_taller/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD:-root2919}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: iespro_taller/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: database
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root2919}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iespro_taller_app}
+      OLLAMA_HOST: http://host.docker.internal:11434
+      CHROMA_PATH: /data/chroma
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8080
+      CORS_ALLOW_ALL: ${CORS_ALLOW_ALL:-0}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/data/chroma
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  mysql_data:
+  chroma_data:

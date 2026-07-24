@@ -30,10 +30,39 @@ def init_database() -> tuple[bool, str]:
     try:
         execute_script_file(str(schema), database=None)
         ensure_minimal_data_only()
+        ensure_bootstrap_sucursal()
+        ensure_performance_indexes()
         ok, msg = test_connection()
         return ok, msg if ok else msg
     except Exception as exc:
         return False, f"Error inicializando BD: {exc}"
+
+
+_INDEXES = (
+    ("citas", "idx_citas_sucursal", "id_sucursal"),
+    ("citas", "idx_citas_mecanico", "id_mecanico"),
+    ("citas", "idx_citas_estado", "estado"),
+    ("citas", "idx_citas_fecha", "fecha_cita"),
+    ("vehiculos", "idx_vehiculos_placa", "placa"),
+    ("vehiculos", "idx_vehiculos_sucursal", "id_sucursal"),
+    ("fallas_registradas", "idx_fallas_vehiculo", "id_vehiculo"),
+    ("fallas_registradas", "idx_fallas_cita", "id_cita"),
+)
+
+
+def ensure_performance_indexes() -> None:
+    """Crea índices B-Tree idempotentes para consultas a escala (Semana 7)."""
+    for table, index_name, column in _INDEXES:
+        exists = fetch_one(
+            """
+            SELECT COUNT(*) AS n FROM information_schema.statistics
+            WHERE table_schema = %s AND table_name = %s AND index_name = %s
+            """,
+            (MYSQL_DATABASE, table, index_name),
+        )
+        if exists and exists["n"]:
+            continue
+        execute(f"CREATE INDEX {index_name} ON {table}({column})")
 
 
 def ensure_minimal_data_only() -> None:
@@ -50,6 +79,16 @@ def ensure_minimal_data_only() -> None:
         "INSERT INTO app_meta (meta_key, meta_value) VALUES (%s, %s)",
         (_META_KEY, "1"),
     )
+
+
+def ensure_bootstrap_sucursal() -> None:
+    """Garantiza al menos una sucursal para que admin pueda usar la API web."""
+    row = fetch_one("SELECT id FROM sucursales WHERE activo = 1 LIMIT 1")
+    if row:
+        return
+    from services import catalog_service
+
+    catalog_service.create_sucursal("Sucursal Principal", "Instalación inicial")
 
 
 def _purge_business_data() -> None:

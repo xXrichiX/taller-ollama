@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+db_vectorial/
+.git/
+*.png
+.cursor/
+terminals/

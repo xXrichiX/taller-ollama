@@ -58,7 +58,8 @@ from services.user_roles import (
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
 from services.tool_response_format import format_tool_calls_log, format_tool_result
-from services.tools_service import TOOL_DEFINITIONS, ToolsService, run_sql_query
+from services.tools_service import TOOL_DEFINITIONS, ToolsService
+from services.agents.orchestrator import MultiAgentOrchestrator
 
 SUCURSAL_TOOLS = frozenset({
     "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
@@ -152,6 +153,7 @@ class ChatService:
         self.repo = ConversationRepository()
         self.obs_repo = ObservabilityRepository()
         self._last_context_meta: dict[str, Any] = {}
+        self.orchestrator = MultiAgentOrchestrator(self)
         try:
             self.obs_repo.ensure_table()
         except Exception:
@@ -695,65 +697,17 @@ class ChatService:
                 tool_calls=[{"name": "cancelar_cita_natural", "arguments": tool_args, "result": result}],
             )
 
-        emit_status("searching", "Consultando base de datos...")
-        if not is_cliente(self.rol_nombre) and not is_mecanico(self.rol_nombre):
-            sql_answer = run_sql_query(question, self.id_sucursal)
-            if sql_answer:
-                emit_status("thinking", "Preparando respuesta...")
-                answer = stream_answer(sql_answer)
-                return finalize(answer, "sql")
-
-        q_lower = question.lower()
-        rag_keywords = (
-            "similar", "parecido", "parecida", "falla", "síntoma", "sintoma",
-            "chirrido", "ruido", "vibración", "vibracion", "como el", "como la",
-        )
-        if any(k in q_lower for k in rag_keywords):
-            if is_cliente(self.rol_nombre):
-                vehiculos = self._get_cliente_vehiculos()
-                if not vehiculos:
-                    answer = stream_answer(CLIENTE_SIN_VEHICULOS_ANSWER)
-                    return finalize(answer, "help")
-                if is_personal_vehicle_question(question) or not extract_placa_from_text(question):
-                    if len(vehiculos) > 1 and not extract_placa_from_text(question):
-                        answer = stream_answer(
-                            "Para buscar fallas de tu auto necesito que indiques la placa.\n\n"
-                            + self._format_cliente_vehiculos_list()
-                        )
-                        return finalize(answer, "help")
-
-            emit_status("searching", "Buscando fallas similares en el historial...")
-            rag_result = self.tools.execute(
-                "buscar_fallas_similares",
-                {"descripcion": question, "limite": 5},
+        emit_status("searching", "Enrutando a agente especialista...")
+        try:
+            return self.orchestrator.route_and_run(
+                question,
+                emit_status=emit_status,
+                emit_token=emit_token,
+                finalize=finalize,
             )
-            if is_cliente(self.rol_nombre):
-                rag_result = self._filter_rag_for_cliente(rag_result)
-                if not rag_result.get("matches"):
-                    answer = stream_answer(
-                        "No encontré fallas similares en el historial de tus vehículos registrados."
-                    )
-                    return finalize(answer, "rag")
-            if is_mecanico(self.rol_nombre):
-                rag_result = self._filter_rag_for_mecanico(rag_result)
-                if not rag_result.get("matches"):
-                    answer = stream_answer(
-                        "No encontré fallas similares en tu historial de esta sucursal."
-                    )
-                    return finalize(answer, "rag")
-            emit_status("thinking", "Analizando casos encontrados...")
-            answer = self._answer_from_rag_stream(question, rag_result, emit_token)
-            return finalize(
-                answer,
-                "rag",
-                tool_calls=[{"name": "buscar_fallas_similares", "arguments": {"descripcion": question}, "result": rag_result}],
-            )
-
-        if not looks_like_workshop_request(question):
-            answer = stream_answer(get_friendly_fallback_answer(self.rol_nombre))
-            return finalize(answer, "help")
-
-        return self._ask_with_tools_stream(question, emit_status, emit_token, finalize)
+        except Exception:
+            logger.exception("Orquestador falló; usando flujo transaccional directo")
+            return self._ask_with_tools_stream(question, emit_status, emit_token, finalize)
 
     @staticmethod
     def _format_tools_observability(tool_calls_log: list[dict]) -> list[dict[str, Any]]:
@@ -773,60 +727,6 @@ class ChatService:
                 item["error"] = result.get("error") or result.get("message") or "Error en tool"
             formatted.append(item)
         return formatted
-
-    def _answer_from_rag_stream(
-        self,
-        question: str,
-        rag_result: dict,
-        emit_token: Callable[[str], None],
-    ) -> str:
-        matches = rag_result.get("matches", [])
-        if not matches:
-            if is_cliente(self.rol_nombre):
-                text = "No encontré fallas similares en el historial de tus vehículos registrados."
-            elif is_mecanico(self.rol_nombre):
-                text = "No encontré fallas similares en tu historial de esta sucursal."
-            else:
-                text = "No encontré fallas históricas similares en la base vectorial."
-            for word in text.split(" "):
-                emit_token(word + " ")
-            return text
-
-        context = "\n".join(
-            f"- Cita {m.get('id_cita') or 'N/A'} | Placa {m.get('placa')} | Similitud(dist)={m.get('distancia')}: {m.get('texto')}"
-            for m in matches
-        )
-        memoria = self._memory_from_other_conversations()
-        scope_rule = ""
-        if is_cliente(self.rol_nombre):
-            scope_rule = "Responde solo sobre los vehículos del cliente logueado; no cites casos de otros clientes."
-        elif is_mecanico(self.rol_nombre):
-            scope_rule = (
-                "Responde SOLO con el historial propio del mecánico en la sucursal activa. "
-                "No inventes ni cites casos de otros mecánicos."
-            )
-        prompt = f"""Eres el asistente del taller IESPRO. Responde SOLO en texto plano en español.
-NO uses asteriscos, markdown ni encabezados con #.
-{scope_rule}
-
-Pregunta: {question}
-{memoria}
-
-Fallas similares encontradas en el historial:
-{context}
-
-Explica si la falla es parecida a casos anteriores (menciona placa y cita si aplica) y qué conviene revisar.
-Si la pregunta alude a algo de una conversación anterior del usuario, usa la memoria de arriba.
-No digas la palabra RAG ni inventes siglas. Sé breve y claro."""
-
-        parts: list[str] = []
-        stream = ollama.generate(model=OLLAMA_CHAT_MODEL, prompt=prompt, stream=True)
-        for chunk in stream:
-            token = chunk.get("response", "")
-            if token:
-                parts.append(token)
-                emit_token(token)
-        return plain_chat_text("".join(parts))
 
     def _ask_with_tools_stream(
         self,
