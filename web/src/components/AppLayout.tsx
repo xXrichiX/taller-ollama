@@ -26,6 +26,11 @@ export function AppLayout() {
     if (perms.is_staff) loadSucursales();
   }, [loadSucursales, perms.is_staff]);
 
+  useEffect(() => {
+    if (!auth || !perms.is_staff || auth.user.id_sucursal || sucursales.length === 0) return;
+    setSucursal(sucursales[0].id);
+  }, [auth, perms.is_staff, sucursales, setSucursal]);
+
   const handleLogout = async () => {
     await logout();
     navigate("/login");
@@ -73,8 +78,13 @@ export function AppLayout() {
             className="btn btn-accent"
             onClick={() => setChatOpen(true)}
             disabled={!auth.user.id_sucursal}
+            title={
+              auth.user.id_sucursal
+                ? "Abrir asistente IA"
+                : "Selecciona una sucursal activa en el menú superior"
+            }
           >
-            Abrir asistente
+            {auth.user.id_sucursal ? "Abrir asistente" : "Asistente (elige sucursal)"}
           </button>
         </div>
       </header>

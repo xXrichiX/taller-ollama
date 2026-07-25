@@ -49,8 +49,9 @@ def apply_user_to_session(session: AppSession, user: dict[str, Any]) -> None:
   if is_mecanico(user.get("rol_nombre")):
     session.id_sucursal = sucursales_ids[0] if sucursales_ids else user.get("id_sucursal")
   elif is_admin(user.get("rol_nombre")):
-    user["sucursales_ids"] = [s["id"] for s in catalog_service.list_sucursales()]
-    session.id_sucursal = None
+    sucursales = catalog_service.list_sucursales()
+    user["sucursales_ids"] = [s["id"] for s in sucursales]
+    session.id_sucursal = sucursales[0]["id"] if sucursales else None
   else:
     session.id_sucursal = user.get("id_sucursal")
 
