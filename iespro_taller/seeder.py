@@ -2,8 +2,8 @@
 """Sembrado masivo de datos para pruebas de escala (Semana 7).
 
 Uso:
-  cd iespro_taller && python scripts/seeder.py --count 10000
-  python scripts/seeder.py --count 50000 --sync-rag
+  cd iespro_taller && python seeder.py --count 10000
+  python seeder.py --count 50000 --sync-rag
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import time
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
   sys.path.insert(0, str(ROOT))
 

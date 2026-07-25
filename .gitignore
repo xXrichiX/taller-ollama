@@ -18,6 +18,9 @@ __pycache__/
 db_vectorial/
 iespro_taller/data/
 iespro_taller/.venv/
+web/node_modules/
+web/dist/
+*.tsbuildinfo
 
 # Secretos y configuración local
 .env
@@ -38,10 +41,3 @@ Thumbs.db
 *.log
 *.tmp
 *.temp
-
-# Audio temporal de pruebas de voz
-*.wav
-*.mp3
-
-# Modelos Vosk descargados localmente
-iespro_taller/models/

@@ -1,0 +1,85 @@
+# Producción VPS — cp .env.example .env  y edita PUBLIC_URL + MYSQL_ROOT_PASSWORD
+
+services:
+  database:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iespro_taller_app}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./iespro_taller/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 40s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Descargando modelos (solo la primera vez tarda varios minutos)..."
+        ollama pull ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
+        ollama pull ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+        echo "Modelos listos."
+
+  backend:
+    build:
+      context: .
+      dockerfile: iespro_taller/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+    environment:
+      MYSQL_HOST: database
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iespro_taller_app}
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
+      OLLAMA_EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-nomic-embed-text}
+      CHROMA_PATH: /data/chroma
+      CORS_ORIGINS: ${PUBLIC_URL:-http://localhost}
+      CORS_ALLOW_ALL: "0"
+    volumes:
+      - chroma_data:/data/chroma
+
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${HTTP_PORT:-80}:80"
+
+volumes:
+  mysql_data:
+  chroma_data:
+  ollama_data:

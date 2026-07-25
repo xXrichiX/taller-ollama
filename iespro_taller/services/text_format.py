@@ -1,4 +1,4 @@
-"""Convierte respuestas del modelo a texto plano para la UI (Tkinter no renderiza markdown)."""
+"""Convierte respuestas del modelo a texto plano para la UI web."""
 
 import re
 

@@ -1,0 +1,28 @@
+export interface User {
+  id: number;
+  nombre: string;
+  email: string;
+  rol_nombre: string;
+  puesto_nombre?: string;
+  sucursales_ids: number[];
+  id_sucursal?: number | null;
+  id_cliente?: number | null;
+}
+
+export interface Permissions {
+  is_admin: boolean;
+  is_mecanico: boolean;
+  is_cliente: boolean;
+  is_staff: boolean;
+  can_manage_branch: boolean;
+  can_manage_citas: boolean;
+  can_create_citas: boolean;
+  can_manage_usuarios: boolean;
+}
+
+export interface AuthState {
+  token: string;
+  user: User;
+  role_label: string;
+  permissions: Permissions;
+}

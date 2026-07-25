@@ -32,7 +32,7 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-iespro_taller_app}
       OLLAMA_HOST: http://host.docker.internal:11434
       CHROMA_PATH: /data/chroma
-      CORS_ORIGINS: http://localhost:3000,http://localhost:8080
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173,http://localhost:8080
       CORS_ALLOW_ALL: ${CORS_ALLOW_ALL:-0}
     extra_hosts:
       - "host.docker.internal:host-gateway"

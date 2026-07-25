@@ -1,8 +1,9 @@
 __pycache__/
 *.pyc
 .env
-db_vectorial/
 .git/
-*.png
 .cursor/
 terminals/
+iespro_taller/.venv/
+web/node_modules/
+web/dist/
