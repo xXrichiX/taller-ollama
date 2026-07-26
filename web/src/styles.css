@@ -2349,18 +2349,18 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 
 .voice-btn {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--muted);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   cursor: pointer;
-  transition: color 0.2s, background 0.2s;
+  transition: color 0.2s, background 0.2s, border-color 0.2s;
 }
 
 .voice-btn:hover:not(:disabled) {

@@ -42,7 +42,6 @@ export function useSpeechInput(options: {
 }) {
   const { onTranscript, onAutoSend, disabled } = options;
   const [listening, setListening] = useState(false);
-  const [supported] = useState(() => Boolean(getSpeechRecognitionCtor()));
   const [voiceError, setVoiceError] = useState("");
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -97,7 +96,17 @@ export function useSpeechInput(options: {
 
   const startListening = useCallback(() => {
     const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor || disabled) return;
+    if (!Ctor) {
+      if (typeof window !== "undefined" && !window.isSecureContext) {
+        setVoiceError(
+          "El micrófono requiere HTTPS en el servidor. Por ahora escribe el mensaje o prueba en localhost con Chrome.",
+        );
+      } else {
+        setVoiceError("Usa Google Chrome o Microsoft Edge para dictar por voz.");
+      }
+      return;
+    }
+    if (disabled) return;
 
     setVoiceError("");
     finalPartsRef.current = [];
@@ -127,7 +136,11 @@ export function useSpeechInput(options: {
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === "aborted" || event.error === "no-speech") return;
       if (event.error === "not-allowed") {
-        setVoiceError("Permite el micrófono en el navegador.");
+        setVoiceError(
+          typeof window !== "undefined" && !window.isSecureContext
+            ? "El micrófono está bloqueado en HTTP. Configura HTTPS en el servidor o usa localhost."
+            : "Permite el micrófono en el navegador.",
+        );
       } else {
         setVoiceError("No se pudo usar el micrófono.");
       }
@@ -178,10 +191,10 @@ export function useSpeechInput(options: {
   );
 
   return {
-    supported,
     listening,
     voiceError,
     toggleListening,
     silenceSeconds: SILENCE_MS / 1000,
+    clearVoiceError: () => setVoiceError(""),
   };
 }

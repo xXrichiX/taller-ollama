@@ -214,19 +214,17 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
             </div>
           )}
           <form className="chat-compose" onSubmit={send}>
-            <div className="chat-compose-field">
-              {speech.supported && (
-                <VoiceMicButton
-                  listening={speech.listening}
-                  disabled={sending}
-                  onClick={speech.toggleListening}
-                  title={
-                    speech.listening
-                      ? "Detener y enviar"
-                      : "Hablar (envía solo tras 2 s de silencio)"
-                  }
-                />
-              )}
+            <div className={`chat-compose-field${speech.listening ? " voice-active" : ""}`}>
+              <VoiceMicButton
+                listening={speech.listening}
+                disabled={sending}
+                onClick={speech.toggleListening}
+                title={
+                  speech.listening
+                    ? "Detener y enviar"
+                    : "Hablar (envía tras 2 s de silencio)"
+                }
+              />
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
