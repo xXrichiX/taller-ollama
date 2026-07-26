@@ -50,6 +50,7 @@ export async function streamChat(
   idSucursal: number | null | undefined,
   handlers: StreamHandlers,
   token?: string | null,
+  idIsla?: number | null,
 ): Promise<void> {
   const t = token ?? getStoredToken();
   const res = await fetch("/api/chat/stream", {
@@ -58,7 +59,11 @@ export async function streamChat(
       Authorization: `Bearer ${t}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ message, id_sucursal: idSucursal }),
+    body: JSON.stringify({
+      message,
+      id_sucursal: idSucursal,
+      id_isla: idIsla ?? undefined,
+    }),
   });
   if (!res.ok) throw new Error(await parseError(res));
   if (!res.body) throw new Error("Sin respuesta del servidor");

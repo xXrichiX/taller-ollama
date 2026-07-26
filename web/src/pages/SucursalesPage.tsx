@@ -12,14 +12,22 @@ interface Sucursal {
   activo_label?: string;
 }
 
+interface Isla {
+  id: number;
+  nombre: string;
+  activo_label?: string;
+}
+
 export function SucursalesPage() {
-  const { auth, setSucursal, refresh } = useAuth();
+  const { auth, refresh } = useAuth();
   const perms = usePermissions();
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
-  const [sucNombre, setSucNombre] = useState("");
-  const [sucDir, setSucDir] = useState("");
+  const [islas, setIslas] = useState<Isla[]>([]);
+  const [islaNombre, setIslaNombre] = useState("");
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+
+  const sucursal = sucursales.find((s) => s.id === auth?.user.id_sucursal) ?? sucursales[0];
 
   const loadSucursales = useCallback(async () => {
     if (!auth) return;
@@ -27,70 +35,68 @@ export function SucursalesPage() {
     setSucursales(res.sucursales);
   }, [auth]);
 
+  const loadIslas = useCallback(async () => {
+    if (!auth) return;
+    const res = await api<{ islas: Isla[] }>("/api/islas", {}, auth.token);
+    setIslas(res.islas);
+  }, [auth]);
+
   useEffect(() => {
     loadSucursales();
-  }, [loadSucursales]);
+    loadIslas();
+  }, [loadSucursales, loadIslas]);
 
-  useEffect(() => {
-    if (perms.needs_taller_setup && sucursales.length === 0) {
-      setCreateOpen(true);
-    }
-  }, [perms.needs_taller_setup, sucursales.length]);
-
-  const createSucursal = async () => {
-    if (!auth) return;
+  const createIsla = async () => {
+    if (!auth || !sucursal) return;
     setError("");
     try {
-      const res = await api<{ ok: boolean; id: number }>("/api/sucursales", {
+      await api(`/api/sucursales/${sucursal.id}/islas`, {
         method: "POST",
-        body: JSON.stringify({ nombre: sucNombre, direccion: sucDir }),
+        body: JSON.stringify({ nombre: islaNombre }),
       }, auth.token);
-      setSucNombre("");
-      setSucDir("");
+      setIslaNombre("");
       setCreateOpen(false);
+      await loadIslas();
       await refresh();
-      await setSucursal(res.id);
-      await loadSucursales();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     }
   };
+
+  const canAdd = perms.can_manage_branch && Boolean(sucursal);
 
   return (
     <div className="page page-list">
       {error && !createOpen && <p className="error-text">{error}</p>}
 
       <div className="section-card">
-        {perms.can_create_sucursal && (
-          <ListToolbar
-            search=""
-            onSearchChange={() => {}}
-            showSearch={false}
-            onAdd={() => { setError(""); setCreateOpen(true); }}
-            addLabel="Nueva sucursal"
-          />
-        )}
+        <ListToolbar
+          search=""
+          onSearchChange={() => {}}
+          showSearch={false}
+          onAdd={canAdd ? () => { setError(""); setCreateOpen(true); } : undefined}
+          addLabel="Nueva isla"
+        />
         <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Nombre</th>
-                <th>Dirección</th>
-                <th>Activa</th>
+                <th>Isla</th>
+                <th>Estado</th>
               </tr>
             </thead>
             <tbody>
-              {sucursales.map((s) => (
-                <tr
-                  key={s.id}
-                  className={auth?.user.id_sucursal === s.id ? "row-selected" : "clickable"}
-                  onClick={() => setSucursal(s.id)}
-                >
-                  <td>{s.nombre}</td>
-                  <td>{s.direccion || "—"}</td>
-                  <td>{s.activo_label}</td>
+              {islas.map((i) => (
+                <tr key={i.id} className={auth?.user.id_isla === i.id ? "row-selected" : undefined}>
+                  <td>{i.nombre}</td>
+                  <td>{i.activo_label ?? "Sí"}</td>
                 </tr>
               ))}
+              {islas.length === 0 && (
+                <tr>
+                  <td colSpan={2} className="table-no-results">Sin islas — crea la primera bahía de trabajo</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -98,22 +104,24 @@ export function SucursalesPage() {
 
       <Modal
         open={createOpen}
-        wide
-        title="Nueva sucursal"
+        title={`Nueva isla — ${sucursal?.nombre ?? "Taller"}`}
         onClose={() => setCreateOpen(false)}
         footer={(
           <ModalActions
             onCancel={() => setCreateOpen(false)}
-            onSave={createSucursal}
-            saveLabel="Crear sucursal"
+            onSave={createIsla}
+            saveLabel="Crear isla"
           />
         )}
       >
         {error && <p className="error-text">{error}</p>}
-        <div className="form-grid form-grid-2col form-grid-spaced">
-          <FormInput label="Nombre" value={sucNombre} onChange={setSucNombre} placeholder="Ingresar nombre" autoFocus />
-          <FormInput label="Dirección" value={sucDir} onChange={setSucDir} placeholder="Ingresar dirección" />
-        </div>
+        <FormInput
+          label="Nombre de la isla"
+          value={islaNombre}
+          onChange={setIslaNombre}
+          placeholder="Ej. Isla 2, Bahía express…"
+          autoFocus
+        />
       </Modal>
     </div>
   );

@@ -38,7 +38,7 @@ class RagAgent:
 
     if is_cliente(self.chat.rol_nombre):
       rag_result = self.chat._filter_rag_for_cliente(rag_result)
-    elif is_mecanico(self.chat.rol_nombre):
+    elif is_mecanico(self.chat.rol_nombre) and not getattr(self.chat, "es_propietario", False):
       rag_result = self.chat._filter_rag_for_mecanico(rag_result)
 
     emit_status("thinking", "Analizando casos encontrados...")
@@ -61,7 +61,7 @@ class RagAgent:
     if not matches:
       if is_cliente(self.chat.rol_nombre):
         text = "No encontré fallas similares en el historial de tus vehículos registrados."
-      elif is_mecanico(self.chat.rol_nombre):
+      elif is_mecanico(self.chat.rol_nombre) and not getattr(self.chat, "es_propietario", False):
         text = "No encontré fallas similares en tu historial de esta sucursal."
       else:
         text = "No encontré fallas históricas similares en la base vectorial."
@@ -76,8 +76,10 @@ class RagAgent:
     scope_rule = ""
     if is_cliente(self.chat.rol_nombre):
       scope_rule = "Responde solo sobre los vehículos del cliente logueado."
-    elif is_mecanico(self.chat.rol_nombre):
+    elif is_mecanico(self.chat.rol_nombre) and not getattr(self.chat, "es_propietario", False):
       scope_rule = "Responde SOLO con el historial propio del mecánico en la sucursal activa."
+    elif getattr(self.chat, "es_propietario", False):
+      scope_rule = "Responde con todo el historial del taller del dueño."
 
     prompt = f"""Eres el especialista RAG de IESPRO-Taller. Responde en texto plano en español.
 {scope_rule}

@@ -13,13 +13,16 @@ from pydantic import BaseModel, Field
 
 from api.session import (
   AppSession,
+  apply_user_to_session,
   create_session,
   delete_session,
+  isla_belongs_to_sucursal,
+  require_isla,
   require_session,
   require_sucursal,
   user_payload,
 )
-from services import catalog_service, cita_service
+from services import catalog_service, cita_service, inventory_service
 from services.estado_labels import ESTADOS_MECANICO_UI, ESTADOS_UI, estado_a_etiqueta, etiqueta_a_estado
 from services.password_policy import normalize_password, validate_password
 from services.user_roles import (
@@ -63,6 +66,10 @@ def _require_sucursal_access(session: AppSession, id_sucursal: int) -> None:
 
 class SucursalActivaBody(BaseModel):
   id_sucursal: int
+
+
+class IslaActivaBody(BaseModel):
+  id_isla: int
 
 
 @router.post("/auth/login")
@@ -114,10 +121,47 @@ def auth_logout(session: AppSession = Depends(require_session)):
 
 @router.get("/auth/me")
 def auth_me(session: AppSession = Depends(require_session)):
+  rol = session.user.get("rol_nombre")
+  if catalog_service.user_needs_taller_setup(session.user["id"], rol):
+    catalog_service.provision_taller_personal(session.user["id"], session.user.get("nombre", ""))
+    user = catalog_service.get_user_by_id(session.user["id"])
+    if user:
+      session.user.update(user)
+      ids = user.get("sucursales_ids") or []
+      if ids:
+        session.id_sucursal = ids[0]
+        session.id_isla = None
+        session.chat.id_sucursal = ids[0]
+        apply_user_to_session(session, user)
   return {
     "user": user_payload(session.user, session),
     "role_label": role_display_label(session.user.get("rol_nombre")),
     "permissions": _permissions(session),
+  }
+
+
+class PerfilUpdateBody(BaseModel):
+  nombre: str
+  email: str
+  password: str = ""
+
+
+@router.put("/auth/perfil")
+def auth_update_perfil(body: PerfilUpdateBody, session: AppSession = Depends(require_session)):
+  result = catalog_service.update_usuario_perfil(
+    session.user["id"],
+    body.nombre.strip(),
+    body.email.strip(),
+    normalize_password(body.password) if body.password.strip() else None,
+  )
+  if not result.get("ok"):
+    raise HTTPException(status_code=400, detail=result.get("error", "No se pudo actualizar"))
+  user = catalog_service.get_user_by_id(session.user["id"])
+  if user:
+    session.user.update(user)
+  return {
+    "ok": True,
+    "user": user_payload(session.user, session),
   }
 
 
@@ -127,8 +171,32 @@ def set_sucursal(body: SucursalActivaBody, session: AppSession = Depends(require
   if body.id_sucursal not in allowed:
     raise HTTPException(status_code=403, detail="Sucursal no permitida")
   session.id_sucursal = body.id_sucursal
-  session.chat.id_sucursal = body.id_sucursal
-  return {"ok": True, "id_sucursal": body.id_sucursal}
+  session.id_isla = None
+  apply_user_to_session(session, session.user)
+  return {"ok": True, "id_sucursal": body.id_sucursal, "id_isla": session.id_isla}
+
+
+@router.put("/session/isla")
+def set_isla(body: IslaActivaBody, session: AppSession = Depends(require_session)):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
+  if not isla_belongs_to_sucursal(body.id_isla, id_sucursal):
+    raise HTTPException(status_code=403, detail="Isla no permitida")
+  session.id_isla = body.id_isla
+  session.chat.id_isla = body.id_isla
+  return {"ok": True, "id_isla": body.id_isla}
+
+
+@router.get("/islas")
+def list_islas_activas(session: AppSession = Depends(require_session)):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
+  islas = cita_service.list_islas(id_sucursal)
+  for i in islas:
+    i["activo_label"] = "Sí" if i.get("activo", 1) else "No"
+  return {"islas": islas, "id_isla_activa": session.id_isla}
 
 
 def _permissions(session: AppSession) -> dict[str, bool]:
@@ -294,16 +362,16 @@ def _citas_filters(session: AppSession) -> dict[str, Any]:
     filters["id_cliente"] = session.id_cliente
   if session.id_sucursal:
     filters["id_sucursal"] = session.id_sucursal
-  if is_mecanico(session.user.get("rol_nombre")):
-    filters["id_mecanico"] = session.user["id"]
+  if session.id_isla and is_workshop_staff(session.user.get("rol_nombre")):
+    filters["id_isla"] = session.id_isla
   return filters
 
 
 def _clientes_filters(session: AppSession) -> dict[str, Any]:
-  if is_mecanico(session.user.get("rol_nombre")):
-    return {"id_mecanico": session.user["id"]}
   if session.id_sucursal:
     return {"id_sucursal": session.id_sucursal}
+  if is_mecanico(session.user.get("rol_nombre")):
+    return {"id_mecanico": session.user["id"]}
   return {}
 
 
@@ -424,9 +492,14 @@ def catalog_estados(session: AppSession = Depends(require_session)):
 
 
 @router.get("/catalogos/mecanicos")
-def catalog_mecanicos(session: AppSession = Depends(require_session)):
-  id_sucursal = require_sucursal(session)
-  return {"items": cita_service.list_mecanicos(id_sucursal)}
+def catalog_mecanicos(
+  session: AppSession = Depends(require_session),
+  id_sucursal: int | None = None,
+):
+  sid = id_sucursal if id_sucursal is not None else require_sucursal(session)
+  if id_sucursal is not None:
+    _require_sucursal_access(session, id_sucursal)
+  return {"items": cita_service.list_mecanicos(sid)}
 
 
 # --- Clientes ---
@@ -457,6 +530,96 @@ def create_cliente(body: ClienteCreate, session: AppSession = Depends(require_se
     None,
   )
   return {"ok": True, "id": id_cliente}
+
+
+# --- Inventario ---
+
+
+class InventarioCreate(BaseModel):
+  codigo: str = ""
+  nombre: str
+  descripcion: str = ""
+  cantidad: float = 0
+  stock_minimo: float = 0
+  precio_unitario: float = 0
+  unidad: str = "pza"
+
+
+class InventarioUpdate(BaseModel):
+  codigo: str = ""
+  nombre: str
+  descripcion: str = ""
+  cantidad: float
+  stock_minimo: float = 0
+  precio_unitario: float = 0
+  unidad: str = "pza"
+
+
+class InventarioAjuste(BaseModel):
+  delta: float
+
+
+@router.get("/inventario")
+def list_inventario(session: AppSession = Depends(require_session)):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  if _requires_sucursal(session):
+    return {"items": []}
+  id_isla = require_isla(session)
+  return {"items": inventory_service.list_inventario(id_isla)}
+
+
+@router.post("/inventario")
+def create_inventario(body: InventarioCreate, session: AppSession = Depends(require_session)):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
+  id_isla = require_isla(session)
+  nombre = body.nombre.strip()
+  if not nombre:
+    raise HTTPException(status_code=400, detail="Nombre requerido")
+  if body.cantidad < 0 or body.stock_minimo < 0 or body.precio_unitario < 0:
+    raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
+  id_item = inventory_service.create_item(id_sucursal, id_isla, body.model_dump())
+  return {"ok": True, "id": id_item}
+
+
+@router.patch("/inventario/{id_item}")
+def update_inventario(
+  id_item: int,
+  body: InventarioUpdate,
+  session: AppSession = Depends(require_session),
+):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
+  id_isla = require_isla(session)
+  nombre = body.nombre.strip()
+  if not nombre:
+    raise HTTPException(status_code=400, detail="Nombre requerido")
+  if body.cantidad < 0 or body.stock_minimo < 0 or body.precio_unitario < 0:
+    raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
+  result = inventory_service.update_item(id_item, id_isla, body.model_dump())
+  if not result.get("ok"):
+    raise HTTPException(status_code=404, detail=result.get("error", "No encontrado"))
+  return {"ok": True}
+
+
+@router.post("/inventario/{id_item}/ajustar")
+def ajustar_inventario(
+  id_item: int,
+  body: InventarioAjuste,
+  session: AppSession = Depends(require_session),
+):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_isla = require_isla(session)
+  if body.delta == 0:
+    raise HTTPException(status_code=400, detail="Indica cuánto sumar o restar")
+  result = inventory_service.ajustar_stock(id_item, id_isla, body.delta)
+  if not result.get("ok"):
+    raise HTTPException(status_code=400, detail=result.get("error", "No se pudo ajustar"))
+  return result
 
 
 # --- Vehículos ---
@@ -621,13 +784,14 @@ def create_cita(body: CitaCreate, session: AppSession = Depends(require_session)
     id_cliente = session.id_cliente
     id_mecanico = defaults["id_mecanico"]
     id_isla = defaults["id_isla"]
-  elif is_mecanico(rol):
-    defaults = cita_service.get_default_asignacion_taller(id_sucursal)
+  elif is_workshop_staff(rol):
     id_cliente = body.id_cliente
     if not id_cliente:
       raise HTTPException(status_code=400, detail="Cliente requerido")
     id_mecanico = session.user["id"]
-    id_isla = defaults["id_isla"]
+    id_isla = session.id_isla
+    if not id_isla:
+      raise HTTPException(status_code=400, detail="Selecciona una isla activa en la barra superior")
   else:
     if not body.id_cliente or not body.id_mecanico or not body.id_isla:
       raise HTTPException(status_code=400, detail="Cliente, mecánico e isla requeridos")
@@ -807,6 +971,7 @@ def update_usuario_staff(
 class ChatMessageBody(BaseModel):
   message: str = Field(..., min_length=1)
   id_sucursal: int | None = None
+  id_isla: int | None = None
 
 
 class TokenBody(BaseModel):
@@ -854,7 +1019,15 @@ def chat_send(body: ChatMessageBody, session: AppSession = Depends(require_sessi
   if body.id_sucursal:
     session.id_sucursal = body.id_sucursal
     session.chat.id_sucursal = body.id_sucursal
+  if body.id_isla:
+    id_sucursal = require_sucursal(session)
+    if not isla_belongs_to_sucursal(body.id_isla, id_sucursal):
+      raise HTTPException(status_code=403, detail="Isla no permitida")
+    session.id_isla = body.id_isla
+    session.chat.id_isla = body.id_isla
   require_sucursal(session)
+  if is_workshop_staff(session.user.get("rol_nombre")):
+    require_isla(session)
   session.chat.ensure_conversation()
   result = session.chat.ask(body.message.strip())
   return {
@@ -870,7 +1043,15 @@ def chat_stream(body: ChatMessageBody, session: AppSession = Depends(require_ses
   if body.id_sucursal:
     session.id_sucursal = body.id_sucursal
     session.chat.id_sucursal = body.id_sucursal
+  if body.id_isla:
+    id_sucursal = require_sucursal(session)
+    if not isla_belongs_to_sucursal(body.id_isla, id_sucursal):
+      raise HTTPException(status_code=403, detail="Isla no permitida")
+    session.id_isla = body.id_isla
+    session.chat.id_isla = body.id_isla
   require_sucursal(session)
+  if is_workshop_staff(session.user.get("rol_nombre")):
+    require_isla(session)
   session.chat.ensure_conversation()
   message = body.message.strip()
   event_q: queue.Queue[tuple[str, Any]] = queue.Queue()

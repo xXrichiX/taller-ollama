@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ROUTE_LABELS, streamChat } from "../api/client";
-import { useAuth } from "../context/AuthContext";
+import { useAuth, usePermissions } from "../context/AuthContext";
 
 interface Conversation {
   id: number;
@@ -16,6 +16,7 @@ interface Message {
 
 export function ChatPanel({ compact }: { compact?: boolean }) {
   const { auth } = useAuth();
+  const perms = usePermissions();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -57,6 +58,11 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
     api("/api/rag/bootstrap", { method: "POST" }, auth.token).then(() => loadConversations());
   }, [auth, loadConversations]);
 
+  const staffReady = Boolean(auth?.user.id_sucursal && auth.user.id_isla);
+  const canChat = perms.is_cliente
+    ? Boolean(auth?.user.id_sucursal)
+    : staffReady;
+
   useEffect(() => {
     if (activeId) loadMessages(activeId);
   }, [activeId, loadMessages]);
@@ -91,7 +97,10 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
     ]);
 
     try {
-      await streamChat(text, auth.user.id_sucursal, {
+      await streamChat(
+        text,
+        auth.user.id_sucursal,
+        {
         onStatus: (label) => setStatus(label),
         onToken: (chunk) => {
           setMessages((prev) => {
@@ -122,7 +131,7 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
           loadConversations();
         },
         onError: (msg) => setError(msg),
-      }, auth.token);
+      }, auth.token, auth.user.id_isla);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
       setMessages((m) => m.filter((x) => !x.streaming));
@@ -132,10 +141,12 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
     }
   };
 
-  if (!auth?.user.id_sucursal) {
+  if (!canChat) {
     return (
       <div className="alert warn">
-        Selecciona una sucursal en el encabezado para usar el asistente.
+        {perms.is_cliente
+          ? "Selecciona una sucursal para usar el asistente."
+          : "Selecciona una isla en la barra azul para usar el asistente."}
       </div>
     );
   }

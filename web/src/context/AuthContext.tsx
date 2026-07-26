@@ -18,6 +18,7 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   setSucursal: (id: number) => Promise<void>;
+  setIsla: (id: number) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -120,9 +121,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await loadMe(auth.token);
   };
 
+  const setIsla = useCallback(async (id: number) => {
+    if (!auth?.token) return;
+    await api("/api/session/isla", {
+      method: "PUT",
+      body: JSON.stringify({ id_isla: id }),
+    }, auth.token);
+    await loadMe(auth.token);
+  }, [auth?.token, loadMe]);
+
   const value = useMemo(
-    () => ({ auth, loading, login, register, logout, refresh, setSucursal }),
-    [auth, loading, login, register, logout, refresh, setSucursal],
+    () => ({ auth, loading, login, register, logout, refresh, setSucursal, setIsla }),
+    [auth, loading, login, register, logout, refresh, setSucursal, setIsla],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -63,7 +63,7 @@ def role_display_label(rol_nombre: str | None) -> str:
     """Etiqueta visible en la app."""
     rol = _norm(rol_nombre)
     if rol == "MECANICO":
-        return "Dueño / Mecánico"
+        return "Mecánico"
     if rol == "CLIENTE":
         return "Cliente"
     if rol in PENDING_ROLES:

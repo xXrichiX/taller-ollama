@@ -20,6 +20,22 @@ def login(email: str, password: str) -> dict[str, Any] | None:
     return enrich_user_session(user)
 
 
+def get_user_by_id(id_usuario: int) -> dict | None:
+    user = fetch_one(
+        """
+        SELECT u.*, r.nombre AS rol_nombre, p.nombre AS puesto_nombre
+        FROM usuarios u
+        JOIN roles r ON r.id = u.id_rol
+        LEFT JOIN puestos p ON p.id = u.id_puesto
+        WHERE u.id = %s AND u.activo = 1
+        """,
+        (id_usuario,),
+    )
+    if not user:
+        return None
+    return enrich_user_session(user)
+
+
 def list_sucursales_usuario(id_usuario: int) -> list[dict]:
     return fetch_all(
         """
@@ -218,6 +234,45 @@ def update_usuario_puesto(id_usuario: int, id_puesto: int | None) -> dict[str, A
     return {"ok": True}
 
 
+def update_usuario_perfil(
+    id_usuario: int,
+    nombre: str,
+    email: str,
+    password: str | None = None,
+) -> dict[str, Any]:
+    from services.password_policy import normalize_password, validate_password
+
+    nombre = (nombre or "").strip()
+    email = (email or "").strip().lower()
+    if not nombre or not email:
+        return {"ok": False, "error": "Nombre y correo son obligatorios."}
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return {"ok": False, "error": "Indica un correo válido."}
+
+    existing = fetch_one(
+        "SELECT id FROM usuarios WHERE LOWER(email) = %s AND id != %s",
+        (email, id_usuario),
+    )
+    if existing:
+        return {"ok": False, "error": "Ese correo ya está en uso."}
+
+    if password:
+        password = normalize_password(password)
+        ok, msg = validate_password(password, email)
+        if not ok:
+            return {"ok": False, "error": msg}
+        execute(
+            "UPDATE usuarios SET nombre = %s, email = %s, password = %s WHERE id = %s",
+            (nombre, email, password, id_usuario),
+        )
+    else:
+        execute(
+            "UPDATE usuarios SET nombre = %s, email = %s WHERE id = %s",
+            (nombre, email, id_usuario),
+        )
+    return {"ok": True}
+
+
 def create_sucursal(nombre: str, direccion: str = "", id_propietario: int | None = None) -> int:
     id_sucursal = execute(
         "INSERT INTO sucursales (nombre, direccion, id_propietario) VALUES (%s, %s, %s)",
@@ -239,12 +294,28 @@ def get_sucursal(id_sucursal: int) -> dict | None:
     return fetch_one("SELECT id, nombre, direccion, activo FROM sucursales WHERE id = %s", (id_sucursal,))
 
 
+def provision_taller_personal(id_usuario: int, nombre_usuario: str) -> int | None:
+    """Crea el taller (sucursal) del dueño/mecánico. Las islas las crea el usuario después."""
+    branches = list_sucursales_usuario(id_usuario)
+    if branches:
+        return int(branches[0]["id"])
+
+    nombre_taller = f"Taller de {(nombre_usuario or '').strip()}" or "Mi taller"
+    id_sucursal = create_sucursal(nombre_taller, "", id_propietario=id_usuario)
+    add_usuario_sucursal(id_usuario, id_sucursal)
+    execute(
+        "UPDATE usuarios SET id_sucursal = %s WHERE id = %s",
+        (id_sucursal, id_usuario),
+    )
+    return id_sucursal
+
+
 def register_usuario(
     nombre: str,
     email: str,
     password: str,
 ) -> dict[str, Any]:
-    """Registra una cuenta de taller; la sucursal se crea después en el inicio."""
+    """Registra dueño/mecánico y provisiona su taller (sucursal) automáticamente."""
     from services.password_policy import normalize_password, validate_password
 
     nombre = (nombre or "").strip()
@@ -278,6 +349,7 @@ def register_usuario(
         "es_trabajador": 1,
         "id_puesto": int(puesto["id"]),
     })
+    provision_taller_personal(id_usuario, nombre)
     return {
         "ok": True,
         "id_usuario": id_usuario,
@@ -314,15 +386,11 @@ def list_clientes(id_sucursal: int | None = None, id_mecanico: int | None = None
     if id_sucursal:
         return fetch_all(
             """
-            SELECT DISTINCT c.id, c.nombre, c.telefono, c.email, c.id_usuario, u.email AS usuario_email
+            SELECT c.id, c.nombre, c.telefono, c.email, c.id_usuario, u.email AS usuario_email
             FROM clientes c
             LEFT JOIN usuarios u ON u.id = c.id_usuario
-            LEFT JOIN vehiculos v ON v.id_cliente = c.id AND v.id_sucursal = %s
-            LEFT JOIN citas ct ON ct.id_cliente = c.id AND ct.id_sucursal = %s
-            WHERE v.id IS NOT NULL OR ct.id IS NOT NULL
             ORDER BY c.nombre
-            """,
-            (id_sucursal, id_sucursal),
+            """
         )
     if id_mecanico:
         return fetch_all(

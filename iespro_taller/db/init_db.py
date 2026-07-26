@@ -20,6 +20,7 @@ _BUSINESS_TABLES = (
     "clientes",
     "usuario_sucursales",
     "tipos_mantenimiento",
+    "inventario",
     "sucursales",
 )
 
@@ -31,6 +32,8 @@ def init_database() -> tuple[bool, str]:
         execute_script_file(str(schema), database=None)
         ensure_minimal_data_only()
         ensure_schema_migrations()
+        ensure_inventario_table()
+        ensure_inventario_isla_column()
         ensure_remove_legacy_admin()
         ensure_performance_indexes()
         ok, msg = test_connection()
@@ -42,7 +45,8 @@ def init_database() -> tuple[bool, str]:
 _INDEXES = (
     ("citas", "idx_citas_sucursal", "id_sucursal"),
     ("citas", "idx_citas_mecanico", "id_mecanico"),
-    ("citas", "idx_citas_estado", "estado"),
+    ("citas", "idx_citas_isla", "id_isla"),
+    ("inventario", "idx_inventario_isla", "id_isla"),
     ("citas", "idx_citas_fecha", "fecha_cita"),
     ("vehiculos", "idx_vehiculos_placa", "placa"),
     ("vehiculos", "idx_vehiculos_sucursal", "id_sucursal"),
@@ -91,6 +95,84 @@ def ensure_schema_migrations() -> None:
         WHERE s.id_propietario IS NULL
         """
     )
+
+
+def ensure_inventario_table() -> None:
+    exists = fetch_one(
+        """
+        SELECT COUNT(*) AS n FROM information_schema.tables
+        WHERE table_schema = %s AND table_name = 'inventario'
+        """,
+        (MYSQL_DATABASE,),
+    )
+    if exists and exists["n"]:
+        return
+    execute(
+        """
+        CREATE TABLE inventario (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          codigo VARCHAR(40),
+          nombre VARCHAR(120) NOT NULL,
+          descripcion TEXT,
+          cantidad DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          stock_minimo DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          precio_unitario DECIMAL(10, 2) NOT NULL DEFAULT 0,
+          unidad VARCHAR(20) NOT NULL DEFAULT 'pza',
+          id_sucursal INT NOT NULL,
+          id_isla INT NOT NULL,
+          activo TINYINT(1) NOT NULL DEFAULT 1,
+          FOREIGN KEY (id_sucursal) REFERENCES sucursales(id),
+          FOREIGN KEY (id_isla) REFERENCES islas(id)
+        )
+        """
+    )
+
+
+def ensure_inventario_isla_column() -> None:
+    col = fetch_one(
+        """
+        SELECT COUNT(*) AS n FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = 'inventario' AND column_name = 'id_isla'
+        """,
+        (MYSQL_DATABASE,),
+    )
+    if col and col["n"]:
+        return
+    execute("ALTER TABLE inventario ADD COLUMN id_isla INT NULL AFTER id_sucursal")
+    rows = fetch_all("SELECT DISTINCT id_sucursal FROM inventario WHERE id_isla IS NULL")
+    for row in rows:
+        sid = row["id_sucursal"]
+        isla = fetch_one(
+            """
+            SELECT i.id FROM islas i
+            JOIN mi_taller m ON m.id = i.id_mi_taller
+            WHERE m.id_sucursal = %s
+            ORDER BY i.id
+            LIMIT 1
+            """,
+            (sid,),
+        )
+        if isla:
+            execute(
+                "UPDATE inventario SET id_isla = %s WHERE id_sucursal = %s AND id_isla IS NULL",
+                (isla["id"], sid),
+            )
+    execute("ALTER TABLE inventario MODIFY COLUMN id_isla INT NOT NULL")
+    fk = fetch_one(
+        """
+        SELECT COUNT(*) AS n FROM information_schema.table_constraints
+        WHERE table_schema = %s AND table_name = 'inventario'
+          AND constraint_name = 'inventario_ibfk_isla'
+        """,
+        (MYSQL_DATABASE,),
+    )
+    if not fk or not fk["n"]:
+        execute(
+            """
+            ALTER TABLE inventario
+            ADD CONSTRAINT inventario_ibfk_isla FOREIGN KEY (id_isla) REFERENCES islas(id)
+            """
+        )
 
 
 def ensure_remove_legacy_admin() -> None:

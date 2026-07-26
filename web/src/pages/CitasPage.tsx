@@ -11,6 +11,7 @@ import {
   FormSelect,
   TimeSelect,
 } from "../components/forms";
+import { estadoPillClass, ORDEN_ESTADOS_AYUDA } from "../utils/ordenStatus";
 
 interface Cita {
   id: number;
@@ -47,8 +48,6 @@ export function CitasPage() {
   } | null>(null);
   const [clientes, setClientes] = useState<CatalogItem[]>([]);
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
-  const [mecanicos, setMecanicos] = useState<CatalogItem[]>([]);
-  const [islas, setIslas] = useState<CatalogItem[]>([]);
   const [servicios, setServicios] = useState<Array<{ id: number; nombre: string; precio?: number }>>([]);
   const [estados, setEstados] = useState<string[]>([]);
   const [form, setForm] = useState({
@@ -59,8 +58,6 @@ export function CitasPage() {
     descripcion_fallo: "",
     fecha_compromiso: new Date().toISOString().slice(0, 10),
     hora_compromiso: "18:00:00",
-    id_mecanico: "",
-    id_isla: "",
     servicio_ids: [] as number[],
   });
   const [manage, setManage] = useState({
@@ -68,20 +65,18 @@ export function CitasPage() {
     diagnostico: "",
     observaciones: "",
     solucion: "",
-    id_mecanico: "",
-    id_isla: "",
   });
   const [error, setError] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const filters = useFilterModal({ estado: "", mecanico: "", isla: "" });
+  const filters = useFilterModal({ estado: "" });
 
   const load = useCallback(async () => {
     if (!auth) return;
     const res = await api<{ citas: Cita[] }>("/api/citas", {}, auth.token);
     setRows(res.citas);
-  }, [auth]);
+  }, [auth, auth?.user.id_isla]);
 
   const loadFormData = useCallback(async () => {
     if (!auth) return;
@@ -92,19 +87,11 @@ export function CitasPage() {
       setClientes(cl.clientes);
     }
     if (perms.can_manage_branch || perms.is_mecanico) {
-      const [m, i, s] = await Promise.all([
-        api<{ items: CatalogItem[] }>("/api/catalogos/mecanicos", {}, auth.token),
-        auth.user.id_sucursal
-          ? api<{ islas: CatalogItem[] }>(`/api/sucursales/${auth.user.id_sucursal}/islas`, {}, auth.token)
-          : Promise.resolve({ islas: [] }),
-        api<{ items: Array<{ id: number; nombre: string; precio?: number }> }>(
-          "/api/catalogos/mantenimiento",
-          {},
-          auth.token,
-        ),
-      ]);
-      setMecanicos(m.items);
-      setIslas(i.islas);
+      const s = await api<{ items: Array<{ id: number; nombre: string; precio?: number }> }>(
+        "/api/catalogos/mantenimiento",
+        {},
+        auth.token,
+      );
       setServicios(s.items);
     }
   }, [auth, perms]);
@@ -149,8 +136,6 @@ export function CitasPage() {
           descripcion_fallo: form.descripcion_fallo,
           fecha_compromiso: form.fecha_compromiso,
           hora_compromiso: form.hora_compromiso,
-          id_mecanico: form.id_mecanico ? Number(form.id_mecanico) : null,
-          id_isla: form.id_isla ? Number(form.id_isla) : null,
           servicio_ids: form.servicio_ids,
         }),
       }, auth.token);
@@ -174,8 +159,6 @@ export function CitasPage() {
       diagnostico: String(res.falla?.diagnostico || ""),
       observaciones: String(res.falla?.observaciones || ""),
       solucion: String(res.falla?.solucion || ""),
-      id_mecanico: String(res.cita.id_mecanico || ""),
-      id_isla: String(res.cita.id_isla || ""),
     });
     setDrawerOpen(true);
   };
@@ -199,8 +182,6 @@ export function CitasPage() {
           diagnostico: manage.diagnostico || null,
           observaciones: manage.observaciones || null,
           solucion: manage.solucion || null,
-          id_mecanico: manage.id_mecanico ? Number(manage.id_mecanico) : null,
-          id_isla: manage.id_isla ? Number(manage.id_isla) : null,
         }),
       }, auth.token);
       setSelected(null);
@@ -212,17 +193,13 @@ export function CitasPage() {
     }
   };
 
-  const createLabel = perms.is_cliente ? "Solicitar cita" : "Nueva cita";
+  const createLabel = perms.is_cliente ? "Solicitar servicio" : "Nueva orden";
   const canCreate = perms.can_create_citas || perms.is_cliente;
 
   const estadoOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.estado_label), [rows]);
-  const mecanicoOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.mecanico), [rows]);
-  const islaOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.isla), [rows]);
   const filtered = useMemo(() => {
     let list = rows;
     if (filters.applied.estado) list = list.filter((c) => c.estado_label === filters.applied.estado);
-    if (filters.applied.mecanico) list = list.filter((c) => (c.mecanico ?? "") === filters.applied.mecanico);
-    if (filters.applied.isla) list = list.filter((c) => (c.isla ?? "") === filters.applied.isla);
     const q = search.trim().toLowerCase();
     if (!q) return list;
     return list.filter(
@@ -230,9 +207,7 @@ export function CitasPage() {
         (c.cliente ?? "").toLowerCase().includes(q)
         || (c.placa ?? "").toLowerCase().includes(q)
         || (c.estado_label ?? "").toLowerCase().includes(q)
-        || (c.descripcion_fallo ?? "").toLowerCase().includes(q)
-        || (c.mecanico ?? "").toLowerCase().includes(q)
-        || (c.isla ?? "").toLowerCase().includes(q),
+        || (c.descripcion_fallo ?? "").toLowerCase().includes(q),
     );
   }, [rows, search, filters.applied]);
 
@@ -263,18 +238,6 @@ export function CitasPage() {
                 onChange={(v) => filters.setDraftField("estado", v)}
                 options={estadoOptions}
               />
-              <ListFilterSelect
-                label="Mecánico"
-                value={filters.draft.mecanico}
-                onChange={(v) => filters.setDraftField("mecanico", v)}
-                options={mecanicoOptions}
-              />
-              <ListFilterSelect
-                label="Isla"
-                value={filters.draft.isla}
-                onChange={(v) => filters.setDraftField("isla", v)}
-                options={islaOptions}
-              />
             </ListFilter>
           )}
         />
@@ -286,8 +249,6 @@ export function CitasPage() {
                 <th>Placa</th>
                 <th>Fecha</th>
                 <th>Estado</th>
-                <th>Mecánico</th>
-                <th>Isla</th>
                 <th>Falla</th>
               </tr>
             </thead>
@@ -301,15 +262,13 @@ export function CitasPage() {
                   {!perms.is_cliente && <td>{c.cliente}</td>}
                   <td><span className="badge">{c.placa}</span></td>
                   <td>{c.fecha_cita}</td>
-                  <td><span className="status-pill">{c.estado_label}</span></td>
-                  <td>{c.mecanico || "—"}</td>
-                  <td>{c.isla || "—"}</td>
+                  <td><span className={estadoPillClass(c.estado_label)}>{c.estado_label}</span></td>
                   <td className="truncate">{c.descripcion_fallo}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (search || filters.activeCount > 0) && (
                 <tr>
-                  <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
+                  <td colSpan={perms.is_cliente ? 4 : 5} className="table-no-results">
                     Sin resultados con los filtros aplicados
                   </td>
                 </tr>
@@ -322,7 +281,7 @@ export function CitasPage() {
       <Modal
         open={drawerOpen && selected !== null && perms.can_manage_citas}
         wide
-        title={`Gestionar cita #${selected ?? ""}`}
+        title={`Orden #${selected ?? ""}`}
         onClose={() => { setDrawerOpen(false); setSelected(null); setDetail(null); }}
         footer={
           detail ? (
@@ -337,11 +296,12 @@ export function CitasPage() {
         {detail && (
           <>
             <p className="modal-context">
-              Falla: {String(detail.cita.descripcion_fallo || "—")}
+              Falla reportada: {String(detail.cita.descripcion_fallo || "—")}
             </p>
+            <p className="form-hint orden-estados-hint">{ORDEN_ESTADOS_AYUDA}</p>
             <div className="form-grid form-grid-2col form-grid-spaced">
               <FormSelect
-                label="Estado"
+                label="Estado de la orden"
                 value={manage.estado}
                 onChange={(v) => setManage({ ...manage, estado: v })}
                 options={estados.map((e) => ({ value: e, label: e }))}
@@ -367,25 +327,6 @@ export function CitasPage() {
                 placeholder="Ingresar solución aplicada"
                 className="form-span-2"
               />
-              {perms.can_manage_branch && (
-                <>
-                  <FormSelect
-                    label="Mecánico"
-                    value={manage.id_mecanico}
-                    onChange={(v) => setManage({ ...manage, id_mecanico: v })}
-                    options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
-                    placeholder="Seleccionar mecánico"
-                    searchable
-                  />
-                  <FormSelect
-                    label="Isla"
-                    value={manage.id_isla}
-                    onChange={(v) => setManage({ ...manage, id_isla: v })}
-                    options={islas.map((i) => ({ value: String(i.id), label: i.nombre }))}
-                    placeholder="Seleccionar isla"
-                  />
-                </>
-              )}
             </div>
           </>
         )}
@@ -394,7 +335,7 @@ export function CitasPage() {
       <Modal
         open={createOpen}
         wide
-        title={perms.is_cliente ? "Solicitar cita" : "Nueva cita"}
+        title={perms.is_cliente ? "Solicitar servicio" : "Nueva orden de servicio"}
         onClose={() => setCreateOpen(false)}
         footer={
           <ModalActions
@@ -403,7 +344,7 @@ export function CitasPage() {
               await createCita();
               setCreateOpen(false);
             }}
-            saveLabel={perms.is_cliente ? "Solicitar cita" : "Crear cita"}
+            saveLabel={perms.is_cliente ? "Solicitar" : "Registrar orden"}
           />
         }
       >
@@ -448,25 +389,6 @@ export function CitasPage() {
             placeholder="Describe el problema del vehículo"
             className="form-span-2"
           />
-          {perms.can_manage_branch && (
-            <>
-              <FormSelect
-                label="Mecánico"
-                value={form.id_mecanico}
-                onChange={(v) => setForm({ ...form, id_mecanico: v })}
-                options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
-                placeholder="Seleccionar mecánico"
-                searchable
-              />
-              <FormSelect
-                label="Isla"
-                value={form.id_isla}
-                onChange={(v) => setForm({ ...form, id_isla: v })}
-                options={islas.map((i) => ({ value: String(i.id), label: i.nombre }))}
-                placeholder="Seleccionar isla"
-              />
-            </>
-          )}
           <FormInput
             label="Fecha compromiso"
             type="date"

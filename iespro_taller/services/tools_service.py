@@ -283,7 +283,9 @@ class ToolsService:
         es_cliente: bool = False,
         id_mecanico: int | None = None,
         es_mecanico: bool = False,
+        es_propietario: bool = False,
         id_sucursal: int | None = None,
+        id_isla: int | None = None,
     ):
         self.rag = rag_service
         self.id_cliente = id_cliente
@@ -291,7 +293,9 @@ class ToolsService:
         self.es_cliente = es_cliente
         self.id_mecanico = id_mecanico
         self.es_mecanico = es_mecanico
+        self.es_propietario = es_propietario
         self.id_sucursal = id_sucursal
+        self.id_isla = id_isla
         self._handlers: dict[str, Callable[[dict], Any]] = {
             "contar_citas": self._contar_citas,
             "listar_citas": self._listar_citas,
@@ -330,6 +334,12 @@ class ToolsService:
                 "error": "Como mecánico solo puedes consultar y actualizar estado de tus citas asignadas.",
                 "recoverable": True,
             }
+        if self.es_propietario and name in {"listar_mecanicos", "listar_islas", "mecanicos_en_isla"}:
+            return {
+                "ok": False,
+                "error": "Eres el único mecánico de tu taller; no hace falta listar islas u otros mecánicos.",
+                "recoverable": True,
+            }
         try:
             scoped_args = self._scope_arguments(name, arguments or {})
             result = self._handlers[name](scoped_args)
@@ -356,11 +366,35 @@ class ToolsService:
             if name in ("cancelar_cita_natural",) and scoped.get("placa"):
                 scoped["id_cliente"] = self.id_cliente
             return scoped
+        if self.es_propietario and self.id_sucursal:
+            scoped["id_sucursal"] = self.id_sucursal
+            if self.id_isla and name in (
+                "listar_citas",
+                "contar_citas",
+                "crear_cita_natural",
+                "cambiar_estado_cita_natural",
+                "cancelar_cita_natural",
+                "editar_cita_natural",
+            ):
+                scoped["id_isla"] = self.id_isla
+            scoped.pop("id_mecanico", None)
+            scoped.pop("id_mecanico_asignado", None)
+            return scoped
         if self.es_mecanico and self.id_mecanico:
-            # Fuerza siempre el alcance del mecánico + sucursal activa.
             if self.id_sucursal:
                 scoped["id_sucursal"] = self.id_sucursal
-            if name in (
+            if self.id_isla and name in (
+                "listar_citas",
+                "contar_citas",
+                "cambiar_estado_cita_natural",
+                "cancelar_cita_natural",
+                "buscar_fallas_similares",
+                "crear_cita_natural",
+                "editar_cita_natural",
+            ):
+                scoped["id_isla"] = self.id_isla
+                scoped.pop("id_mecanico", None)
+            elif name in (
                 "listar_citas",
                 "contar_citas",
                 "cambiar_estado_cita_natural",
@@ -388,7 +422,7 @@ class ToolsService:
         return None
 
     def _assert_cita_del_mecanico(self, id_cita: int) -> dict | None:
-        if not self.es_mecanico or not self.id_mecanico:
+        if self.es_propietario or not self.es_mecanico or not self.id_mecanico:
             return None
         cita = cita_service.get_cita_by_id(id_cita)
         if not cita:
@@ -405,6 +439,7 @@ class ToolsService:
             args.get("id_sucursal"),
             args.get("id_cliente"),
             args.get("id_mecanico"),
+            args.get("id_isla"),
         )
         return {"total": total, "estado": args.get("estado"), "id_sucursal": args.get("id_sucursal")}
 
@@ -413,6 +448,7 @@ class ToolsService:
             args.get("id_sucursal"),
             args.get("id_cliente"),
             args.get("id_mecanico"),
+            args.get("id_isla"),
         )
         return citas[:15]
 
@@ -464,13 +500,21 @@ class ToolsService:
 
         mecanico_res = None
         isla_res = None
-        if args.get("asignacion_automatica"):
+        forced_isla = args.get("id_isla") or self.id_isla
+        auto = args.get("asignacion_automatica") or (
+            forced_isla and (self.es_propietario or self.es_mecanico)
+        )
+        if auto:
             try:
                 defaults = cita_service.get_default_asignacion_taller(id_sucursal)
             except ValueError as exc:
                 return {"ok": False, "error": str(exc)}
-            mecanico_res = {"ok": True, "mecanico": {"id": defaults["id_mecanico"], "nombre": "asignación pendiente"}}
-            isla_res = {"ok": True, "isla": {"id": defaults["id_isla"], "nombre": "asignación pendiente"}}
+            mecanico_id = defaults["id_mecanico"]
+            if self.es_mecanico and self.id_mecanico:
+                mecanico_id = self.id_mecanico
+            isla_id = forced_isla or defaults["id_isla"]
+            mecanico_res = {"ok": True, "mecanico": {"id": mecanico_id, "nombre": "taller"}}
+            isla_res = {"ok": True, "isla": {"id": isla_id, "nombre": "isla activa"}}
         else:
             mecanico_res = cita_service.find_mecanico_by_nombre(args["nombre_mecanico"], id_sucursal)
             if not mecanico_res.get("ok"):
@@ -479,9 +523,9 @@ class ToolsService:
             if not isla_res.get("ok"):
                 return isla_res
 
-        if not args.get("nombre_mecanico") and not args.get("asignacion_automatica"):
+        if not args.get("nombre_mecanico") and not auto:
             return {"ok": False, "error": "Indica el mecánico para la cita."}
-        if not args.get("isla") and not args.get("asignacion_automatica"):
+        if not args.get("isla") and not auto:
             return {"ok": False, "error": "Indica la isla para la cita."}
 
         servicios = args.get("servicios") or [4]
@@ -613,8 +657,12 @@ class ToolsService:
         if not self.rag:
             return {"error": "RAG no activo en este modo"}
         limite = args.get("limite", 5)
-        id_sucursal = args.get("id_sucursal") if self.es_mecanico else None
-        id_mecanico = args.get("id_mecanico") if self.es_mecanico else None
+        if self.es_propietario and self.id_sucursal:
+            id_sucursal = args.get("id_sucursal") or self.id_sucursal
+            id_mecanico = None
+        else:
+            id_sucursal = args.get("id_sucursal") if self.es_mecanico else None
+            id_mecanico = args.get("id_mecanico") if self.es_mecanico else None
         result = self.rag.search_similar(
             args["descripcion"],
             n_results=limite,

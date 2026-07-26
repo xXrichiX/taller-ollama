@@ -14,12 +14,11 @@ export function ModuleLauncher({ open, onClose }: { open: boolean; onClose: () =
 
   const modules: Module[] = [
     { path: "/", label: "Inicio", icon: "⌂", show: true },
-    { path: "/sucursales", label: "Sucursales", icon: "▦", show: perms.is_staff },
-    { path: "/islas", label: "Islas", icon: "⛽", show: perms.is_staff },
     { path: "/clientes", label: "Clientes", icon: "👥", show: perms.is_staff },
     { path: "/vehiculos", label: perms.is_cliente ? "Mis Vehículos" : "Vehículos", icon: "🚗", show: true },
-    { path: "/citas", label: perms.is_cliente ? "Mis Citas" : "Citas", icon: "📅", show: true },
-    { path: "/usuarios", label: "Usuarios", icon: "🔧", show: perms.can_manage_usuarios },
+    { path: "/citas", label: perms.is_cliente ? "Mis órdenes" : "Órdenes", icon: "🛠", show: true },
+    { path: "/inventario", label: "Inventario", icon: "📦", show: perms.is_staff },
+    { path: "/sucursales", label: "Taller", icon: "🏭", show: perms.is_staff },
   ];
 
   if (!open) return null;

@@ -43,7 +43,7 @@ export function IslasPage() {
     const res = await api<{ islas: Isla[] }>(`/api/sucursales/${id}/islas`, {}, auth.token);
     setIslas(res.islas);
     const mec = await api<{ items: Array<{ id: number; nombre: string }> }>(
-      "/api/catalogos/mecanicos",
+      `/api/catalogos/mecanicos?id_sucursal=${id}`,
       {},
       auth.token,
     );

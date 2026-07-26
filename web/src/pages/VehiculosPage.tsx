@@ -37,7 +37,6 @@ function emptyForm(marca = "", combustible = "", unidad = "") {
     dias_mantenimiento: "90",
     observaciones: "",
     id_cliente: "",
-    id_mecanico_asignado: "",
     id_marca: marca,
     id_tipo_combustible: combustible,
     id_tipo_unidad: unidad,
@@ -52,12 +51,11 @@ export function VehiculosPage() {
   const [combustibles, setCombustibles] = useState<CatalogItem[]>([]);
   const [unidades, setUnidades] = useState<CatalogItem[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [mecanicos, setMecanicos] = useState<CatalogItem[]>([]);
   const [form, setForm] = useState(emptyForm());
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const filters = useFilterModal({ marca: "", cliente: "", mecanico: "" });
+  const filters = useFilterModal({ marca: "", cliente: "" });
 
   const load = useCallback(async () => {
     if (!auth) return;
@@ -67,37 +65,39 @@ export function VehiculosPage() {
 
   const loadCatalogs = useCallback(async () => {
     if (!auth) return;
-    const [m, c, u, cl, mec] = await Promise.all([
+    const [m, c, u, cl] = await Promise.all([
       api<{ items: CatalogItem[] }>("/api/catalogos/marcas", {}, auth.token),
       api<{ items: CatalogItem[] }>("/api/catalogos/combustibles", {}, auth.token),
       api<{ items: CatalogItem[] }>("/api/catalogos/unidades", {}, auth.token),
       api<{ clientes: Cliente[] }>("/api/clientes", {}, auth.token),
-      perms.can_manage_branch
-        ? api<{ items: CatalogItem[] }>("/api/catalogos/mecanicos", {}, auth.token)
-        : Promise.resolve({ items: [] }),
     ]);
     setMarcas(m.items);
     setCombustibles(c.items);
     setUnidades(u.items);
     setClientes(cl.clientes);
-    setMecanicos(mec.items);
     return {
       marca: m.items[0] ? String(m.items[0].id) : "",
       combustible: c.items[0] ? String(c.items[0].id) : "",
       unidad: u.items[0] ? String(u.items[0].id) : "",
     };
-  }, [auth, perms.can_manage_branch]);
+  }, [auth]);
 
   useEffect(() => {
     load();
     loadCatalogs();
   }, [load, loadCatalogs]);
 
-  const openCreate = async () => {
-    const defaults = await loadCatalogs();
-    setForm(emptyForm(defaults?.marca, defaults?.combustible, defaults?.unidad));
+  const openCreate = () => {
+    setForm(emptyForm(
+      marcas[0] ? String(marcas[0].id) : "",
+      combustibles[0] ? String(combustibles[0].id) : "",
+      unidades[0] ? String(unidades[0].id) : "",
+    ));
     setError("");
     setCreateOpen(true);
+    void loadCatalogs().catch((e) => {
+      setError(e instanceof Error ? e.message : "No se pudieron cargar los catálogos");
+    });
   };
 
   const save = async () => {
@@ -115,7 +115,6 @@ export function VehiculosPage() {
           dias_mantenimiento: Number(form.dias_mantenimiento),
           observaciones: form.observaciones || null,
           id_cliente: perms.is_cliente ? null : Number(form.id_cliente),
-          id_mecanico_asignado: form.id_mecanico_asignado ? Number(form.id_mecanico_asignado) : null,
           id_marca: Number(form.id_marca),
           id_tipo_combustible: Number(form.id_tipo_combustible),
           id_tipo_unidad: Number(form.id_tipo_unidad),
@@ -132,12 +131,10 @@ export function VehiculosPage() {
 
   const marcaOptions = useMemo(() => uniqueColumnValues(rows, (v) => v.marca), [rows]);
   const clienteOptions = useMemo(() => uniqueColumnValues(rows, (v) => v.cliente), [rows]);
-  const mecanicoOptions = useMemo(() => uniqueColumnValues(rows, (v) => v.mecanico_asignado), [rows]);
   const filtered = useMemo(() => {
     let list = rows;
     if (filters.applied.marca) list = list.filter((v) => (v.marca ?? "") === filters.applied.marca);
     if (filters.applied.cliente) list = list.filter((v) => (v.cliente ?? "") === filters.applied.cliente);
-    if (filters.applied.mecanico) list = list.filter((v) => (v.mecanico_asignado ?? "") === filters.applied.mecanico);
     const q = search.trim().toLowerCase();
     if (!q) return list;
     return list.filter(
@@ -145,8 +142,7 @@ export function VehiculosPage() {
         (v.placa ?? "").toLowerCase().includes(q)
         || (v.marca ?? "").toLowerCase().includes(q)
         || (v.modelo ?? "").toLowerCase().includes(q)
-        || (v.cliente ?? "").toLowerCase().includes(q)
-        || (v.mecanico_asignado ?? "").toLowerCase().includes(q),
+        || (v.cliente ?? "").toLowerCase().includes(q),
     );
   }, [rows, search, filters.applied]);
 
@@ -183,14 +179,6 @@ export function VehiculosPage() {
                 onChange={(v) => filters.setDraftField("cliente", v)}
                 options={clienteOptions}
               />
-              {!perms.is_cliente && (
-                <ListFilterSelect
-                  label="Mecánico"
-                  value={filters.draft.mecanico}
-                  onChange={(v) => filters.setDraftField("mecanico", v)}
-                  options={mecanicoOptions}
-                />
-              )}
             </ListFilter>
           )}
         />
@@ -202,7 +190,6 @@ export function VehiculosPage() {
                 <th>Marca</th>
                 <th>Modelo</th>
                 <th>Cliente</th>
-                {!perms.is_cliente && <th>Mecánico</th>}
                 <th>No. econ.</th>
                 <th>Km</th>
               </tr>
@@ -214,14 +201,13 @@ export function VehiculosPage() {
                   <td>{v.marca}</td>
                   <td>{v.modelo}</td>
                   <td>{v.cliente}</td>
-                  {!perms.is_cliente && <td>{v.mecanico_asignado || "—"}</td>}
                   <td>{v.numero_economico || "—"}</td>
                   <td>{v.kilometraje?.toLocaleString("es-MX") ?? "—"}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (search || filters.activeCount > 0) && (
                 <tr>
-                  <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
+                  <td colSpan={6} className="table-no-results">
                     Sin resultados con los filtros aplicados
                   </td>
                 </tr>
@@ -275,24 +261,21 @@ export function VehiculosPage() {
             placeholder="Seleccionar tipo"
           />
           {!perms.is_cliente && (
-            <FormSelect
-              label="Propietario"
-              value={form.id_cliente}
-              onChange={(v) => setForm({ ...form, id_cliente: v })}
-              options={clientes.map((c) => ({ value: String(c.id), label: c.nombre }))}
-              placeholder="Seleccionar cliente"
-              searchable
-            />
-          )}
-          {perms.can_manage_branch && (
-            <FormSelect
-              label="Mecánico asignado"
-              value={form.id_mecanico_asignado}
-              onChange={(v) => setForm({ ...form, id_mecanico_asignado: v })}
-              options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
-              placeholder="Sin asignar"
-              searchable
-            />
+            <>
+              {clientes.length === 0 && (
+                <p className="modal-context">
+                  Primero registra un cliente en la sección Clientes para poder asignar el vehículo.
+                </p>
+              )}
+              <FormSelect
+                label="Propietario"
+                value={form.id_cliente}
+                onChange={(v) => setForm({ ...form, id_cliente: v })}
+                options={clientes.map((c) => ({ value: String(c.id), label: c.nombre }))}
+                placeholder="Seleccionar cliente"
+                searchable
+              />
+            </>
           )}
           <FormTextarea
             label="Observaciones"

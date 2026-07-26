@@ -40,22 +40,6 @@ function DashSparkline({ color = "#2185d0" }: { color?: string }) {
   );
 }
 
-function DashProgress({ value, max, label }: { value: number; max: number; label: string }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
-  return (
-    <div className="dash-progress">
-      <div className="dash-progress-meta">
-        <span>{label}</span>
-        <span>{value}/{max}</span>
-      </div>
-      <div className="dash-progress-track">
-        <div className="dash-progress-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="dash-progress-pct">{pct}% ocupado</span>
-    </div>
-  );
-}
-
 function DashMetricCard({
   label,
   value,
@@ -113,23 +97,6 @@ function IconCar() {
   );
 }
 
-function IconIsland() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M12 3c-3 4-8 5-8 11a8 8 0 0 0 16 0c0-6-5-7-8-11z" />
-      <path d="M8 20c2-1 6-1 8 0" />
-    </svg>
-  );
-}
-
-function IconWrench() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-    </svg>
-  );
-}
-
 function IconCalendar() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -157,7 +124,7 @@ function IconCheck() {
   );
 }
 
-function MiniCitasTable({
+function RecentCitasTable({
   rows,
   showCliente,
   onRowClick,
@@ -166,9 +133,12 @@ function MiniCitasTable({
   showCliente: boolean;
   onRowClick?: (id: number) => void;
 }) {
+  if (rows.length === 0) {
+    return <p className="dash-table-empty">Sin datos</p>;
+  }
   return (
-    <div className="dash-mini-table-wrap">
-      <table className="dash-mini-table">
+    <div className="table-wrap">
+      <table className="data-table">
         <thead>
           <tr>
             <th>Hora</th>
@@ -178,24 +148,60 @@ function MiniCitasTable({
           </tr>
         </thead>
         <tbody>
-          {rows.length === 0 ? (
-            <tr>
-              <td colSpan={showCliente ? 4 : 3} className="dash-mini-empty">Sin datos</td>
+          {rows.map((c) => (
+            <tr
+              key={c.id}
+              className={onRowClick ? "clickable" : ""}
+              onClick={() => onRowClick?.(c.id)}
+            >
+              <td>{c.hora || "—"}</td>
+              {showCliente && <td>{c.cliente || "—"}</td>}
+              <td>{c.vehiculo || "—"}</td>
+              <td><span className="status-pill status-pill-sm">{c.estado}</span></td>
             </tr>
-          ) : (
-            rows.slice(0, 4).map((c) => (
-              <tr
-                key={c.id}
-                className={onRowClick ? "clickable" : undefined}
-                onClick={() => onRowClick?.(c.id)}
-              >
-                <td>{c.hora || "—"}</td>
-                {showCliente && <td>{c.cliente || "—"}</td>}
-                <td>{c.vehiculo || "—"}</td>
-                <td><span className="status-pill status-pill-sm">{c.estado}</span></td>
-              </tr>
-            ))
-          )}
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function PendingCitasTable({
+  rows,
+  showCliente,
+  onRowClick,
+}: {
+  rows: CitaRow[];
+  showCliente: boolean;
+  onRowClick?: (id: number) => void;
+}) {
+  if (rows.length === 0) {
+    return <p className="dash-table-empty">Sin órdenes pendientes</p>;
+  }
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            {showCliente && <th>Cliente</th>}
+            <th>Servicio</th>
+            <th>Técnico</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => (
+            <tr
+              key={c.id}
+              className={onRowClick ? "clickable" : ""}
+              onClick={() => onRowClick?.(c.id)}
+            >
+              <td>{c.fecha_programada || "—"}</td>
+              {showCliente && <td>{c.cliente || "—"}</td>}
+              <td className="truncate">{c.servicio || "—"}</td>
+              <td>{c.mecanico || "—"}</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
@@ -214,7 +220,7 @@ export function DashboardPage() {
     const res = await api<DashboardData>("/api/dashboard", {}, auth.token);
     setData(res);
     if (!silent) setLoading(false);
-  }, [auth]);
+  }, [auth, auth?.user.id_isla]);
 
   useEffect(() => {
     load();
@@ -226,6 +232,8 @@ export function DashboardPage() {
     if (perms.can_manage_citas) navigate(`/citas?cita=${id}`);
     else navigate("/citas");
   };
+
+  const goOrdenes = () => navigate("/citas");
 
   if (!data) {
     if (loading) {
@@ -241,10 +249,6 @@ export function DashboardPage() {
   const s = data.stats;
   const showCliente = !perms.is_cliente;
   const isStaff = perms.can_manage_branch && !perms.is_cliente;
-  const mecanicosLibres = Math.max(data.mecanicos_total - data.mecanicos_ocupados, 0);
-  const mecanicosDispPct = data.mecanicos_total > 0
-    ? Math.round((mecanicosLibres / data.mecanicos_total) * 100)
-    : 0;
 
   return (
     <div className="page page-dashboard">
@@ -253,7 +257,7 @@ export function DashboardPage() {
       </header>
 
       {isStaff && (
-        <div className="dash-cards-row">
+        <div className="dash-cards-row dash-cards-row--2">
           <DashMetricCard
             label="Clientes"
             value={s.clientes ?? 0}
@@ -268,85 +272,42 @@ export function DashboardPage() {
             footer={<DashSparkline color="#38bdf8" />}
             onClick={() => navigate("/vehiculos")}
           />
+        </div>
+      )}
+
+      {perms.is_cliente && (
+        <div className="dash-cards-row dash-cards-row--1">
           <DashMetricCard
-            label="Islas"
-            value={s.islas ?? 0}
-            icon={<IconIsland />}
-            footer={(
-              <DashProgress
-                value={data.islas_ocupadas}
-                max={data.islas_total || 1}
-                label="Ocupación"
-              />
-            )}
-            onClick={() => navigate("/sucursales")}
-          />
-          <DashMetricCard
-            label="Mecánicos"
-            value={s.mecanicos ?? 0}
-            icon={<IconWrench />}
-            footer={(
-              <div className="dash-progress">
-                <div className="dash-progress-meta">
-                  <span>Disponibilidad</span>
-                  <span>{mecanicosLibres}/{data.mecanicos_total}</span>
-                </div>
-                <div className="dash-progress-track dash-progress-track--green">
-                  <div className="dash-progress-fill dash-progress-fill--green" style={{ width: `${mecanicosDispPct}%` }} />
-                </div>
-              </div>
-            )}
-            onClick={() => navigate("/usuarios")}
-          />
-          <DashMetricCard
-            label="Citas"
-            value={s.citas ?? 0}
-            icon={<IconAlert />}
-            variant="warn"
-            footer={<DashSparkline color="#f59e0b" />}
-            onClick={() => navigate("/citas")}
+            label="Mis vehículos"
+            value={s.vehiculos ?? 0}
+            icon={<IconCar />}
+            footer={<DashSparkline />}
+            onClick={() => navigate("/vehiculos")}
           />
         </div>
       )}
 
-      {!isStaff && (
-        <div className={`dash-cards-row${perms.is_cliente ? " dash-cards-row--2" : ""}`}>
-          {perms.is_cliente && (
-            <DashMetricCard
-              label="Vehículos"
-              value={s.vehiculos ?? 0}
-              icon={<IconCar />}
-              footer={<DashSparkline />}
-              onClick={() => navigate("/vehiculos")}
-            />
-          )}
-          <DashMetricCard
-            label="Citas"
-            value={s.citas ?? 0}
-            icon={<IconAlert />}
-            variant="warn"
-            footer={<DashSparkline color="#f59e0b" />}
-            onClick={() => navigate("/citas")}
-          />
-        </div>
-      )}
+      <div className="dash-section-head">
+        <h2>Órdenes</h2>
+      </div>
 
-      <div className="dash-cards-row">
-        {isStaff && (
-          <DashMetricCard
-            label="Citas"
-            value={s.citas ?? 0}
-            icon={<IconCalendar />}
-            onClick={() => navigate("/citas")}
-          />
-        )}
+      <div className="dash-cards-row dash-cards-row--4">
+        <DashMetricCard
+          label="Total"
+          value={s.citas ?? 0}
+          icon={<IconCalendar />}
+          variant="warn"
+          subtitle={perms.is_cliente ? "Todas tus órdenes" : "En esta isla"}
+          footer={<DashSparkline color="#f59e0b" />}
+          onClick={goOrdenes}
+        />
         <DashMetricCard
           label="Pendientes"
           value={s.pendientes ?? 0}
           icon={<IconAlert />}
           variant="pending"
           subtitle="Por iniciar"
-          onClick={() => navigate("/citas")}
+          onClick={goOrdenes}
         />
         <DashMetricCard
           label="En proceso"
@@ -354,7 +315,7 @@ export function DashboardPage() {
           icon={<IconCar />}
           variant="process"
           subtitle="Trabajando ahora"
-          onClick={() => navigate("/citas")}
+          onClick={goOrdenes}
         />
         <DashMetricCard
           label="Completadas"
@@ -362,80 +323,32 @@ export function DashboardPage() {
           icon={<IconCheck />}
           variant="done"
           subtitle="Listas para entrega"
-          onClick={() => navigate("/citas")}
+          onClick={goOrdenes}
         />
-        <div className="dash-card dash-card--mini-table">
-          <div className="dash-card-mini-head">
-            <span className="dash-card-label">Citas recientes</span>
+      </div>
+
+      <div className="dash-tables-grid">
+        <section className="dash-table-panel section-card">
+          <div className="dash-table-bar">
+            <h3>Recientes</h3>
           </div>
-          <MiniCitasTable
+          <RecentCitasTable
             rows={data.recent_citas}
             showCliente={showCliente}
             onRowClick={perms.can_manage_citas ? openCita : undefined}
           />
-        </div>
-      </div>
+        </section>
 
-      <div className="dash-tables-block section-card">
-        <div className="dash-table-bar">
-          <h3>Citas recientes</h3>
-        </div>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Hora</th>
-                {showCliente && <th>Cliente</th>}
-                <th>Vehículo</th>
-                <th>Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.recent_citas.map((c) => (
-                <tr
-                  key={c.id}
-                  className={perms.can_manage_citas ? "clickable" : ""}
-                  onClick={() => openCita(c.id)}
-                >
-                  <td>{c.hora || "—"}</td>
-                  {showCliente && <td>{c.cliente || "—"}</td>}
-                  <td>{c.vehiculo || "—"}</td>
-                  <td><span className="status-pill">{c.estado}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="dash-table-bar dash-table-bar--split">
-          <h3>Citas por iniciar</h3>
-        </div>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Fecha programada</th>
-                {showCliente && <th>Cliente</th>}
-                <th>Servicio</th>
-                <th>Técnico asignado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.pending_citas.map((c) => (
-                <tr
-                  key={c.id}
-                  className={perms.can_manage_citas ? "clickable" : ""}
-                  onClick={() => openCita(c.id)}
-                >
-                  <td>{c.fecha_programada || "—"}</td>
-                  {showCliente && <td>{c.cliente || "—"}</td>}
-                  <td className="truncate">{c.servicio || "—"}</td>
-                  <td>{c.mecanico || "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <section className="dash-table-panel section-card">
+          <div className="dash-table-bar">
+            <h3>Por iniciar</h3>
+          </div>
+          <PendingCitasTable
+            rows={data.pending_citas}
+            showCliente={showCliente}
+            onRowClick={perms.can_manage_citas ? openCita : undefined}
+          />
+        </section>
       </div>
     </div>
   );

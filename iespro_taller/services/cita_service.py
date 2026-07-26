@@ -268,7 +268,7 @@ def create_isla(nombre: str, id_sucursal: int) -> int:
 
 
 def list_mecanicos(id_sucursal: int) -> list[dict]:
-    """Personal asignable a citas/vehículos (por rol MECANICO o puesto en el taller)."""
+    """Personal asignable a citas/vehículos en la sucursal indicada."""
     if not id_sucursal:
         return []
     rows = fetch_all(
@@ -278,10 +278,18 @@ def list_mecanicos(id_sucursal: int) -> list[dict]:
         JOIN roles r ON r.id = u.id_rol
         LEFT JOIN puestos p ON p.id = u.id_puesto
         WHERE u.activo = 1
-          AND (u.id_sucursal = %s OR u.id_sucursal IS NULL)
+          AND (
+            u.id_sucursal = %s
+            OR u.id IN (
+              SELECT us.id_usuario FROM usuario_sucursales us WHERE us.id_sucursal = %s
+            )
+            OR u.id = (
+              SELECT s.id_propietario FROM sucursales s WHERE s.id = %s LIMIT 1
+            )
+          )
         ORDER BY u.nombre
         """,
-        (id_sucursal,),
+        (id_sucursal, id_sucursal, id_sucursal),
     )
     from services.user_roles import can_assign_work_as_mecanico
 
@@ -334,6 +342,7 @@ def list_citas(
     id_sucursal: int | None = None,
     id_cliente: int | None = None,
     id_mecanico: int | None = None,
+    id_isla: int | None = None,
 ) -> list[dict]:
     query = """
         SELECT c.id, cl.nombre AS cliente, v.placa, v.modelo,
@@ -358,6 +367,9 @@ def list_citas(
     if id_mecanico:
         query += " AND c.id_mecanico = %s"
         params.append(id_mecanico)
+    if id_isla:
+        query += " AND c.id_isla = %s"
+        params.append(id_isla)
     query += " ORDER BY c.fecha_cita DESC"
     return fetch_all(query, tuple(params))
 
@@ -582,6 +594,7 @@ def count_citas(
     id_sucursal: int | None = None,
     id_cliente: int | None = None,
     id_mecanico: int | None = None,
+    id_isla: int | None = None,
 ) -> int:
     query = "SELECT COUNT(*) AS total FROM citas WHERE 1=1"
     params: list[Any] = []
@@ -597,6 +610,9 @@ def count_citas(
     if id_mecanico:
         query += " AND id_mecanico = %s"
         params.append(id_mecanico)
+    if id_isla:
+        query += " AND id_isla = %s"
+        params.append(id_isla)
     row = fetch_one(query, tuple(params))
     return int(row["total"]) if row else 0
 

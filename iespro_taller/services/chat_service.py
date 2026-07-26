@@ -115,13 +115,24 @@ Reglas:
 SUPER_ADMIN_PROMPT = ADMIN_PROMPT
 
 MECANICO_PROMPT = """
-ROL ACTUAL: Mecánico. Solo ves TU historial en la sucursal activa.
+ROL ACTUAL: Mecánico empleado. Solo ves TU historial en la sucursal activa.
 
 Reglas para mecánico:
 - Solo puedes consultar citas, vehículos, clientes y fallas ASIGNADAS A TI en la sucursal activa.
 - No menciones ni inventes datos de otros mecánicos, ni de otras sucursales.
 - Si no tienes historial propio para una falla, dilo claro: no uses casos ajenos.
 - Solo puedes CAMBIAR estado, diagnóstico u observaciones de citas asignadas a ti.
+"""
+
+DUENO_TALLER_PROMPT = """
+ROL ACTUAL: Dueño de tu taller personal. Eres el único mecánico.
+
+Reglas:
+- Ves y gestionas TODO tu taller: clientes, vehículos, citas e historial de fallas.
+- Puedes crear, editar y cancelar citas de cualquier cliente de tu taller.
+- No hay otros mecánicos ni sucursales: las citas se asignan automáticamente a ti.
+- No pidas mecánico ni isla al agendar; el sistema los asigna solo.
+- Al buscar fallas similares, usa todo el historial de tu taller.
 """
 
 CLIENTE_PROMPT = """
@@ -140,12 +151,14 @@ Reglas para cliente:
 class ChatService:
     def __init__(self, id_sucursal: int = DEFAULT_SUCURSAL_ID):
         self._id_sucursal = id_sucursal
+        self._id_isla: int | None = None
         self.id_usuario: int | None = None
         self.rol_nombre: str | None = None
         self.user_nombre: str | None = None
         self.id_cliente: int | None = None
         self.nombre_cliente: str | None = None
         self.id_mecanico_scope: int | None = None
+        self.es_propietario: bool = False
         self.id_conversacion: int | None = None
         self._pending_new_conversation = False
         self.rag = RagService()
@@ -169,6 +182,16 @@ class ChatService:
         if getattr(self, "tools", None) is not None:
             self.tools.id_sucursal = value
 
+    @property
+    def id_isla(self) -> int | None:
+        return self._id_isla
+
+    @id_isla.setter
+    def id_isla(self, value: int | None) -> None:
+        self._id_isla = value
+        if getattr(self, "tools", None) is not None:
+            self.tools.id_isla = value
+
     def set_user(self, user: int | dict) -> None:
         if isinstance(user, dict):
             self.id_usuario = user.get("id")
@@ -177,6 +200,7 @@ class ChatService:
             self.id_cliente = None
             self.nombre_cliente = None
             self.id_mecanico_scope = None
+            self.es_propietario = bool(user.get("es_propietario"))
             if is_cliente(self.rol_nombre) and self.id_usuario:
                 from services import catalog_service
 
@@ -185,7 +209,12 @@ class ChatService:
                     self.id_cliente = cliente["id"]
                     self.nombre_cliente = cliente["nombre"]
             elif is_mecanico(self.rol_nombre) and self.id_usuario:
-                self.id_mecanico_scope = self.id_usuario
+                if not self.es_propietario:
+                    from services import catalog_service
+
+                    self.es_propietario = catalog_service.user_is_propietario(self.id_usuario)
+                if not self.es_propietario:
+                    self.id_mecanico_scope = self.id_usuario
         else:
             self.id_usuario = user
             self.rol_nombre = None
@@ -193,14 +222,17 @@ class ChatService:
             self.id_cliente = None
             self.nombre_cliente = None
             self.id_mecanico_scope = None
+            self.es_propietario = False
         self.tools = ToolsService(
             self.rag,
             id_cliente=self.id_cliente,
             nombre_cliente=self.nombre_cliente,
             es_cliente=is_cliente(self.rol_nombre),
             id_mecanico=self.id_mecanico_scope,
-            es_mecanico=is_mecanico(self.rol_nombre),
+            es_mecanico=is_mecanico(self.rol_nombre) and not self.es_propietario,
+            es_propietario=self.es_propietario,
             id_sucursal=self.id_sucursal,
+            id_isla=self.id_isla,
         )
 
     def ensure_conversation(self) -> int | None:
@@ -328,10 +360,14 @@ class ChatService:
 
     def _build_system_prompt(self) -> str:
         prompt = SYSTEM_PROMPT + f"\nSucursal activa: {self.id_sucursal}"
+        if self.id_isla:
+            prompt += f"\nIsla activa (solo consulta órdenes y stock de esta bahía): {self.id_isla}"
         if is_admin(self.rol_nombre):
             prompt += ADMIN_PROMPT
         elif is_staff_manager(self.rol_nombre):
             prompt += STAFF_MANAGER_PROMPT
+        elif is_mecanico(self.rol_nombre) and self.es_propietario:
+            prompt += DUENO_TALLER_PROMPT
         elif is_mecanico(self.rol_nombre):
             prompt += MECANICO_PROMPT
         elif is_cliente(self.rol_nombre):

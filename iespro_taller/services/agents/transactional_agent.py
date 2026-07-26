@@ -53,7 +53,9 @@ class TransactionalAgent:
   ) -> tuple[str, list[dict], str]:
     emit_status("searching", "Consultando base de datos...")
 
-    if not is_cliente(self.chat.rol_nombre) and not is_mecanico(self.chat.rol_nombre):
+    if not is_cliente(self.chat.rol_nombre) and (
+      not is_mecanico(self.chat.rol_nombre) or getattr(self.chat, "es_propietario", False)
+    ):
       sql_answer = run_sql_query(question, self.chat.id_sucursal)
       if sql_answer:
         emit_status("thinking", "Preparando respuesta...")

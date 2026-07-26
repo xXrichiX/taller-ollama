@@ -6,6 +6,7 @@ export interface User {
   puesto_nombre?: string;
   sucursales_ids: number[];
   id_sucursal?: number | null;
+  id_isla?: number | null;
   id_cliente?: number | null;
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FormField } from "./FormField";
+import { useSelectDropUp } from "./useSelectDropUp";
 
 export interface FormMultiSelectOption {
   value: string;
@@ -24,6 +25,7 @@ export function FormMultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const dropUp = useSelectDropUp(open, rootRef);
 
   const selected = useMemo(
     () => options.filter((o) => values.includes(Number(o.value))),
@@ -69,8 +71,11 @@ export function FormMultiSelect({
           </svg>
         </button>
         {open && (
-          <div className="form-select-menu form-multi-select-menu">
+          <div className={`form-select-menu form-multi-select-menu${dropUp ? " is-dropup" : ""}`}>
             <ul className="form-multi-options">
+              {options.length === 0 && (
+                <li className="form-select-empty">No hay opciones disponibles</li>
+              )}
               {options.map((o) => {
                 const id = Number(o.value);
                 const checked = values.includes(id);

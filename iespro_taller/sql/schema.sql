@@ -190,6 +190,22 @@ CREATE TABLE IF NOT EXISTS cita_servicios (
   FOREIGN KEY (id_tipo_mantenimiento) REFERENCES tipos_mantenimiento(id)
 );
 
+CREATE TABLE IF NOT EXISTS inventario (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  codigo VARCHAR(40),
+  nombre VARCHAR(120) NOT NULL,
+  descripcion TEXT,
+  cantidad DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  stock_minimo DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  precio_unitario DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  unidad VARCHAR(20) NOT NULL DEFAULT 'pza',
+  id_sucursal INT NOT NULL,
+  id_isla INT NOT NULL,
+  activo TINYINT(1) NOT NULL DEFAULT 1,
+  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id),
+  FOREIGN KEY (id_isla) REFERENCES islas(id)
+);
+
 CREATE TABLE IF NOT EXISTS fallas_registradas (
   id INT AUTO_INCREMENT PRIMARY KEY,
   id_cita INT,

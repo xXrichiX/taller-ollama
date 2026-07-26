@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, usePermissions } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import { api } from "../api/client";
 import { ModuleLauncher } from "./ModuleLauncher";
 import { ProfileMenu } from "./ProfileMenu";
@@ -8,12 +9,12 @@ import { ChatOverlay } from "./ChatOverlay";
 
 const ROUTE_LABELS: Record<string, string> = {
   "/": "Inicio",
-  "/sucursales": "Sucursales",
-  "/islas": "Islas",
   "/clientes": "Clientes",
   "/vehiculos": "Vehículos",
-  "/citas": "Citas",
-  "/usuarios": "Usuarios",
+  "/citas": "Órdenes",
+  "/ordenes": "Órdenes",
+  "/inventario": "Inventario",
+  "/sucursales": "Taller",
   "/chat": "Asistente",
 };
 
@@ -25,41 +26,65 @@ function ChatHeaderIcon() {
   );
 }
 
+function ThemeToggleIcon({ isDark }: { isDark: boolean }) {
+  if (isDark) {
+    return (
+      <svg className="header-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+      </svg>
+    );
+  }
+  return (
+    <svg className="header-svg-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
+}
+
 export function AppLayout() {
-  const { auth, logout, setSucursal } = useAuth();
+  const { auth, logout, setIsla, refresh } = useAuth();
   const perms = usePermissions();
+  const { isDark, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sucursales, setSucursales] = useState<Array<{ id: number; nombre: string }>>([]);
+  const [islas, setIslas] = useState<Array<{ id: number; nombre: string }>>([]);
   const [chatOpen, setChatOpen] = useState(false);
   const [modulesOpen, setModulesOpen] = useState(false);
 
-  const loadSucursales = useCallback(async () => {
-    if (!auth) return;
-    const res = await api<{ sucursales: Array<{ id: number; nombre: string }> }>(
-      "/api/sucursales",
-      {},
-      auth.token,
-    );
-    setSucursales(res.sucursales);
-  }, [auth]);
+  const loadIslas = useCallback(async () => {
+    if (!auth || !perms.is_staff) return;
+    try {
+      const res = await api<{ islas: Array<{ id: number; nombre: string }>; id_isla_activa?: number }>(
+        "/api/islas",
+        {},
+        auth.token,
+      );
+      setIslas(res.islas);
+      if (!auth.user.id_isla && res.islas[0]) {
+        await setIsla(res.islas[0].id);
+      }
+    } catch {
+      setIslas([]);
+    }
+  }, [auth, perms.is_staff, setIsla]);
 
   useEffect(() => {
-    if (perms.is_staff) loadSucursales();
-  }, [loadSucursales, perms.is_staff]);
+    loadIslas();
+  }, [loadIslas]);
 
   useEffect(() => {
-    if (!auth || !perms.is_staff || auth.user.id_sucursal || sucursales.length === 0) return;
-    setSucursal(sucursales[0].id);
-  }, [auth, perms.is_staff, sucursales, setSucursal]);
+    if (!auth || !perms.is_staff || auth.user.id_sucursal) return;
+    refresh();
+  }, [auth, perms.is_staff, refresh]);
 
   const breadcrumb = useMemo(() => {
-    if (location.pathname === "/" && perms.needs_taller_setup) {
-      return "Inicio / Sucursales";
-    }
     const base = ROUTE_LABELS[location.pathname] ?? "IESPRO-Taller";
     return base === "Inicio" ? "Inicio / IESPRO-Taller" : `Inicio / ${base}`;
-  }, [location.pathname, perms.needs_taller_setup]);
+  }, [location.pathname]);
+
+  const activeIsla = islas.find((i) => i.id === auth.user.id_isla);
+  const chatReady = Boolean(auth.user.id_sucursal && (perms.is_cliente || auth.user.id_isla));
 
   const handleLogout = async () => {
     await logout();
@@ -82,14 +107,45 @@ export function AppLayout() {
             ☰
           </button>
           <span className="header-breadcrumb">{breadcrumb}</span>
+          {perms.is_staff && islas.length > 0 && (
+            <div className="header-isla-picker">
+              <select
+                id="header-isla-select"
+                className="header-isla-select"
+                value={auth.user.id_isla ?? ""}
+                onChange={(e) => void setIsla(Number(e.target.value))}
+                title="Bahía de trabajo activa"
+                aria-label="Isla activa"
+              >
+                {islas.map((i) => (
+                  <option key={i.id} value={i.id}>{i.nombre}</option>
+                ))}
+              </select>
+              <span className="profile-chevron" aria-hidden>▾</span>
+            </div>
+          )}
         </div>
+
         <div className="header-toolbar">
           <button
             type="button"
             className="header-icon-btn"
+            onClick={toggleTheme}
+            title={isDark ? "Modo claro" : "Modo oscuro"}
+            aria-label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+          >
+            <ThemeToggleIcon isDark={isDark} />
+          </button>
+          <button
+            type="button"
+            className="header-icon-btn"
             onClick={() => setChatOpen(true)}
-            disabled={!auth.user.id_sucursal}
-            title={auth.user.id_sucursal ? "Asistente IA" : "Elige una sucursal"}
+            disabled={!chatReady}
+            title={
+              chatReady
+                ? `Asistente IA${activeIsla ? ` — ${activeIsla.nombre}` : ""}`
+                : "Selecciona una isla para usar el asistente"
+            }
             aria-label="Asistente IA"
           >
             <ChatHeaderIcon />

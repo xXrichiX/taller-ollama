@@ -15,12 +15,12 @@ ESTADO_A_ETIQUETA = {
 ETIQUETA_A_ESTADO = {v: k for k, v in ESTADO_A_ETIQUETA.items()}
 
 ESTADOS_UI = [
+    "En espera",
     "Recibido",
     "Diagnóstico",
     "En reparación",
     "Esperando refacciones",
     "En proceso",
-    "Pendiente",
     "Finalizado",
     "Completada",
     "Cancelada",

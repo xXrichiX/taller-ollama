@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FormField } from "./FormField";
+import { useSelectDropUp } from "./useSelectDropUp";
 
 export interface FormSelectOption {
   value: string;
@@ -30,6 +31,7 @@ export function FormSelect({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
+  const dropUp = useSelectDropUp(open, rootRef);
 
   const selected = options.find((o) => o.value === value);
   const showSearch = searchable && options.length > 6;
@@ -75,7 +77,7 @@ export function FormSelect({
           </svg>
         </button>
         {open && (
-          <div className="form-select-menu" role="listbox">
+          <div className={`form-select-menu${dropUp ? " is-dropup" : ""}`} role="listbox">
             {showSearch && (
               <div className="form-select-search-wrap">
                 <input
