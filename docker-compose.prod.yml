@@ -81,7 +81,7 @@ services:
     image: alpine:3.20
     restart: "no"
     environment:
-      TLS_SAN_IP: ${TLS_SAN_IP:?set TLS_SAN_IP to your server public IP}
+      TLS_SAN_IP: ${TLS_SAN_IP:-200.234.226.167}
     volumes:
       - caddy_certs:/certs
       - ./deploy/cert-init.sh:/cert-init.sh:ro
