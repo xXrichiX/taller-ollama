@@ -2,9 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
-import { CalendarEmptyIcon, EmptyState } from "../components/EmptyState";
 import { ListToolbar } from "../components/ListToolbar";
-import { SidePanel } from "../components/SidePanel";
+import { Modal, ModalActions } from "../components/Modal";
 
 interface Cita {
   id: number;
@@ -206,9 +205,8 @@ export function CitasPage() {
   };
 
   const title = perms.is_cliente ? "Mis Citas" : "Citas";
-  const createLabel = perms.is_cliente ? "+ Solicitar cita" : "+ Crear cita";
+  const createLabel = perms.is_cliente ? "Solicitar cita" : "Nueva cita";
   const canCreate = perms.can_create_citas || perms.is_cliente;
-  const hasData = rows.length > 0;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -229,87 +227,74 @@ export function CitasPage() {
           <h2>{title}</h2>
           <p className="page-subtitle">Agenda y seguimiento de órdenes</p>
         </div>
-        {hasData && (
-          <div className="page-stat-inline">
-            <span className="page-stat-value">{rows.length}</span>
-            <span className="page-stat-label">citas</span>
-          </div>
-        )}
+        <div className="page-stat-inline">
+          <span className="page-stat-value">{rows.length}</span>
+          <span className="page-stat-label">citas</span>
+        </div>
       </div>
       {error && <p className="error-text">{error}</p>}
 
-      {!hasData ? (
-        <EmptyState
-          icon={<CalendarEmptyIcon />}
-          title="No hay citas registradas"
-          description="Crea o solicita la primera cita para comenzar el seguimiento del taller."
-          action={
-            canCreate ? (
-              <button type="button" className="btn" onClick={() => setCreateOpen(true)}>
-                {perms.is_cliente ? "+ Solicitar primera cita" : "+ Crear primera cita"}
-              </button>
-            ) : undefined
-          }
+      <div className="section-card">
+        <ListToolbar
+          search={search}
+          onSearchChange={setSearch}
+          placeholder="Buscar por cliente, placa, estado o falla…"
+          onAdd={canCreate ? () => setCreateOpen(true) : undefined}
+          addLabel={createLabel}
         />
-      ) : (
-        <div className="section-card">
-          <ListToolbar
-            search={search}
-            onSearchChange={setSearch}
-            placeholder="Buscar por cliente, placa, estado o falla…"
-            onAdd={canCreate ? () => setCreateOpen(true) : undefined}
-            addLabel={createLabel}
-          />
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  {!perms.is_cliente && <th>Cliente</th>}
-                  <th>Placa</th>
-                  <th>Fecha</th>
-                  <th>Estado</th>
-                  <th>Mecánico</th>
-                  <th>Isla</th>
-                  <th>Falla</th>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {!perms.is_cliente && <th>Cliente</th>}
+                <th>Placa</th>
+                <th>Fecha</th>
+                <th>Estado</th>
+                <th>Mecánico</th>
+                <th>Isla</th>
+                <th>Falla</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr
+                  key={c.id}
+                  className={perms.can_manage_citas ? "clickable" : ""}
+                  onClick={() => perms.can_manage_citas && openCita(c.id)}
+                >
+                  {!perms.is_cliente && <td>{c.cliente}</td>}
+                  <td><span className="badge">{c.placa}</span></td>
+                  <td>{c.fecha_cita}</td>
+                  <td><span className="status-pill">{c.estado_label}</span></td>
+                  <td>{c.mecanico || "—"}</td>
+                  <td>{c.isla || "—"}</td>
+                  <td className="truncate">{c.descripcion_fallo}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
-                      Sin resultados para “{search}”
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((c) => (
-                    <tr
-                      key={c.id}
-                      className={perms.can_manage_citas ? "clickable" : ""}
-                      onClick={() => perms.can_manage_citas && openCita(c.id)}
-                    >
-                      {!perms.is_cliente && <td>{c.cliente}</td>}
-                      <td><span className="badge">{c.placa}</span></td>
-                      <td>{c.fecha_cita}</td>
-                      <td><span className="status-pill">{c.estado_label}</span></td>
-                      <td>{c.mecanico || "—"}</td>
-                      <td>{c.isla || "—"}</td>
-                      <td className="truncate">{c.descripcion_fallo}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {filtered.length === 0 && search && (
+                <tr>
+                  <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
+                    Sin resultados para “{search}”
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
 
-      <SidePanel
+      <Modal
         open={drawerOpen && selected !== null && perms.can_manage_citas}
+        wide
         title={`Gestionar cita #${selected ?? ""}`}
         onClose={() => { setDrawerOpen(false); setSelected(null); setDetail(null); }}
         footer={
           detail ? (
-            <button type="button" className="btn btn-block" onClick={updateCita}>Guardar cambios</button>
+            <ModalActions
+              onCancel={() => { setDrawerOpen(false); setSelected(null); setDetail(null); }}
+              onSave={updateCita}
+              saveLabel="Guardar cambios"
+            />
           ) : undefined
         }
       >
@@ -356,24 +341,22 @@ export function CitasPage() {
             </div>
           </>
         )}
-      </SidePanel>
+      </Modal>
 
-      <SidePanel
+      <Modal
         open={createOpen}
         wide
         title={perms.is_cliente ? "Solicitar cita" : "Nueva cita"}
         onClose={() => setCreateOpen(false)}
         footer={
-          <button
-            type="button"
-            className="btn btn-block"
-            onClick={async () => {
+          <ModalActions
+            onCancel={() => setCreateOpen(false)}
+            onSave={async () => {
               await createCita();
               setCreateOpen(false);
             }}
-          >
-            {perms.is_cliente ? "Solicitar cita" : "Crear cita"}
-          </button>
+            saveLabel={perms.is_cliente ? "Solicitar cita" : "Crear cita"}
+          />
         }
       >
         <div className="form-grid form-grid-spaced">
@@ -453,7 +436,7 @@ export function CitasPage() {
             </select>
           </div>
         </div>
-      </SidePanel>
+      </Modal>
     </div>
   );
 }

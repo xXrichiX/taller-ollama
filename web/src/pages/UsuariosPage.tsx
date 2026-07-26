@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { EmptyState, UsersEmptyIcon } from "../components/EmptyState";
 import { ListToolbar } from "../components/ListToolbar";
-import { SidePanel } from "../components/SidePanel";
+import { Modal, ModalActions } from "../components/Modal";
 import { getInitials } from "../utils/initials";
 
 interface Usuario {
@@ -119,8 +118,6 @@ export function UsuariosPage() {
     }
   };
 
-  const hasData = rows.length > 0;
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
@@ -192,77 +189,66 @@ export function UsuariosPage() {
           <h2>Usuarios</h2>
           <p className="page-subtitle">Personal del taller y accesos al sistema</p>
         </div>
-        {hasData && (
-          <div className="page-stat-inline">
-            <span className="page-stat-value">{rows.length}</span>
-            <span className="page-stat-label">usuarios</span>
-          </div>
-        )}
+        <div className="page-stat-inline">
+          <span className="page-stat-value">{rows.length}</span>
+          <span className="page-stat-label">usuarios</span>
+        </div>
       </div>
 
       {error && !panelOpen && <p className="error-text">{error}</p>}
 
-      {!hasData ? (
-        <EmptyState
-          icon={<UsersEmptyIcon />}
-          title="No hay usuarios registrados"
-          description="Crea cuentas para mecánicos, recepción y administración del taller."
-          action={
-            <button type="button" className="btn" onClick={openCreate}>+ Registrar primer usuario</button>
-          }
+      <div className="section-card">
+        <ListToolbar
+          search={search}
+          onSearchChange={setSearch}
+          placeholder="Buscar por nombre, email o puesto…"
+          onAdd={openCreate}
+          addLabel="Nuevo usuario"
         />
-      ) : (
-        <div className="section-card">
-          <ListToolbar
-            search={search}
-            onSearchChange={setSearch}
-            placeholder="Buscar por nombre, email o puesto…"
-            onAdd={openCreate}
-            addLabel="Nuevo usuario"
-          />
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr><th>Usuario</th><th>Email</th><th>Puesto</th><th>Sucursal</th></tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="table-no-results">Sin resultados para “{search}”</td>
-                  </tr>
-                ) : (
-                  filtered.map((u) => (
-                    <tr key={u.id} className="clickable" onClick={() => selectUser(u.id)}>
-                      <td>
-                        <div className="cell-user">
-                          <span className="user-avatar">{getInitials(u.nombre)}</span>
-                          <span>{u.nombre}</span>
-                        </div>
-                      </td>
-                      <td>{u.email}</td>
-                      <td>{u.puesto}</td>
-                      <td>{u.sucursal || "—"}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>Usuario</th><th>Email</th><th>Puesto</th><th>Sucursal</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((u) => (
+                <tr key={u.id} className="clickable" onClick={() => selectUser(u.id)}>
+                  <td>
+                    <div className="cell-user">
+                      <span className="user-avatar">{getInitials(u.nombre)}</span>
+                      <span>{u.nombre}</span>
+                    </div>
+                  </td>
+                  <td>{u.email}</td>
+                  <td>{u.puesto}</td>
+                  <td>{u.sucursal || "—"}</td>
+                </tr>
+              ))}
+              {filtered.length === 0 && search && (
+                <tr>
+                  <td colSpan={4} className="table-no-results">Sin resultados para “{search}”</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
 
-      <SidePanel
+      <Modal
         open={panelOpen}
+        wide
         title={editingId ? "Editar usuario" : "Nuevo usuario"}
         onClose={() => { setPanelOpen(false); setEditingId(null); }}
         footer={
-          <button type="button" className="btn btn-block" onClick={save}>
-            {editingId ? "Guardar cambios" : "Crear usuario"}
-          </button>
+          <ModalActions
+            onCancel={() => { setPanelOpen(false); setEditingId(null); }}
+            onSave={save}
+            saveLabel={editingId ? "Guardar cambios" : "Crear usuario"}
+          />
         }
       >
         {formFields}
-      </SidePanel>
+      </Modal>
     </div>
   );
 }

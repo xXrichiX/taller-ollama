@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
-import { CarEmptyIcon, EmptyState } from "../components/EmptyState";
 import { ListToolbar } from "../components/ListToolbar";
-import { SidePanel } from "../components/SidePanel";
+import { Modal, ModalActions } from "../components/Modal";
 
 interface Vehiculo {
   id: number;
@@ -127,8 +126,7 @@ export function VehiculosPage() {
   };
 
   const title = perms.is_cliente ? "Mis Vehículos" : "Vehículos";
-  const createLabel = perms.is_cliente ? "+ Registrar vehículo" : "+ Nuevo vehículo";
-  const hasData = rows.length > 0;
+  const createLabel = perms.is_cliente ? "Registrar vehículo" : "Nuevo vehículo";
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -149,84 +147,70 @@ export function VehiculosPage() {
           <h2>{title}</h2>
           <p className="page-subtitle">Flota registrada en la sucursal</p>
         </div>
-        {hasData && (
-          <div className="page-stat-inline">
-            <span className="page-stat-value">{rows.length}</span>
-            <span className="page-stat-label">vehículos</span>
-          </div>
-        )}
+        <div className="page-stat-inline">
+          <span className="page-stat-value">{rows.length}</span>
+          <span className="page-stat-label">vehículos</span>
+        </div>
       </div>
 
       {error && !createOpen && <p className="error-text">{error}</p>}
 
-      {!hasData ? (
-        <EmptyState
-          icon={<CarEmptyIcon />}
-          title="No hay vehículos registrados"
-          description="Registra la flota para poder agendar citas y dar seguimiento."
-          action={
-            <button type="button" className="btn" onClick={openCreate}>
-              {perms.is_cliente ? "+ Registrar primer vehículo" : "+ Registrar primer vehículo"}
-            </button>
-          }
+      <div className="section-card">
+        <ListToolbar
+          search={search}
+          onSearchChange={setSearch}
+          placeholder="Buscar por placa, marca, modelo o cliente…"
+          onAdd={openCreate}
+          addLabel={createLabel}
         />
-      ) : (
-        <div className="section-card">
-          <ListToolbar
-            search={search}
-            onSearchChange={setSearch}
-            placeholder="Buscar por placa, marca, modelo o cliente…"
-            onAdd={openCreate}
-            addLabel={createLabel}
-          />
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Placa</th>
-                  <th>Marca</th>
-                  <th>Modelo</th>
-                  <th>Cliente</th>
-                  {!perms.is_cliente && <th>Mecánico</th>}
-                  <th>No. econ.</th>
-                  <th>Km</th>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Placa</th>
+                <th>Marca</th>
+                <th>Modelo</th>
+                <th>Cliente</th>
+                {!perms.is_cliente && <th>Mecánico</th>}
+                <th>No. econ.</th>
+                <th>Km</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((v) => (
+                <tr key={v.id}>
+                  <td><span className="badge">{v.placa}</span></td>
+                  <td>{v.marca}</td>
+                  <td>{v.modelo}</td>
+                  <td>{v.cliente}</td>
+                  {!perms.is_cliente && <td>{v.mecanico_asignado || "—"}</td>}
+                  <td>{v.numero_economico || "—"}</td>
+                  <td>{v.kilometraje?.toLocaleString("es-MX") ?? "—"}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
-                      Sin resultados para “{search}”
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((v) => (
-                    <tr key={v.id}>
-                      <td><span className="badge">{v.placa}</span></td>
-                      <td>{v.marca}</td>
-                      <td>{v.modelo}</td>
-                      <td>{v.cliente}</td>
-                      {!perms.is_cliente && <td>{v.mecanico_asignado || "—"}</td>}
-                      <td>{v.numero_economico || "—"}</td>
-                      <td>{v.kilometraje?.toLocaleString("es-MX") ?? "—"}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              {filtered.length === 0 && search && (
+                <tr>
+                  <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
+                    Sin resultados para “{search}”
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
 
-      <SidePanel
+      <Modal
         open={createOpen}
         wide
         title={perms.is_cliente ? "Registrar vehículo" : "Nuevo vehículo"}
         onClose={() => setCreateOpen(false)}
         footer={
-          <button type="button" className="btn btn-block" onClick={save}>
-            Guardar vehículo
-          </button>
+          <ModalActions
+            onCancel={() => setCreateOpen(false)}
+            onSave={save}
+            saveLabel="Guardar vehículo"
+          />
         }
       >
         {error && <p className="error-text">{error}</p>}
@@ -311,7 +295,7 @@ export function VehiculosPage() {
             <textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3} />
           </div>
         </div>
-      </SidePanel>
+      </Modal>
     </div>
   );
 }

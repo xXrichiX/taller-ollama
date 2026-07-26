@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { EmptyState, UsersEmptyIcon } from "../components/EmptyState";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 import { getInitials } from "../utils/initials";
@@ -66,8 +65,6 @@ export function ClientesPage() {
     }
   };
 
-  const hasData = rows.length > 0;
-
   return (
     <div className="page">
       <div className="page-header page-header-compact">
@@ -75,65 +72,49 @@ export function ClientesPage() {
           <h2>Clientes</h2>
           <p className="page-subtitle">Directorio de clientes del taller</p>
         </div>
-        {hasData && (
-          <div className="page-stat-inline">
-            <span className="page-stat-value">{rows.length}</span>
-            <span className="page-stat-label">registrados</span>
-          </div>
-        )}
+        <div className="page-stat-inline">
+          <span className="page-stat-value">{rows.length}</span>
+          <span className="page-stat-label">registrados</span>
+        </div>
       </div>
 
       {error && !createOpen && <p className="error-text">{error}</p>}
 
-      {!hasData ? (
-        <EmptyState
-          icon={<UsersEmptyIcon />}
-          title="No hay clientes registrados"
-          description="Empieza agregando tu primer cliente para gestionar sus vehículos y citas."
-          action={
-            <button type="button" className="btn" onClick={openCreate}>
-              + Registrar primer cliente
-            </button>
-          }
+      <div className="section-card">
+        <ListToolbar
+          search={search}
+          onSearchChange={setSearch}
+          placeholder="Buscar por nombre, teléfono o email…"
+          onAdd={openCreate}
+          addLabel="Nuevo cliente"
         />
-      ) : (
-        <div className="section-card">
-          <ListToolbar
-            search={search}
-            onSearchChange={setSearch}
-            placeholder="Buscar por nombre, teléfono o email…"
-            onAdd={openCreate}
-            addLabel="Nuevo cliente"
-          />
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr><th>Cliente</th><th>Teléfono</th><th>Email</th></tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={3} className="table-no-results">Sin resultados para “{search}”</td>
-                  </tr>
-                ) : (
-                  filtered.map((c) => (
-                    <tr key={c.id}>
-                      <td>
-                        <div className="cell-user">
-                          <span className="user-avatar">{getInitials(c.nombre)}</span>
-                          <span>{c.nombre}</span>
-                        </div>
-                      </td>
-                      <td>{c.telefono || "—"}</td>
-                      <td>{c.email || "—"}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>Cliente</th><th>Teléfono</th><th>Email</th></tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <div className="cell-user">
+                      <span className="user-avatar">{getInitials(c.nombre)}</span>
+                      <span>{c.nombre}</span>
+                    </div>
+                  </td>
+                  <td>{c.telefono || "—"}</td>
+                  <td>{c.email || "—"}</td>
+                </tr>
+              ))}
+              {filtered.length === 0 && search && (
+                <tr>
+                  <td colSpan={3} className="table-no-results">Sin resultados para “{search}”</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
 
       <Modal
         open={createOpen}

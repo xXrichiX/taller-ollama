@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
-import { BuildingEmptyIcon, EmptyState } from "../components/EmptyState";
+import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 
 interface Sucursal {
@@ -33,7 +33,6 @@ export function SucursalesPage() {
   const [islaOpen, setIslaOpen] = useState(false);
 
   const selectedSucursal = sucursales.find((s) => s.id === selectedId);
-  const hasSucursales = sucursales.length > 0;
 
   const loadSucursales = useCallback(async () => {
     if (!auth) return;
@@ -106,113 +105,90 @@ export function SucursalesPage() {
           <h2>Sucursales</h2>
           <p className="page-subtitle">Sucursales e islas de trabajo</p>
         </div>
-        {hasSucursales && (
-          <div className="page-header-actions">
-            <div className="page-stat-inline">
-              <span className="page-stat-value">{sucursales.length}</span>
-              <span className="page-stat-label">sucursales</span>
-            </div>
-            {perms.is_admin && (
-              <>
-                <button type="button" className="btn-ghost" onClick={() => { setError(""); setSucursalOpen(true); }}>
-                  + Nueva sucursal
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => { setError(""); setIslaOpen(true); }}
-                  disabled={!selectedId}
-                >
-                  + Nueva isla
-                </button>
-              </>
-            )}
+        <div className="page-header-actions">
+          <div className="page-stat-inline">
+            <span className="page-stat-value">{sucursales.length}</span>
+            <span className="page-stat-label">sucursales</span>
           </div>
-        )}
+        </div>
       </div>
 
       {error && !sucursalOpen && !islaOpen && <p className="error-text">{error}</p>}
 
-      {!hasSucursales ? (
-        <EmptyState
-          icon={<BuildingEmptyIcon />}
-          title="No hay sucursales registradas"
-          description="Configura tu primera sucursal para organizar islas, personal y citas."
-          action={
-            perms.is_admin ? (
-              <button type="button" className="btn" onClick={() => setSucursalOpen(true)}>
-                + Registrar primera sucursal
+      <div className="section-card">
+        {perms.is_admin && (
+          <ListToolbar
+            search=""
+            onSearchChange={() => {}}
+            showSearch={false}
+            onAdd={() => { setError(""); setSucursalOpen(true); }}
+            addLabel="Nueva sucursal"
+            action={
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                onClick={() => { setError(""); setIslaOpen(true); }}
+                disabled={!selectedId}
+              >
+                + Nueva isla
               </button>
-            ) : undefined
-          }
-        />
-      ) : (
-        <>
-          <div className="section-card">
-            <h3>Sucursales</h3>
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Nombre</th>
-                    <th>Dirección</th>
-                    <th>Activa</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sucursales.map((s) => (
-                    <tr
-                      key={s.id}
-                      className={`clickable${selectedId === s.id ? " row-selected" : ""}`}
-                      onClick={() => {
-                        setSelectedId(s.id);
-                        setSucursal(s.id);
-                      }}
-                    >
-                      <td>{s.nombre}</td>
-                      <td>{s.direccion}</td>
-                      <td>{s.activo_label}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+            }
+          />
+        )}
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Dirección</th>
+                <th>Activa</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sucursales.map((s) => (
+                <tr
+                  key={s.id}
+                  className={`clickable${selectedId === s.id ? " row-selected" : ""}`}
+                  onClick={() => {
+                    setSelectedId(s.id);
+                    setSucursal(s.id);
+                  }}
+                >
+                  <td>{s.nombre}</td>
+                  <td>{s.direccion}</td>
+                  <td>{s.activo_label}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-          <div className="section-card">
-            <div className="section-card-head">
-              <h3>Islas — {selectedSucursal?.nombre ?? "Selecciona sucursal"}</h3>
-              {perms.is_admin && selectedId && (
-                <button type="button" className="btn-ghost btn-sm" onClick={() => setIslaOpen(true)}>
-                  + Nueva isla
-                </button>
-              )}
-            </div>
-            {islas.length === 0 ? (
-              <div className="table-empty table-empty-compact">
-                <strong>Sin islas en esta sucursal</strong>
-                Agrega islas de trabajo para asignar mecánicos y citas.
-              </div>
-            ) : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr><th>Isla</th><th>Activa</th></tr>
-                  </thead>
-                  <tbody>
-                    {islas.map((i) => (
-                      <tr key={i.id}>
-                        <td>{i.nombre}</td>
-                        <td>{i.activo_label}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </>
-      )}
+      <div className="section-card">
+        <div className="section-card-head">
+          <h3>Islas — {selectedSucursal?.nombre ?? "Selecciona sucursal"}</h3>
+          {perms.is_admin && selectedId && (
+            <button type="button" className="btn-add" onClick={() => setIslaOpen(true)} title="Nueva isla" aria-label="Nueva isla">
+              +
+            </button>
+          )}
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>Isla</th><th>Activa</th></tr>
+            </thead>
+            <tbody>
+              {islas.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.nombre}</td>
+                  <td>{i.activo_label}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <Modal
         open={sucursalOpen}
