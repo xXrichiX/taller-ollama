@@ -335,8 +335,14 @@ def register_usuario(
     if fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
         return {"ok": False, "error": "Ese correo ya está registrado."}
 
+    from db.init_db import ensure_catalog_seeds
+
+    ensure_catalog_seeds()
+
     rol = fetch_one("SELECT id FROM roles WHERE nombre = 'MECANICO'")
-    puesto = fetch_one("SELECT id FROM puestos WHERE nombre = 'Mecánico'")
+    puesto = fetch_one(
+        "SELECT id FROM puestos WHERE nombre IN ('Mecánico', 'Mecanico') ORDER BY id LIMIT 1"
+    )
     if not rol or not puesto:
         return {"ok": False, "error": "No está configurado el puesto Mecánico."}
 

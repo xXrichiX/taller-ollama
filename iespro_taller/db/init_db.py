@@ -180,19 +180,23 @@ def ensure_catalog_seeds() -> None:
     """Catálogos mínimos (roles, puestos, marcas). Idempotente en cada arranque."""
     execute(
         """
-        INSERT IGNORE INTO roles (id, nombre, descripcion) VALUES
+        INSERT INTO roles (id, nombre, descripcion) VALUES
         (1, 'ADMIN', 'Administrador del sistema'),
         (2, 'MECANICO', 'Mecánico de taller'),
         (3, 'PENDIENTE', 'Registro con código, pendiente de activación'),
         (4, 'CLIENTE', 'Cliente con acceso a la app'),
         (5, 'SUPER_ADMIN', 'Alias legacy de administrador')
+        ON DUPLICATE KEY UPDATE
+          nombre = VALUES(nombre),
+          descripcion = VALUES(descripcion)
         """
     )
     execute(
         """
-        INSERT IGNORE INTO puestos (id, nombre) VALUES
+        INSERT INTO puestos (id, nombre) VALUES
         (1, 'Admin'),
         (2, 'Mecánico')
+        ON DUPLICATE KEY UPDATE nombre = VALUES(nombre)
         """
     )
     execute(
