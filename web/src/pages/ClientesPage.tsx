@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { EmptyState, UsersEmptyIcon } from "../components/EmptyState";
+import { ListToolbar } from "../components/ListToolbar";
+import { Modal, ModalActions } from "../components/Modal";
+import { getInitials } from "../utils/initials";
 
 interface Cliente {
   id: number;
@@ -9,13 +13,15 @@ interface Cliente {
   email?: string;
 }
 
+const EMPTY_FORM = { nombre: "", telefono: "", email: "" };
+
 export function ClientesPage() {
   const { auth } = useAuth();
   const [rows, setRows] = useState<Cliente[]>([]);
-  const [nombre, setNombre] = useState("");
-  const [telefono, setTelefono] = useState("");
-  const [email, setEmail] = useState("");
+  const [form, setForm] = useState(EMPTY_FORM);
   const [error, setError] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     if (!auth) return;
@@ -27,63 +33,136 @@ export function ClientesPage() {
     load();
   }, [load]);
 
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (c) =>
+        c.nombre.toLowerCase().includes(q)
+        || (c.telefono ?? "").toLowerCase().includes(q)
+        || (c.email ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, search]);
+
+  const openCreate = () => {
+    setForm(EMPTY_FORM);
+    setError("");
+    setCreateOpen(true);
+  };
+
   const save = async () => {
     if (!auth) return;
     setError("");
     try {
       await api("/api/clientes", {
         method: "POST",
-        body: JSON.stringify({ nombre, telefono, email }),
+        body: JSON.stringify(form),
       }, auth.token);
-      setNombre("");
-      setTelefono("");
-      setEmail("");
+      setCreateOpen(false);
+      setForm(EMPTY_FORM);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     }
   };
 
+  const hasData = rows.length > 0;
+
   return (
     <div className="page">
-      <div className="page-header"><h2>Clientes</h2></div>
-      {error && <p className="error-text">{error}</p>}
-      <div className="split-layout">
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr><th>Nombre</th><th>Teléfono</th><th>Email</th></tr>
-            </thead>
-            <tbody>
-              {rows.map((c) => (
-                <tr key={c.id}>
-                  <td>{c.nombre}</td>
-                  <td>{c.telefono}</td>
-                  <td>{c.email}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <div className="page-header page-header-compact">
+        <div>
+          <h2>Clientes</h2>
+          <p className="page-subtitle">Directorio de clientes del taller</p>
         </div>
-        <div className="side-panel">
-          <h3>Nuevo cliente</h3>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Nombre</label>
-              <input value={nombre} onChange={(e) => setNombre(e.target.value)} />
-            </div>
-            <div className="form-row">
-              <label>Teléfono</label>
-              <input value={telefono} onChange={(e) => setTelefono(e.target.value)} />
-            </div>
-            <div className="form-row">
-              <label>Email</label>
-              <input value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-            <button className="btn" onClick={save}>Guardar cliente</button>
+        {hasData && (
+          <div className="page-stat-inline">
+            <span className="page-stat-value">{rows.length}</span>
+            <span className="page-stat-label">registrados</span>
+          </div>
+        )}
+      </div>
+
+      {error && !createOpen && <p className="error-text">{error}</p>}
+
+      {!hasData ? (
+        <EmptyState
+          icon={<UsersEmptyIcon />}
+          title="No hay clientes registrados"
+          description="Empieza agregando tu primer cliente para gestionar sus vehículos y citas."
+          action={
+            <button type="button" className="btn" onClick={openCreate}>
+              + Registrar primer cliente
+            </button>
+          }
+        />
+      ) : (
+        <div className="section-card">
+          <ListToolbar
+            search={search}
+            onSearchChange={setSearch}
+            placeholder="Buscar por nombre, teléfono o email…"
+            onAdd={openCreate}
+            addLabel="Nuevo cliente"
+          />
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr><th>Cliente</th><th>Teléfono</th><th>Email</th></tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="table-no-results">Sin resultados para “{search}”</td>
+                  </tr>
+                ) : (
+                  filtered.map((c) => (
+                    <tr key={c.id}>
+                      <td>
+                        <div className="cell-user">
+                          <span className="user-avatar">{getInitials(c.nombre)}</span>
+                          <span>{c.nombre}</span>
+                        </div>
+                      </td>
+                      <td>{c.telefono || "—"}</td>
+                      <td>{c.email || "—"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      </div>
+      )}
+
+      <Modal
+        open={createOpen}
+        title="Nuevo cliente"
+        onClose={() => setCreateOpen(false)}
+        footer={
+          <ModalActions
+            onCancel={() => setCreateOpen(false)}
+            onSave={save}
+            saveLabel="Guardar cliente"
+          />
+        }
+      >
+        {error && <p className="error-text">{error}</p>}
+        <div className="form-grid form-grid-spaced">
+          <div className="form-row">
+            <label>Nombre</label>
+            <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} autoFocus />
+          </div>
+          <div className="form-row">
+            <label>Teléfono</label>
+            <input value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
+          </div>
+          <div className="form-row">
+            <label>Email</label>
+            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
+import { CalendarEmptyIcon, EmptyState } from "../components/EmptyState";
+import { ListToolbar } from "../components/ListToolbar";
 import { SidePanel } from "../components/SidePanel";
 
 interface Cita {
@@ -66,6 +68,7 @@ export function CitasPage() {
   const [error, setError] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     if (!auth) return;
@@ -203,65 +206,119 @@ export function CitasPage() {
   };
 
   const title = perms.is_cliente ? "Mis Citas" : "Citas";
+  const createLabel = perms.is_cliente ? "+ Solicitar cita" : "+ Crear cita";
+  const canCreate = perms.can_create_citas || perms.is_cliente;
+  const hasData = rows.length > 0;
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter(
+      (c) =>
+        (c.cliente ?? "").toLowerCase().includes(q)
+        || (c.placa ?? "").toLowerCase().includes(q)
+        || (c.estado_label ?? "").toLowerCase().includes(q)
+        || (c.descripcion_fallo ?? "").toLowerCase().includes(q),
+    );
+  }, [rows, search]);
 
   return (
     <div className="page">
-      <div className="page-header">
+      <div className="page-header page-header-compact">
         <div>
           <h2>{title}</h2>
-          <p className="muted">Agenda y seguimiento de órdenes</p>
+          <p className="page-subtitle">Agenda y seguimiento de órdenes</p>
         </div>
-        {(perms.can_create_citas || perms.is_cliente) && (
-          <button type="button" className="btn" onClick={() => setCreateOpen(true)}>
-            {perms.is_cliente ? "+ Solicitar cita" : "+ Crear cita"}
-          </button>
+        {hasData && (
+          <div className="page-stat-inline">
+            <span className="page-stat-value">{rows.length}</span>
+            <span className="page-stat-label">citas</span>
+          </div>
         )}
       </div>
       {error && <p className="error-text">{error}</p>}
-      <div className="section-card">
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                {!perms.is_cliente && <th>Cliente</th>}
-                <th>Placa</th>
-                <th>Fecha</th>
-                <th>Estado</th>
-                <th>Mecánico</th>
-                <th>Isla</th>
-                <th>Falla</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((c) => (
-                <tr
-                  key={c.id}
-                  className={perms.can_manage_citas ? "clickable" : ""}
-                  onClick={() => perms.can_manage_citas && openCita(c.id)}
-                >
-                  {!perms.is_cliente && <td>{c.cliente}</td>}
-                  <td>{c.placa}</td>
-                  <td>{c.fecha_cita}</td>
-                  <td>{c.estado_label}</td>
-                  <td>{c.mecanico}</td>
-                  <td>{c.isla}</td>
-                  <td>{c.descripcion_fallo}</td>
+
+      {!hasData ? (
+        <EmptyState
+          icon={<CalendarEmptyIcon />}
+          title="No hay citas registradas"
+          description="Crea o solicita la primera cita para comenzar el seguimiento del taller."
+          action={
+            canCreate ? (
+              <button type="button" className="btn" onClick={() => setCreateOpen(true)}>
+                {perms.is_cliente ? "+ Solicitar primera cita" : "+ Crear primera cita"}
+              </button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <div className="section-card">
+          <ListToolbar
+            search={search}
+            onSearchChange={setSearch}
+            placeholder="Buscar por cliente, placa, estado o falla…"
+            onAdd={canCreate ? () => setCreateOpen(true) : undefined}
+            addLabel={createLabel}
+          />
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  {!perms.is_cliente && <th>Cliente</th>}
+                  <th>Placa</th>
+                  <th>Fecha</th>
+                  <th>Estado</th>
+                  <th>Mecánico</th>
+                  <th>Isla</th>
+                  <th>Falla</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
+                      Sin resultados para “{search}”
+                    </td>
+                  </tr>
+                ) : (
+                  filtered.map((c) => (
+                    <tr
+                      key={c.id}
+                      className={perms.can_manage_citas ? "clickable" : ""}
+                      onClick={() => perms.can_manage_citas && openCita(c.id)}
+                    >
+                      {!perms.is_cliente && <td>{c.cliente}</td>}
+                      <td><span className="badge">{c.placa}</span></td>
+                      <td>{c.fecha_cita}</td>
+                      <td><span className="status-pill">{c.estado_label}</span></td>
+                      <td>{c.mecanico || "—"}</td>
+                      <td>{c.isla || "—"}</td>
+                      <td className="truncate">{c.descripcion_fallo}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       <SidePanel
         open={drawerOpen && selected !== null && perms.can_manage_citas}
         title={`Gestionar cita #${selected ?? ""}`}
         onClose={() => { setDrawerOpen(false); setSelected(null); setDetail(null); }}
+        footer={
+          detail ? (
+            <button type="button" className="btn btn-block" onClick={updateCita}>Guardar cambios</button>
+          ) : undefined
+        }
       >
         {detail && (
           <>
-            <p className="muted">Falla: {String(detail.cita.descripcion_fallo || "—")}</p>
-            <div className="form-grid">
+            <p className="drawer-context">
+              Falla: {String(detail.cita.descripcion_fallo || "—")}
+            </p>
+            <div className="form-grid form-grid-spaced">
               <div className="form-row">
                 <label>Estado</label>
                 <select value={manage.estado} onChange={(e) => setManage({ ...manage, estado: e.target.value })}>
@@ -278,7 +335,7 @@ export function CitasPage() {
                 </div>
               ))}
               {perms.can_manage_branch && (
-                <>
+                <div className="form-cols-2">
                   <div className="form-row">
                     <label>Mecánico</label>
                     <select
@@ -294,9 +351,8 @@ export function CitasPage() {
                       {islas.map((i) => <option key={i.id} value={i.id}>{i.nombre}</option>)}
                     </select>
                   </div>
-                </>
+                </div>
               )}
-              <button type="button" className="btn" onClick={updateCita}>Guardar cambios</button>
             </div>
           </>
         )}
@@ -304,10 +360,23 @@ export function CitasPage() {
 
       <SidePanel
         open={createOpen}
+        wide
         title={perms.is_cliente ? "Solicitar cita" : "Nueva cita"}
         onClose={() => setCreateOpen(false)}
+        footer={
+          <button
+            type="button"
+            className="btn btn-block"
+            onClick={async () => {
+              await createCita();
+              setCreateOpen(false);
+            }}
+          >
+            {perms.is_cliente ? "Solicitar cita" : "Crear cita"}
+          </button>
+        }
       >
-        <div className="form-grid">
+        <div className="form-grid form-grid-spaced">
           {!perms.is_cliente && (
             <div className="form-row">
               <label>Cliente</label>
@@ -326,20 +395,22 @@ export function CitasPage() {
               ))}
             </select>
           </div>
-          <div className="form-row">
-            <label>Fecha cita</label>
-            <input type="date" value={form.fecha_cita} onChange={(e) => setForm({ ...form, fecha_cita: e.target.value })} />
-          </div>
-          <div className="form-row">
-            <label>Hora cita</label>
-            <input value={form.hora_cita} onChange={(e) => setForm({ ...form, hora_cita: e.target.value })} />
+          <div className="form-cols-2">
+            <div className="form-row">
+              <label>Fecha cita</label>
+              <input type="date" value={form.fecha_cita} onChange={(e) => setForm({ ...form, fecha_cita: e.target.value })} />
+            </div>
+            <div className="form-row">
+              <label>Hora cita</label>
+              <input type="time" value={form.hora_cita} onChange={(e) => setForm({ ...form, hora_cita: e.target.value })} />
+            </div>
           </div>
           <div className="form-row">
             <label>Descripción fallo</label>
             <input value={form.descripcion_fallo} onChange={(e) => setForm({ ...form, descripcion_fallo: e.target.value })} />
           </div>
           {perms.can_manage_branch && (
-            <>
+            <div className="form-cols-2">
               <div className="form-row">
                 <label>Mecánico</label>
                 <select value={form.id_mecanico} onChange={(e) => setForm({ ...form, id_mecanico: e.target.value })}>
@@ -352,18 +423,21 @@ export function CitasPage() {
                   {islas.map((i) => <option key={i.id} value={i.id}>{i.nombre}</option>)}
                 </select>
               </div>
-            </>
+            </div>
           )}
-          <div className="form-row">
-            <label>Fecha compromiso</label>
-            <input type="date" value={form.fecha_compromiso} onChange={(e) => setForm({ ...form, fecha_compromiso: e.target.value })} />
-          </div>
-          <div className="form-row">
-            <label>Hora compromiso</label>
-            <input value={form.hora_compromiso} onChange={(e) => setForm({ ...form, hora_compromiso: e.target.value })} />
+          <div className="form-cols-2">
+            <div className="form-row">
+              <label>Fecha compromiso</label>
+              <input type="date" value={form.fecha_compromiso} onChange={(e) => setForm({ ...form, fecha_compromiso: e.target.value })} />
+            </div>
+            <div className="form-row">
+              <label>Hora compromiso</label>
+              <input type="time" value={form.hora_compromiso} onChange={(e) => setForm({ ...form, hora_compromiso: e.target.value })} />
+            </div>
           </div>
           <div className="form-row">
             <label>Mantenimiento</label>
+            <p className="form-hint">Mantén Ctrl/Cmd para elegir varios servicios.</p>
             <select
               multiple
               value={form.servicio_ids.map(String)}
@@ -378,16 +452,6 @@ export function CitasPage() {
               ))}
             </select>
           </div>
-          <button
-            type="button"
-            className="btn"
-            onClick={async () => {
-              await createCita();
-              setCreateOpen(false);
-            }}
-          >
-            {perms.is_cliente ? "Solicitar cita" : "Crear cita"}
-          </button>
         </div>
       </SidePanel>
     </div>
