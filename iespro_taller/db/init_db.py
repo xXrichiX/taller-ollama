@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from db.connection import execute, execute_script_file, fetch_one, get_connection, test_connection
+from db.connection import execute, execute_script_file, fetch_all, fetch_one, get_connection, test_connection
 from config import BASE_DIR, MYSQL_DATABASE
 
 _META_KEY = "minimal_seed_v2"
@@ -30,6 +30,7 @@ def init_database() -> tuple[bool, str]:
 
     try:
         execute_script_file(str(schema), database=None)
+        ensure_catalog_seeds()
         ensure_minimal_data_only()
         ensure_schema_migrations()
         ensure_inventario_table()
@@ -173,6 +174,56 @@ def ensure_inventario_isla_column() -> None:
             ADD CONSTRAINT inventario_ibfk_isla FOREIGN KEY (id_isla) REFERENCES islas(id)
             """
         )
+
+
+def ensure_catalog_seeds() -> None:
+    """Catálogos mínimos (roles, puestos, marcas). Idempotente en cada arranque."""
+    execute(
+        """
+        INSERT IGNORE INTO roles (id, nombre, descripcion) VALUES
+        (1, 'ADMIN', 'Administrador del sistema'),
+        (2, 'MECANICO', 'Mecánico de taller'),
+        (3, 'PENDIENTE', 'Registro con código, pendiente de activación'),
+        (4, 'CLIENTE', 'Cliente con acceso a la app'),
+        (5, 'SUPER_ADMIN', 'Alias legacy de administrador')
+        """
+    )
+    execute(
+        """
+        INSERT IGNORE INTO puestos (id, nombre) VALUES
+        (1, 'Admin'),
+        (2, 'Mecánico')
+        """
+    )
+    execute(
+        """
+        INSERT IGNORE INTO marcas (id, nombre) VALUES
+        (1, 'Nissan'), (2, 'Toyota'), (3, 'Ford'), (4, 'Chevrolet')
+        """
+    )
+    execute(
+        """
+        INSERT IGNORE INTO tipos_combustible (id, nombre) VALUES
+        (1, 'Gasolina'), (2, 'Diésel'), (3, 'Híbrido'), (4, 'Eléctrico')
+        """
+    )
+    execute(
+        """
+        INSERT IGNORE INTO tipos_unidad (id, nombre) VALUES
+        (1, 'Sedán'), (2, 'Pickup'), (3, 'SUV'), (4, 'Camioneta')
+        """
+    )
+    execute(
+        """
+        INSERT IGNORE INTO tipos_mantenimiento_plantilla (nombre, descripcion, precio) VALUES
+        ('Cambio de aceite', 'Aceite y filtro', 850.00),
+        ('Diagnóstico general', 'Escaneo y revisión', 500.00),
+        ('Frenos delanteros', 'Balatas y discos', 2800.00),
+        ('Alineación y balanceo', 'Alineación de dirección', 650.00),
+        ('Servicio de transmisión', 'Cambio de aceite CVT/ATF', 1200.00),
+        ('Revisión eléctrica', 'Batería, alternador, luces', 450.00)
+        """
+    )
 
 
 def ensure_remove_legacy_admin() -> None:
