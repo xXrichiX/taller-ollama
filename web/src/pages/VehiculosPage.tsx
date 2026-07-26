@@ -262,11 +262,6 @@ export function VehiculosPage() {
           />
           {!perms.is_cliente && (
             <>
-              {clientes.length === 0 && (
-                <p className="modal-context">
-                  Primero registra un cliente en la sección Clientes para poder asignar el vehículo.
-                </p>
-              )}
               <FormSelect
                 label="Propietario"
                 value={form.id_cliente}

@@ -273,6 +273,7 @@ def dashboard(session: AppSession = Depends(require_session)):
     "mecanicos_total": 0,
     "recent_citas": [],
     "pending_citas": [],
+    "ordenes": [],
   }
   if _requires_sucursal(session):
     return empty
@@ -335,8 +336,7 @@ def dashboard(session: AppSession = Depends(require_session)):
 
   pending_source = [c for c in citas if c.get("estado") in _PENDING_ESTADOS]
   pending_source.sort(key=lambda c: str(c.get("fecha_cita") or ""))
-  pending_rows = [_cita_dashboard_row(c) for c in pending_source[:12]]
-  recent = [_cita_dashboard_row(c) for c in citas[:12]]
+  ordenes = [_cita_dashboard_row(c) for c in citas[:24]]
 
   title = "Resumen del taller"
   if is_cliente(rol):
@@ -351,8 +351,7 @@ def dashboard(session: AppSession = Depends(require_session)):
     "islas_total": islas_total,
     "mecanicos_ocupados": mecanicos_ocupados,
     "mecanicos_total": mecanicos_total,
-    "recent_citas": recent,
-    "pending_citas": pending_rows,
+    "ordenes": ordenes,
   }
 
 
@@ -482,6 +481,77 @@ def catalog_puestos(session: AppSession = Depends(require_session)):
 def catalog_mantenimiento(session: AppSession = Depends(require_session)):
   id_sucursal = require_sucursal(session)
   return {"items": catalog_service.list_tipos_mantenimiento(id_sucursal)}
+
+
+# --- Servicios (tipos de mantenimiento) ---
+
+
+class ServicioCreate(BaseModel):
+  nombre: str
+  descripcion: str = ""
+  precio: float = 0
+
+
+class ServicioUpdate(BaseModel):
+  nombre: str
+  descripcion: str = ""
+  precio: float = 0
+
+
+@router.get("/servicios")
+def list_servicios(session: AppSession = Depends(require_session)):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
+  items = catalog_service.list_tipos_mantenimiento(id_sucursal)
+  for row in items:
+    row["precio"] = float(row.get("precio") or 0)
+  return {"items": items}
+
+
+@router.post("/servicios")
+def create_servicio(body: ServicioCreate, session: AppSession = Depends(require_session)):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
+  nombre = body.nombre.strip()
+  if not nombre:
+    raise HTTPException(status_code=400, detail="Nombre requerido")
+  if body.precio < 0:
+    raise HTTPException(status_code=400, detail="El precio no puede ser negativo")
+  id_item = catalog_service.create_tipo_mantenimiento(
+    nombre,
+    body.descripcion.strip(),
+    body.precio,
+    id_sucursal,
+  )
+  return {"ok": True, "id": id_item}
+
+
+@router.patch("/servicios/{id_servicio}")
+def update_servicio(
+  id_servicio: int,
+  body: ServicioUpdate,
+  session: AppSession = Depends(require_session),
+):
+  if not is_workshop_staff(session.user.get("rol_nombre")):
+    raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
+  nombre = body.nombre.strip()
+  if not nombre:
+    raise HTTPException(status_code=400, detail="Nombre requerido")
+  if body.precio < 0:
+    raise HTTPException(status_code=400, detail="El precio no puede ser negativo")
+  result = catalog_service.update_tipo_mantenimiento(
+    id_servicio,
+    id_sucursal,
+    nombre,
+    body.descripcion.strip(),
+    body.precio,
+  )
+  if not result.get("ok"):
+    raise HTTPException(status_code=404, detail=result.get("error", "No encontrado"))
+  return {"ok": True}
 
 
 @router.get("/catalogos/estados-cita")

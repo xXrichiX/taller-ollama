@@ -11,7 +11,7 @@ import {
   FormSelect,
   TimeSelect,
 } from "../components/forms";
-import { estadoPillClass, ORDEN_ESTADOS_AYUDA } from "../utils/ordenStatus";
+import { estadoPillClass } from "../utils/ordenStatus";
 
 interface Cita {
   id: number;
@@ -86,7 +86,7 @@ export function CitasPage() {
       const cl = await api<{ clientes: CatalogItem[] }>("/api/clientes", {}, auth.token);
       setClientes(cl.clientes);
     }
-    if (perms.can_manage_branch || perms.is_mecanico) {
+    if (perms.is_staff) {
       const s = await api<{ items: Array<{ id: number; nombre: string; precio?: number }> }>(
         "/api/catalogos/mantenimiento",
         {},
@@ -298,7 +298,6 @@ export function CitasPage() {
             <p className="modal-context">
               Falla reportada: {String(detail.cita.descripcion_fallo || "—")}
             </p>
-            <p className="form-hint orden-estados-hint">{ORDEN_ESTADOS_AYUDA}</p>
             <div className="form-grid form-grid-2col form-grid-spaced">
               <FormSelect
                 label="Estado de la orden"

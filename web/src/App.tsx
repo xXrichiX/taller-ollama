@@ -8,6 +8,7 @@ import { ClientesPage } from "./pages/ClientesPage";
 import { VehiculosPage } from "./pages/VehiculosPage";
 import { CitasPage } from "./pages/CitasPage";
 import { InventarioPage } from "./pages/InventarioPage";
+import { ServiciosPage } from "./pages/ServiciosPage";
 import { ChatPage } from "./pages/ChatPage";
 import { SucursalesPage } from "./pages/SucursalesPage";
 
@@ -38,6 +39,7 @@ export function App() {
             <Route path="citas" element={<CitasPage />} />
             <Route path="ordenes" element={<CitasPage />} />
             <Route path="inventario" element={<InventarioPage />} />
+            <Route path="servicios" element={<ServiciosPage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="sucursales" element={<SucursalesPage />} />
             <Route path="islas" element={<Navigate to="/sucursales" replace />} />

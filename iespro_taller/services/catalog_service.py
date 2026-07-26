@@ -307,6 +307,7 @@ def provision_taller_personal(id_usuario: int, nombre_usuario: str) -> int | Non
         "UPDATE usuarios SET id_sucursal = %s WHERE id = %s",
         (id_sucursal, id_usuario),
     )
+    copiar_tipos_mantenimiento_plantilla(id_sucursal)
     return id_sucursal
 
 
@@ -538,3 +539,35 @@ def create_tipo_mantenimiento(nombre: str, descripcion: str, precio: float, id_s
         """,
         (nombre, descripcion, precio, id_sucursal),
     )
+
+
+def get_tipo_mantenimiento(id_item: int, id_sucursal: int) -> dict | None:
+    return fetch_one(
+        """
+        SELECT id, nombre, descripcion, precio
+        FROM tipos_mantenimiento
+        WHERE id = %s AND id_sucursal = %s AND activo = 1
+        """,
+        (id_item, id_sucursal),
+    )
+
+
+def update_tipo_mantenimiento(
+    id_item: int,
+    id_sucursal: int,
+    nombre: str,
+    descripcion: str,
+    precio: float,
+) -> dict[str, Any]:
+    row = get_tipo_mantenimiento(id_item, id_sucursal)
+    if not row:
+        return {"ok": False, "error": "Servicio no encontrado."}
+    execute(
+        """
+        UPDATE tipos_mantenimiento
+        SET nombre = %s, descripcion = %s, precio = %s
+        WHERE id = %s AND id_sucursal = %s
+        """,
+        (nombre, descripcion, precio, id_item, id_sucursal),
+    )
+    return {"ok": True}

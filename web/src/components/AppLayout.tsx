@@ -14,6 +14,7 @@ const ROUTE_LABELS: Record<string, string> = {
   "/citas": "Órdenes",
   "/ordenes": "Órdenes",
   "/inventario": "Inventario",
+  "/servicios": "Servicios",
   "/sucursales": "Taller",
   "/chat": "Asistente",
 };

@@ -18,6 +18,7 @@ export function ModuleLauncher({ open, onClose }: { open: boolean; onClose: () =
     { path: "/vehiculos", label: perms.is_cliente ? "Mis Vehículos" : "Vehículos", icon: "🚗", show: true },
     { path: "/citas", label: perms.is_cliente ? "Mis órdenes" : "Órdenes", icon: "🛠", show: true },
     { path: "/inventario", label: "Inventario", icon: "📦", show: perms.is_staff },
+    { path: "/servicios", label: "Servicios", icon: "🔧", show: perms.is_staff },
     { path: "/sucursales", label: "Taller", icon: "🏭", show: perms.is_staff },
   ];
 

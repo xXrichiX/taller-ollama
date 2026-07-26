@@ -94,7 +94,7 @@ export function SucursalesPage() {
               ))}
               {islas.length === 0 && (
                 <tr>
-                  <td colSpan={2} className="table-no-results">Sin islas — crea la primera bahía de trabajo</td>
+                  <td colSpan={2} className="table-no-results">Sin resultados</td>
                 </tr>
               )}
             </tbody>
