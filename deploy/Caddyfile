@@ -1,0 +1,20 @@
+# HTTPS para producción (IP o dominio).
+# Certificado autofirmado (tls internal): al abrir el sitio, el navegador pedirá
+# "Avanzado" → "Continuar" una sola vez; después el micrófono funciona.
+
+{
+	admin off
+}
+
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+:443 {
+	tls internal
+	reverse_proxy frontend:80 {
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+}

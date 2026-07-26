@@ -99,7 +99,7 @@ export function useSpeechInput(options: {
     if (!Ctor) {
       if (typeof window !== "undefined" && !window.isSecureContext) {
         setVoiceError(
-          "El micrófono requiere HTTPS en el servidor. Por ahora escribe el mensaje o prueba en localhost con Chrome.",
+          "Abre el sitio con https:// (candado). Si el navegador advierte del certificado, elige Avanzado → Continuar.",
         );
       } else {
         setVoiceError("Usa Google Chrome o Microsoft Edge para dictar por voz.");
@@ -138,7 +138,7 @@ export function useSpeechInput(options: {
       if (event.error === "not-allowed") {
         setVoiceError(
           typeof window !== "undefined" && !window.isSecureContext
-            ? "El micrófono está bloqueado en HTTP. Configura HTTPS en el servidor o usa localhost."
+            ? "Abre https:// en la barra de direcciones y acepta el certificado del servidor."
             : "Permite el micrófono en el navegador.",
         );
       } else {
