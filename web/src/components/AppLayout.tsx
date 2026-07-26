@@ -84,6 +84,8 @@ export function AppLayout() {
     return base === "Inicio" ? "Inicio / IESPRO-Taller" : `Inicio / ${base}`;
   }, [location.pathname]);
 
+  if (!auth) return null;
+
   const activeIsla = islas.find((i) => i.id === auth.user.id_isla);
   const chatReady = Boolean(auth.user.id_sucursal && (perms.is_cliente || auth.user.id_isla));
 
@@ -91,8 +93,6 @@ export function AppLayout() {
     await logout();
     navigate("/login");
   };
-
-  if (!auth) return null;
 
   return (
     <div className="app-shell">
