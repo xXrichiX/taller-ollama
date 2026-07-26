@@ -24,9 +24,12 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 const defaultPerms: Permissions = {
   is_admin: false,
+  is_propietario: false,
   is_mecanico: false,
   is_cliente: false,
   is_staff: false,
+  needs_taller_setup: false,
+  can_create_sucursal: false,
   can_manage_branch: false,
   can_manage_citas: false,
   can_create_citas: false,

@@ -11,9 +11,12 @@ export interface User {
 
 export interface Permissions {
   is_admin: boolean;
+  is_propietario: boolean;
   is_mecanico: boolean;
   is_cliente: boolean;
   is_staff: boolean;
+  needs_taller_setup: boolean;
+  can_create_sucursal: boolean;
   can_manage_branch: boolean;
   can_manage_citas: boolean;
   can_create_citas: boolean;

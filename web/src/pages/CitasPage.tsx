@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
+import { ListFilter, ListFilterSelect, uniqueColumnValues, useFilterModal } from "../components/ListFilter";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 import {
@@ -74,6 +75,7 @@ export function CitasPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const filters = useFilterModal({ estado: "", mecanico: "", isla: "" });
 
   const load = useCallback(async () => {
     if (!auth) return;
@@ -213,17 +215,26 @@ export function CitasPage() {
   const createLabel = perms.is_cliente ? "Solicitar cita" : "Nueva cita";
   const canCreate = perms.can_create_citas || perms.is_cliente;
 
+  const estadoOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.estado_label), [rows]);
+  const mecanicoOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.mecanico), [rows]);
+  const islaOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.isla), [rows]);
   const filtered = useMemo(() => {
+    let list = rows;
+    if (filters.applied.estado) list = list.filter((c) => c.estado_label === filters.applied.estado);
+    if (filters.applied.mecanico) list = list.filter((c) => (c.mecanico ?? "") === filters.applied.mecanico);
+    if (filters.applied.isla) list = list.filter((c) => (c.isla ?? "") === filters.applied.isla);
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return list;
+    return list.filter(
       (c) =>
         (c.cliente ?? "").toLowerCase().includes(q)
         || (c.placa ?? "").toLowerCase().includes(q)
         || (c.estado_label ?? "").toLowerCase().includes(q)
-        || (c.descripcion_fallo ?? "").toLowerCase().includes(q),
+        || (c.descripcion_fallo ?? "").toLowerCase().includes(q)
+        || (c.mecanico ?? "").toLowerCase().includes(q)
+        || (c.isla ?? "").toLowerCase().includes(q),
     );
-  }, [rows, search]);
+  }, [rows, search, filters.applied]);
 
   return (
     <div className="page page-list">
@@ -236,6 +247,36 @@ export function CitasPage() {
           placeholder="Buscar por cliente, placa, estado o falla…"
           onAdd={canCreate ? () => setCreateOpen(true) : undefined}
           addLabel={createLabel}
+          filters={(
+            <ListFilter
+              open={filters.open}
+              activeCount={filters.activeCount}
+              draftActiveCount={filters.draftActiveCount}
+              onOpen={filters.openFilter}
+              onCancel={filters.cancelFilter}
+              onSearch={filters.applyFilter}
+              onClear={filters.clearFilters}
+            >
+              <ListFilterSelect
+                label="Estado"
+                value={filters.draft.estado}
+                onChange={(v) => filters.setDraftField("estado", v)}
+                options={estadoOptions}
+              />
+              <ListFilterSelect
+                label="Mecánico"
+                value={filters.draft.mecanico}
+                onChange={(v) => filters.setDraftField("mecanico", v)}
+                options={mecanicoOptions}
+              />
+              <ListFilterSelect
+                label="Isla"
+                value={filters.draft.isla}
+                onChange={(v) => filters.setDraftField("isla", v)}
+                options={islaOptions}
+              />
+            </ListFilter>
+          )}
         />
         <div className="table-wrap">
           <table className="data-table">
@@ -266,10 +307,10 @@ export function CitasPage() {
                   <td className="truncate">{c.descripcion_fallo}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && search && (
+              {filtered.length === 0 && (search || filters.activeCount > 0) && (
                 <tr>
                   <td colSpan={perms.is_cliente ? 6 : 7} className="table-no-results">
-                    Sin resultados para “{search}”
+                    Sin resultados con los filtros aplicados
                   </td>
                 </tr>
               )}

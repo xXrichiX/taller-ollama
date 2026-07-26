@@ -23,8 +23,6 @@ from services import catalog_service, cita_service
 from services.estado_labels import ESTADOS_MECANICO_UI, ESTADOS_UI, estado_a_etiqueta, etiqueta_a_estado
 from services.password_policy import normalize_password, validate_password
 from services.user_roles import (
-  can_manage_branch,
-  is_admin,
   is_cliente,
   is_mecanico,
   is_pending,
@@ -49,6 +47,20 @@ class RegisterBody(BaseModel):
   password: str
 
 
+def _user_is_propietario(session: AppSession) -> bool:
+  return catalog_service.user_is_propietario(session.user["id"])
+
+
+def _require_propietario(session: AppSession) -> None:
+  if not _user_is_propietario(session):
+    raise HTTPException(status_code=403, detail="Solo el dueño del taller puede hacer esto")
+
+
+def _require_sucursal_access(session: AppSession, id_sucursal: int) -> None:
+  if not catalog_service.user_can_access_sucursal(session.user["id"], id_sucursal):
+    raise HTTPException(status_code=403, detail="Sucursal no permitida")
+
+
 class SucursalActivaBody(BaseModel):
   id_sucursal: int
 
@@ -59,14 +71,9 @@ def auth_login(body: LoginBody):
   if not user:
     raise HTTPException(status_code=401, detail="Credenciales incorrectas")
   if is_pending(user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Cuenta pendiente de asignación por administrador")
-
-  if is_admin(user.get("rol_nombre")):
-    user["sucursales_ids"] = [s["id"] for s in catalog_service.list_sucursales()]
+    raise HTTPException(status_code=403, detail="Cuenta pendiente de activación")
 
   sucursales = user.get("sucursales_ids") or []
-  if not sucursales and not is_cliente(user.get("rol_nombre")):
-    raise HTTPException(status_code=400, detail="Usuario sin sucursal asignada")
 
   session = create_session(user)
   return {
@@ -117,8 +124,6 @@ def auth_me(session: AppSession = Depends(require_session)):
 @router.put("/session/sucursal")
 def set_sucursal(body: SucursalActivaBody, session: AppSession = Depends(require_session)):
   allowed = session.user.get("sucursales_ids") or []
-  if is_admin(session.user.get("rol_nombre")):
-    allowed = [s["id"] for s in catalog_service.list_sucursales()]
   if body.id_sucursal not in allowed:
     raise HTTPException(status_code=403, detail="Sucursal no permitida")
   session.id_sucursal = body.id_sucursal
@@ -128,39 +133,95 @@ def set_sucursal(body: SucursalActivaBody, session: AppSession = Depends(require
 
 def _permissions(session: AppSession) -> dict[str, bool]:
   rol = session.user.get("rol_nombre")
+  uid = session.user["id"]
+  es_propietario = catalog_service.user_is_propietario(uid)
+  needs_setup = catalog_service.user_needs_taller_setup(uid, rol)
+  can_create_sucursal = catalog_service.user_can_create_sucursal(uid)
   return {
-    "is_admin": is_admin(rol),
+    "is_admin": False,
+    "is_propietario": es_propietario,
     "is_mecanico": is_mecanico(rol),
     "is_cliente": is_cliente(rol),
     "is_staff": is_workshop_staff(rol),
-    "can_manage_branch": can_manage_branch(rol),
-    "can_manage_citas": is_workshop_staff(rol),
-    "can_create_citas": can_manage_branch(rol) or is_mecanico(rol) or is_cliente(rol),
-    "can_manage_usuarios": is_admin(rol),
+    "needs_taller_setup": needs_setup,
+    "can_create_sucursal": can_create_sucursal,
+    "can_manage_branch": es_propietario,
+    "can_manage_citas": is_workshop_staff(rol) and not needs_setup,
+    "can_create_citas": (es_propietario or is_mecanico(rol) or is_cliente(rol)) and not needs_setup,
+    "can_manage_usuarios": es_propietario,
   }
 
 
 def _requires_sucursal(session: AppSession) -> bool:
   rol = session.user.get("rol_nombre")
-  return bool((is_admin(rol) or is_mecanico(rol)) and not session.id_sucursal)
+  return bool(is_workshop_staff(rol) and not session.id_sucursal)
 
 
 # --- Dashboard ---
 
+_ACTIVE_ESTADOS = ("EN_PROCESO", "EN_REPARACION", "DIAGNOSTICO")
+_PENDING_ESTADOS = ("PENDIENTE", "RECIBIDO")
+
+
+def _format_fecha_cita(fecha_cita) -> tuple[str, str]:
+  if not fecha_cita:
+    return "—", "—"
+  s = str(fecha_cita)
+  if " " in s:
+    date_part, time_part = s.split(" ", 1)
+    hora = time_part[:5] if len(time_part) >= 5 else time_part
+    parts = date_part.split("-")
+    if len(parts) == 3:
+      fecha = f"{parts[2]}/{parts[1]}/{parts[0]}"
+    else:
+      fecha = date_part
+    return hora, fecha
+  return "—", s[:10]
+
+
+def _cita_dashboard_row(c: dict) -> dict:
+  hora, fecha = _format_fecha_cita(c.get("fecha_cita"))
+  veh_parts = [p for p in (c.get("placa"), c.get("modelo")) if p]
+  return {
+    "id": c["id"],
+    "hora": hora,
+    "fecha_programada": fecha,
+    "cliente": c.get("cliente"),
+    "vehiculo": " ".join(veh_parts) if veh_parts else "—",
+    "estado": estado_a_etiqueta(c.get("estado")),
+    "mecanico": c.get("mecanico"),
+    "servicio": (c.get("descripcion_fallo") or "")[:60],
+  }
+
 
 @router.get("/dashboard")
 def dashboard(session: AppSession = Depends(require_session)):
+  empty = {
+    "title": "Resumen del taller",
+    "stats": {},
+    "islas_ocupadas": 0,
+    "islas_total": 0,
+    "mecanicos_ocupados": 0,
+    "mecanicos_total": 0,
+    "recent_citas": [],
+    "pending_citas": [],
+  }
   if _requires_sucursal(session):
-    return {"stats": {}, "recent_citas": []}
+    return empty
 
   rol = session.user.get("rol_nombre")
   stats: dict[str, int] = {}
   citas_filters = _citas_filters(session)
 
   citas = cita_service.list_citas(**citas_filters)
-  pendientes = sum(1 for c in citas if c.get("estado") in ("PENDIENTE", "RECIBIDO"))
-  en_proceso = sum(1 for c in citas if c.get("estado") in ("EN_PROCESO", "EN_REPARACION", "DIAGNOSTICO"))
+  pendientes = sum(1 for c in citas if c.get("estado") in _PENDING_ESTADOS)
+  en_proceso = sum(1 for c in citas if c.get("estado") in _ACTIVE_ESTADOS)
   completadas = sum(1 for c in citas if c.get("estado") in ("COMPLETADA", "FINALIZADO"))
+
+  islas_ocupadas = 0
+  islas_total = 0
+  mecanicos_ocupados = 0
+  mecanicos_total = 0
 
   if is_cliente(rol):
     vehiculos = cita_service.list_vehiculos(id_cliente=session.id_cliente)
@@ -193,26 +254,38 @@ def dashboard(session: AppSession = Depends(require_session)):
       "islas": len(islas),
       "mecanicos": len(mecanicos),
     }
-
-  recent = []
-  for c in citas[:12]:
-    recent.append({
-      "id": c["id"],
-      "cliente": c.get("cliente"),
-      "placa": c.get("placa"),
-      "estado": estado_a_etiqueta(c.get("estado")),
-      "mecanico": c.get("mecanico"),
-      "isla": c.get("isla"),
-      "descripcion_fallo": (c.get("descripcion_fallo") or "")[:70],
+    islas_total = len(islas)
+    islas_ocupadas = len({
+      c["id_isla"] for c in citas
+      if c.get("estado") in _ACTIVE_ESTADOS and c.get("id_isla")
+    })
+    mecanicos_total = len(mecanicos)
+    mecanicos_ocupados = len({
+      c["id_mecanico"] for c in citas
+      if c.get("estado") in _ACTIVE_ESTADOS and c.get("id_mecanico")
     })
 
-  title = "Panel del taller"
+  pending_source = [c for c in citas if c.get("estado") in _PENDING_ESTADOS]
+  pending_source.sort(key=lambda c: str(c.get("fecha_cita") or ""))
+  pending_rows = [_cita_dashboard_row(c) for c in pending_source[:12]]
+  recent = [_cita_dashboard_row(c) for c in citas[:12]]
+
+  title = "Resumen del taller"
   if is_cliente(rol):
-    title = "Mi panel"
+    title = "Mi resumen"
   elif is_mecanico(rol):
     title = "Panel del mecánico"
 
-  return {"title": title, "stats": stats, "recent_citas": recent}
+  return {
+    "title": title,
+    "stats": stats,
+    "islas_ocupadas": islas_ocupadas,
+    "islas_total": islas_total,
+    "mecanicos_ocupados": mecanicos_ocupados,
+    "mecanicos_total": mecanicos_total,
+    "recent_citas": recent,
+    "pending_citas": pending_rows,
+  }
 
 
 def _citas_filters(session: AppSession) -> dict[str, Any]:
@@ -249,10 +322,7 @@ class IslaCreate(BaseModel):
 
 @router.get("/sucursales")
 def list_sucursales(session: AppSession = Depends(require_session)):
-  if is_admin(session.user.get("rol_nombre")):
-    rows = catalog_service.list_sucursales()
-  else:
-    rows = catalog_service.list_sucursales_usuario(session.user["id"])
+  rows = catalog_service.list_sucursales_usuario(session.user["id"])
   for r in rows:
     r["activo_label"] = "Sí" if r.get("activo", 1) else "No"
   return {"sucursales": rows}
@@ -260,17 +330,38 @@ def list_sucursales(session: AppSession = Depends(require_session)):
 
 @router.post("/sucursales")
 def create_sucursal(body: SucursalCreate, session: AppSession = Depends(require_session)):
-  if not is_admin(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Solo administrador")
+  uid = session.user["id"]
+  if not catalog_service.user_can_create_sucursal(uid):
+    raise HTTPException(status_code=403, detail="No puedes crear sucursales")
   nombre = body.nombre.strip()
   if not nombre:
     raise HTTPException(status_code=400, detail="Nombre requerido")
-  id_sucursal = catalog_service.create_sucursal(nombre, body.direccion.strip())
+  id_sucursal = catalog_service.create_sucursal(
+    nombre,
+    body.direccion.strip(),
+    id_propietario=uid,
+  )
+  catalog_service.add_usuario_sucursal(uid, id_sucursal)
+  from db.connection import execute
+
+  execute(
+    "UPDATE usuarios SET id_sucursal = %s WHERE id = %s AND id_sucursal IS NULL",
+    (id_sucursal, uid),
+  )
+  cita_service.get_mi_taller(id_sucursal)
+  ids = list(session.user.get("sucursales_ids") or [])
+  if id_sucursal not in ids:
+    ids.append(id_sucursal)
+    session.user["sucursales_ids"] = ids
+  session.id_sucursal = id_sucursal
+  session.chat.id_sucursal = id_sucursal
+  session.user["es_propietario"] = True
   return {"ok": True, "id": id_sucursal}
 
 
 @router.get("/sucursales/{id_sucursal}/islas")
 def list_islas(id_sucursal: int, session: AppSession = Depends(require_session)):
+  _require_sucursal_access(session, id_sucursal)
   rows = cita_service.list_islas(id_sucursal)
   for r in rows:
     r["activo_label"] = "Sí" if r.get("activo", 1) else "No"
@@ -283,8 +374,9 @@ def create_isla(
   body: IslaCreate,
   session: AppSession = Depends(require_session),
 ):
-  if not is_admin(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Solo administrador")
+  _require_sucursal_access(session, id_sucursal)
+  if not catalog_service.user_owns_sucursal(session.user["id"], id_sucursal):
+    raise HTTPException(status_code=403, detail="Solo el dueño puede crear islas")
   nombre = body.nombre.strip()
   if not nombre:
     raise HTTPException(status_code=400, detail="Nombre de isla requerido")
@@ -314,8 +406,7 @@ def catalog_unidades(session: AppSession = Depends(require_session)):
 
 @router.get("/catalogos/puestos")
 def catalog_puestos(session: AppSession = Depends(require_session)):
-  if not is_admin(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Solo administrador")
+  _require_propietario(session)
   return {"items": catalog_service.list_puestos()}
 
 
@@ -573,7 +664,8 @@ def update_cita(id_cita: int, body: CitaUpdate, session: AppSession = Depends(re
   if not cita:
     raise HTTPException(status_code=404, detail="Cita no encontrada")
 
-  if is_mecanico(session.user.get("rol_nombre")):
+  es_prop = _user_is_propietario(session)
+  if is_mecanico(session.user.get("rol_nombre")) and not es_prop:
     if cita.get("id_mecanico") != session.user["id"]:
       raise HTTPException(status_code=403, detail="Solo citas asignadas a ti")
 
@@ -582,23 +674,24 @@ def update_cita(id_cita: int, body: CitaUpdate, session: AppSession = Depends(re
     raise HTTPException(status_code=400, detail="Estado inválido")
 
   if estado_raw == "CANCELADA":
-    if is_mecanico(session.user.get("rol_nombre")):
-      raise HTTPException(status_code=403, detail="Solo admin puede cancelar")
+    if not es_prop:
+      raise HTTPException(status_code=403, detail="Solo el dueño puede cancelar")
     result = cita_service.cambiar_estado_cita(id_cita, estado_raw)
+  elif es_prop:
+    updates: dict[str, Any] = {}
+    if estado_raw and estado_raw != "CANCELADA":
+      updates["estado"] = estado_raw
+    if body.id_mecanico is not None:
+      updates["id_mecanico"] = body.id_mecanico
+    if body.id_isla is not None:
+      updates["id_isla"] = body.id_isla
+    result = cita_service.update_cita(id_cita, updates) if updates else {"ok": True}
   elif is_mecanico(session.user.get("rol_nombre")):
     if not estado_raw:
       raise HTTPException(status_code=400, detail="Estado requerido")
     result = cita_service.cambiar_estado_cita(id_cita, estado_raw)
   else:
-    updates: dict[str, Any] = {}
-    if estado_raw and estado_raw != "CANCELADA":
-      updates["estado"] = estado_raw
-    if can_manage_branch(session.user.get("rol_nombre")):
-      if body.id_mecanico is not None:
-        updates["id_mecanico"] = body.id_mecanico
-      if body.id_isla is not None:
-        updates["id_isla"] = body.id_isla
-    result = cita_service.update_cita(id_cita, updates) if updates else {"ok": True}
+    result = {"ok": True}
 
   if body.diagnostico or body.observaciones or body.solucion:
     falla_res = cita_service.actualizar_falla_cita(
@@ -646,8 +739,7 @@ class UsuarioStaffUpdate(BaseModel):
 
 @router.get("/usuarios")
 def list_usuarios(session: AppSession = Depends(require_session)):
-  if not is_admin(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Solo administrador")
+  _require_propietario(session)
   if _requires_sucursal(session):
     return {"usuarios": []}
   rows = catalog_service.list_usuarios(session.id_sucursal)
@@ -658,15 +750,13 @@ def list_usuarios(session: AppSession = Depends(require_session)):
 
 @router.get("/usuarios/{id_usuario}/sucursales")
 def usuario_sucursales(id_usuario: int, session: AppSession = Depends(require_session)):
-  if not is_admin(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Solo administrador")
+  _require_propietario(session)
   return {"sucursales": catalog_service.list_sucursales_usuario(id_usuario)}
 
 
 @router.post("/usuarios")
 def create_usuario(body: UsuarioCreate, session: AppSession = Depends(require_session)):
-  if not is_admin(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Solo administrador")
+  _require_propietario(session)
 
   password = normalize_password(body.password)
   ok, msg = validate_password(password, body.email)
@@ -696,8 +786,7 @@ def update_usuario_staff(
   body: UsuarioStaffUpdate,
   session: AppSession = Depends(require_session),
 ):
-  if not is_admin(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Solo administrador")
+  _require_propietario(session)
 
   puesto = body.puesto_nombre.strip().lower()
   if puesto == "mecánico" and not body.sucursales_ids:

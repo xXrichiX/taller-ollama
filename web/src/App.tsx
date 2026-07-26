@@ -2,8 +2,9 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { AppLayout } from "./components/AppLayout";
 import { LoginPage } from "./pages/LoginPage";
-import { DashboardPage } from "./pages/DashboardPage";
+import { HomePage } from "./pages/HomePage";
 import { SucursalesPage } from "./pages/SucursalesPage";
+import { IslasPage } from "./pages/IslasPage";
 import { ClientesPage } from "./pages/ClientesPage";
 import { VehiculosPage } from "./pages/VehiculosPage";
 import { CitasPage } from "./pages/CitasPage";
@@ -30,8 +31,9 @@ export function App() {
               </PrivateRoute>
             }
           >
-            <Route index element={<DashboardPage />} />
+            <Route index element={<HomePage />} />
             <Route path="sucursales" element={<SucursalesPage />} />
+            <Route path="islas" element={<IslasPage />} />
             <Route path="clientes" element={<ClientesPage />} />
             <Route path="vehiculos" element={<VehiculosPage />} />
             <Route path="citas" element={<CitasPage />} />

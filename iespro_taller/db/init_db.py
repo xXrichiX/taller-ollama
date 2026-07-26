@@ -30,7 +30,8 @@ def init_database() -> tuple[bool, str]:
     try:
         execute_script_file(str(schema), database=None)
         ensure_minimal_data_only()
-        ensure_bootstrap_sucursal()
+        ensure_schema_migrations()
+        ensure_remove_legacy_admin()
         ensure_performance_indexes()
         ok, msg = test_connection()
         return ok, msg if ok else msg
@@ -65,8 +66,40 @@ def ensure_performance_indexes() -> None:
         execute(f"CREATE INDEX {index_name} ON {table}({column})")
 
 
+def ensure_schema_migrations() -> None:
+    """Columnas añadidas después del esquema inicial."""
+    col = fetch_one(
+        """
+        SELECT COUNT(*) AS n FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = 'sucursales' AND column_name = 'id_propietario'
+        """,
+        (MYSQL_DATABASE,),
+    )
+    if col and col["n"]:
+        return
+    execute(
+        """
+        ALTER TABLE sucursales
+        ADD COLUMN id_propietario INT NULL
+        """
+    )
+    execute(
+        """
+        UPDATE sucursales s
+        JOIN usuarios u ON u.id_sucursal = s.id
+        SET s.id_propietario = u.id
+        WHERE s.id_propietario IS NULL
+        """
+    )
+
+
+def ensure_remove_legacy_admin() -> None:
+    """Elimina la cuenta global de administrador (modelo multi-taller por registro)."""
+    execute("DELETE FROM usuarios WHERE LOWER(email) = %s", ("admin@iespro.mx",))
+
+
 def ensure_minimal_data_only() -> None:
-    """Elimina datos de negocio viejos (semillas demo). Solo queda admin + catálogos."""
+    """Elimina datos de negocio viejos (semillas demo). Solo quedan catálogos base."""
     row = fetch_one(
         "SELECT meta_value FROM app_meta WHERE meta_key = %s",
         (_META_KEY,),
@@ -79,16 +112,6 @@ def ensure_minimal_data_only() -> None:
         "INSERT INTO app_meta (meta_key, meta_value) VALUES (%s, %s)",
         (_META_KEY, "1"),
     )
-
-
-def ensure_bootstrap_sucursal() -> None:
-    """Garantiza al menos una sucursal para que admin pueda usar la API web."""
-    row = fetch_one("SELECT id FROM sucursales WHERE activo = 1 LIMIT 1")
-    if row:
-        return
-    from services import catalog_service
-
-    catalog_service.create_sucursal("Sucursal Principal", "Instalación inicial")
 
 
 def _purge_business_data() -> None:
@@ -106,10 +129,7 @@ def _purge_business_data() -> None:
                 )
                 if cur.fetchone()["n"]:
                     cur.execute(f"TRUNCATE TABLE `{table}`")
-            cur.execute(
-                "DELETE FROM usuarios WHERE LOWER(email) <> %s",
-                ("admin@iespro.mx",),
-            )
+            cur.execute("DELETE FROM usuarios")
             cur.execute("SET FOREIGN_KEY_CHECKS = 1")
         conn.commit()
     except Exception:

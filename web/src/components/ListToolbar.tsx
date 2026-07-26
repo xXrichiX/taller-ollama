@@ -8,6 +8,7 @@ export function ListToolbar({
   onAdd,
   addLabel = "Nuevo",
   showSearch = true,
+  filters,
 }: {
   search: string;
   onSearchChange: (value: string) => void;
@@ -16,9 +17,11 @@ export function ListToolbar({
   onAdd?: () => void;
   addLabel?: string;
   showSearch?: boolean;
+  filters?: ReactNode;
 }) {
   return (
     <div className="list-toolbar">
+      {filters && <div className="list-toolbar-left">{filters}</div>}
       <div className="list-toolbar-spacer" />
       <div className="list-toolbar-actions">
         {showSearch && (

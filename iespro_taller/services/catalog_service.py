@@ -23,13 +23,71 @@ def login(email: str, password: str) -> dict[str, Any] | None:
 def list_sucursales_usuario(id_usuario: int) -> list[dict]:
     return fetch_all(
         """
-        SELECT s.id, s.nombre, s.direccion
-        FROM usuario_sucursales us
-        JOIN sucursales s ON s.id = us.id_sucursal
-        WHERE us.id_usuario = %s AND s.activo = 1
+        SELECT DISTINCT s.id, s.nombre, s.direccion, s.activo
+        FROM sucursales s
+        LEFT JOIN usuario_sucursales us
+          ON us.id_sucursal = s.id AND us.id_usuario = %s
+        WHERE s.activo = 1
+          AND (s.id_propietario = %s OR us.id_usuario IS NOT NULL)
         ORDER BY s.nombre
         """,
+        (id_usuario, id_usuario),
+    )
+
+
+def user_owns_sucursal(id_usuario: int, id_sucursal: int) -> bool:
+    row = fetch_one(
+        """
+        SELECT id FROM sucursales
+        WHERE id = %s AND activo = 1 AND id_propietario = %s
+        """,
+        (id_sucursal, id_usuario),
+    )
+    return bool(row)
+
+
+def user_is_propietario(id_usuario: int) -> bool:
+    row = fetch_one(
+        "SELECT id FROM sucursales WHERE id_propietario = %s AND activo = 1 LIMIT 1",
         (id_usuario,),
+    )
+    return bool(row)
+
+
+def user_can_create_sucursal(id_usuario: int) -> bool:
+    branches = list_sucursales_usuario(id_usuario)
+    if not branches:
+        return True
+    return user_is_propietario(id_usuario)
+
+
+def user_needs_taller_setup(id_usuario: int, rol_nombre: str | None) -> bool:
+    from services.user_roles import is_cliente, is_workshop_staff
+
+    if is_cliente(rol_nombre) or not is_workshop_staff(rol_nombre):
+        return False
+    return not list_sucursales_usuario(id_usuario)
+
+
+def user_can_access_sucursal(id_usuario: int, id_sucursal: int) -> bool:
+    row = fetch_one(
+        """
+        SELECT s.id
+        FROM sucursales s
+        LEFT JOIN usuario_sucursales us
+          ON us.id_sucursal = s.id AND us.id_usuario = %s
+        WHERE s.id = %s AND s.activo = 1
+          AND (s.id_propietario = %s OR us.id_usuario IS NOT NULL)
+        """,
+        (id_usuario, id_sucursal, id_usuario),
+    )
+    return bool(row)
+
+
+def add_usuario_sucursal(id_usuario: int, id_sucursal: int) -> None:
+    execute(
+        "INSERT IGNORE INTO usuario_sucursales (id_usuario, id_sucursal) VALUES (%s, %s)",
+        (id_usuario, id_sucursal),
     )
 
 
@@ -43,15 +101,17 @@ def set_usuario_sucursales(id_usuario: int, id_sucursales: list[int]) -> None:
 
 
 def enrich_user_session(user: dict) -> dict:
-    from services.user_roles import is_admin, is_mecanico
+    from services.user_roles import is_cliente, is_workshop_staff
 
-    if is_admin(user.get("rol_nombre")):
-        user["sucursales_ids"] = [s["id"] for s in list_sucursales()]
-    elif is_mecanico(user.get("rol_nombre")):
+    if is_workshop_staff(user.get("rol_nombre")):
         user["sucursales_ids"] = [s["id"] for s in list_sucursales_usuario(user["id"])]
+    elif is_cliente(user.get("rol_nombre")):
+        sid = user.get("id_sucursal")
+        user["sucursales_ids"] = [sid] if sid else []
     else:
         sid = user.get("id_sucursal")
         user["sucursales_ids"] = [sid] if sid else []
+    user["es_propietario"] = user_is_propietario(user["id"])
     return user
 
 
@@ -158,10 +218,10 @@ def update_usuario_puesto(id_usuario: int, id_puesto: int | None) -> dict[str, A
     return {"ok": True}
 
 
-def create_sucursal(nombre: str, direccion: str = "") -> int:
+def create_sucursal(nombre: str, direccion: str = "", id_propietario: int | None = None) -> int:
     id_sucursal = execute(
-        "INSERT INTO sucursales (nombre, direccion) VALUES (%s, %s)",
-        (nombre.strip(), direccion.strip()),
+        "INSERT INTO sucursales (nombre, direccion, id_propietario) VALUES (%s, %s, %s)",
+        (nombre.strip(), direccion.strip(), id_propietario),
     )
     copiar_tipos_mantenimiento_plantilla(id_sucursal)
     return id_sucursal
@@ -184,7 +244,7 @@ def register_usuario(
     email: str,
     password: str,
 ) -> dict[str, Any]:
-    """Registra un mecánico y le crea una sucursal propia automáticamente."""
+    """Registra una cuenta de taller; la sucursal se crea después en el inicio."""
     from services.password_policy import normalize_password, validate_password
 
     nombre = (nombre or "").strip()
@@ -208,24 +268,19 @@ def register_usuario(
     if not rol or not puesto:
         return {"ok": False, "error": "No está configurado el puesto Mecánico."}
 
-    nombre_sucursal = f"Taller de {nombre} — {email}"
-    id_sucursal = create_sucursal(nombre_sucursal, "")
     id_usuario = create_usuario({
         "nombre": nombre,
         "email": email,
         "password": password,
         "id_rol": int(rol["id"]),
-        "id_sucursal": id_sucursal,
+        "id_sucursal": None,
         "es_cliente": 0,
         "es_trabajador": 1,
         "id_puesto": int(puesto["id"]),
     })
-    set_usuario_sucursales(id_usuario, [id_sucursal])
     return {
         "ok": True,
         "id_usuario": id_usuario,
-        "id_sucursal": id_sucursal,
-        "sucursal": nombre_sucursal,
     }
 
 

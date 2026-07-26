@@ -10,7 +10,7 @@ from fastapi import Header, HTTPException
 
 from services import catalog_service
 from services.chat_service import ChatService
-from services.user_roles import is_admin, is_cliente, is_mecanico
+from services.user_roles import is_cliente, is_mecanico, is_workshop_staff
 
 _sessions: dict[str, "AppSession"] = {}
 
@@ -46,12 +46,10 @@ def apply_user_to_session(session: AppSession, user: dict[str, Any]) -> None:
     cliente = catalog_service.get_cliente_by_usuario(user["id"])
     session.id_cliente = cliente["id"] if cliente else None
 
-  if is_mecanico(user.get("rol_nombre")):
+  if is_mecanico(user.get("rol_nombre")) or (
+    is_workshop_staff(user.get("rol_nombre")) and not is_cliente(user.get("rol_nombre"))
+  ):
     session.id_sucursal = sucursales_ids[0] if sucursales_ids else user.get("id_sucursal")
-  elif is_admin(user.get("rol_nombre")):
-    sucursales = catalog_service.list_sucursales()
-    user["sucursales_ids"] = [s["id"] for s in sucursales]
-    session.id_sucursal = sucursales[0]["id"] if sucursales else None
   else:
     session.id_sucursal = user.get("id_sucursal")
 

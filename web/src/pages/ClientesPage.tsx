@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { FormInput } from "../components/forms";
+import { ListFilter, ListFilterSelect, uniqueColumnValues, useFilterModal } from "../components/ListFilter";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 import { getInitials } from "../utils/initials";
@@ -22,6 +23,7 @@ export function ClientesPage() {
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const filters = useFilterModal({ telefono: "", email: "" });
 
   const load = useCallback(async () => {
     if (!auth) return;
@@ -33,16 +35,21 @@ export function ClientesPage() {
     load();
   }, [load]);
 
+  const telefonoOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.telefono), [rows]);
+  const emailOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.email), [rows]);
   const filtered = useMemo(() => {
+    let list = rows;
+    if (filters.applied.telefono) list = list.filter((c) => (c.telefono ?? "") === filters.applied.telefono);
+    if (filters.applied.email) list = list.filter((c) => (c.email ?? "") === filters.applied.email);
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return list;
+    return list.filter(
       (c) =>
         c.nombre.toLowerCase().includes(q)
         || (c.telefono ?? "").toLowerCase().includes(q)
         || (c.email ?? "").toLowerCase().includes(q),
     );
-  }, [rows, search]);
+  }, [rows, search, filters.applied]);
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
@@ -77,6 +84,30 @@ export function ClientesPage() {
           placeholder="Buscar por nombre, teléfono o email…"
           onAdd={openCreate}
           addLabel="Nuevo cliente"
+          filters={(
+            <ListFilter
+              open={filters.open}
+              activeCount={filters.activeCount}
+              draftActiveCount={filters.draftActiveCount}
+              onOpen={filters.openFilter}
+              onCancel={filters.cancelFilter}
+              onSearch={filters.applyFilter}
+              onClear={filters.clearFilters}
+            >
+              <ListFilterSelect
+                label="Teléfono"
+                value={filters.draft.telefono}
+                onChange={(v) => filters.setDraftField("telefono", v)}
+                options={telefonoOptions}
+              />
+              <ListFilterSelect
+                label="Email"
+                value={filters.draft.email}
+                onChange={(v) => filters.setDraftField("email", v)}
+                options={emailOptions}
+              />
+            </ListFilter>
+          )}
         />
         <div className="table-wrap">
           <table className="data-table">
@@ -96,9 +127,9 @@ export function ClientesPage() {
                   <td>{c.email || "—"}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && search && (
+              {filtered.length === 0 && (search || filters.activeCount > 0) && (
                 <tr>
-                  <td colSpan={3} className="table-no-results">Sin resultados para “{search}”</td>
+                  <td colSpan={3} className="table-no-results">Sin resultados con los filtros aplicados</td>
                 </tr>
               )}
             </tbody>

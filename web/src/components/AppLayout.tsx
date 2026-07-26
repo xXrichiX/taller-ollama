@@ -9,6 +9,7 @@ import { ChatOverlay } from "./ChatOverlay";
 const ROUTE_LABELS: Record<string, string> = {
   "/": "Inicio",
   "/sucursales": "Sucursales",
+  "/islas": "Islas",
   "/clientes": "Clientes",
   "/vehiculos": "Vehículos",
   "/citas": "Citas",
@@ -53,9 +54,12 @@ export function AppLayout() {
   }, [auth, perms.is_staff, sucursales, setSucursal]);
 
   const breadcrumb = useMemo(() => {
+    if (location.pathname === "/" && perms.needs_taller_setup) {
+      return "Inicio / Sucursales";
+    }
     const base = ROUTE_LABELS[location.pathname] ?? "IESPRO-Taller";
     return base === "Inicio" ? "Inicio / IESPRO-Taller" : `Inicio / ${base}`;
-  }, [location.pathname]);
+  }, [location.pathname, perms.needs_taller_setup]);
 
   const handleLogout = async () => {
     await logout();
@@ -80,21 +84,6 @@ export function AppLayout() {
           <span className="header-breadcrumb">{breadcrumb}</span>
         </div>
         <div className="header-toolbar">
-          {perms.is_staff && sucursales.length > 0 && (
-            <div className="header-select-wrap">
-              <select
-                className="header-select"
-                value={auth.user.id_sucursal ?? ""}
-                onChange={(e) => setSucursal(Number(e.target.value))}
-                title="Sucursal activa"
-                aria-label="Sucursal activa"
-              >
-                {sucursales.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
-                ))}
-              </select>
-            </div>
-          )}
           <button
             type="button"
             className="header-icon-btn"

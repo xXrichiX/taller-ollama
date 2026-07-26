@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { FormInput, FormMultiSelect, FormSelect } from "../components/forms";
+import { ListFilter, ListFilterSelect, uniqueColumnValues, useFilterModal } from "../components/ListFilter";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 import { getInitials } from "../utils/initials";
@@ -40,6 +41,7 @@ export function UsuariosPage() {
   const [error, setError] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const filters = useFilterModal({ puesto: "", sucursal: "" });
 
   const load = useCallback(async () => {
     if (!auth) return;
@@ -119,16 +121,22 @@ export function UsuariosPage() {
     }
   };
 
+  const puestoOptions = useMemo(() => uniqueColumnValues(rows, (u) => u.puesto), [rows]);
+  const sucursalOptions = useMemo(() => uniqueColumnValues(rows, (u) => u.sucursal), [rows]);
   const filtered = useMemo(() => {
+    let list = rows;
+    if (filters.applied.puesto) list = list.filter((u) => u.puesto === filters.applied.puesto);
+    if (filters.applied.sucursal) list = list.filter((u) => (u.sucursal ?? "") === filters.applied.sucursal);
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
+    if (!q) return list;
+    return list.filter(
       (u) =>
         u.nombre.toLowerCase().includes(q)
         || u.email.toLowerCase().includes(q)
-        || (u.puesto ?? "").toLowerCase().includes(q),
+        || (u.puesto ?? "").toLowerCase().includes(q)
+        || (u.sucursal ?? "").toLowerCase().includes(q),
     );
-  }, [rows, search]);
+  }, [rows, search, filters.applied]);
 
   const formFields = (
     <>
@@ -197,6 +205,30 @@ export function UsuariosPage() {
           placeholder="Buscar por nombre, email o puesto…"
           onAdd={openCreate}
           addLabel="Nuevo usuario"
+          filters={(
+            <ListFilter
+              open={filters.open}
+              activeCount={filters.activeCount}
+              draftActiveCount={filters.draftActiveCount}
+              onOpen={filters.openFilter}
+              onCancel={filters.cancelFilter}
+              onSearch={filters.applyFilter}
+              onClear={filters.clearFilters}
+            >
+              <ListFilterSelect
+                label="Puesto"
+                value={filters.draft.puesto}
+                onChange={(v) => filters.setDraftField("puesto", v)}
+                options={puestoOptions}
+              />
+              <ListFilterSelect
+                label="Sucursal"
+                value={filters.draft.sucursal}
+                onChange={(v) => filters.setDraftField("sucursal", v)}
+                options={sucursalOptions}
+              />
+            </ListFilter>
+          )}
         />
         <div className="table-wrap">
           <table className="data-table">
@@ -217,9 +249,9 @@ export function UsuariosPage() {
                   <td>{u.sucursal || "—"}</td>
                 </tr>
               ))}
-              {filtered.length === 0 && search && (
+              {filtered.length === 0 && (search || filters.activeCount > 0) && (
                 <tr>
-                  <td colSpan={4} className="table-no-results">Sin resultados para “{search}”</td>
+                  <td colSpan={4} className="table-no-results">Sin resultados con los filtros aplicados</td>
                 </tr>
               )}
             </tbody>

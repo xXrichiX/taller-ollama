@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
-import { FormInput, FormSelect } from "../components/forms";
+import { FormInput } from "../components/forms";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 
@@ -12,46 +12,19 @@ interface Sucursal {
   activo_label?: string;
 }
 
-interface Isla {
-  id: number;
-  nombre: string;
-  activo_label?: string;
-}
-
 export function SucursalesPage() {
-  const { auth, setSucursal } = useAuth();
+  const { auth, setSucursal, refresh } = useAuth();
   const perms = usePermissions();
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
-  const [islas, setIslas] = useState<Isla[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sucNombre, setSucNombre] = useState("");
   const [sucDir, setSucDir] = useState("");
-  const [islaNombre, setIslaNombre] = useState("");
-  const [mecanicos, setMecanicos] = useState<Array<{ id: number; nombre: string }>>([]);
-  const [islaMecId, setIslaMecId] = useState<number | "">("");
   const [error, setError] = useState("");
-  const [sucursalOpen, setSucursalOpen] = useState(false);
-  const [islaOpen, setIslaOpen] = useState(false);
-
-  const selectedSucursal = sucursales.find((s) => s.id === selectedId);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadSucursales = useCallback(async () => {
     if (!auth) return;
     const res = await api<{ sucursales: Sucursal[] }>("/api/sucursales", {}, auth.token);
     setSucursales(res.sucursales);
-    if (!selectedId && res.sucursales.length) setSelectedId(res.sucursales[0].id);
-  }, [auth, selectedId]);
-
-  const loadIslas = useCallback(async (id: number) => {
-    if (!auth) return;
-    const res = await api<{ islas: Isla[] }>(`/api/sucursales/${id}/islas`, {}, auth.token);
-    setIslas(res.islas);
-    const mec = await api<{ items: Array<{ id: number; nombre: string }> }>(
-      "/api/catalogos/mecanicos",
-      {},
-      auth.token,
-    );
-    setMecanicos(mec.items);
   }, [auth]);
 
   useEffect(() => {
@@ -59,41 +32,25 @@ export function SucursalesPage() {
   }, [loadSucursales]);
 
   useEffect(() => {
-    if (selectedId) loadIslas(selectedId);
-  }, [selectedId, loadIslas]);
+    if (perms.needs_taller_setup && sucursales.length === 0) {
+      setCreateOpen(true);
+    }
+  }, [perms.needs_taller_setup, sucursales.length]);
 
   const createSucursal = async () => {
     if (!auth) return;
     setError("");
     try {
-      await api("/api/sucursales", {
+      const res = await api<{ ok: boolean; id: number }>("/api/sucursales", {
         method: "POST",
         body: JSON.stringify({ nombre: sucNombre, direccion: sucDir }),
       }, auth.token);
       setSucNombre("");
       setSucDir("");
-      setSucursalOpen(false);
+      setCreateOpen(false);
+      await refresh();
+      await setSucursal(res.id);
       await loadSucursales();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Error");
-    }
-  };
-
-  const createIsla = async () => {
-    if (!auth || !selectedId) return;
-    setError("");
-    try {
-      await api(`/api/sucursales/${selectedId}/islas`, {
-        method: "POST",
-        body: JSON.stringify({
-          nombre: islaNombre,
-          id_mecanico: islaMecId === "" ? null : islaMecId,
-        }),
-      }, auth.token);
-      setIslaNombre("");
-      setIslaMecId("");
-      setIslaOpen(false);
-      await loadIslas(selectedId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
     }
@@ -101,26 +58,16 @@ export function SucursalesPage() {
 
   return (
     <div className="page page-list">
-      {error && !sucursalOpen && !islaOpen && <p className="error-text">{error}</p>}
+      {error && !createOpen && <p className="error-text">{error}</p>}
 
       <div className="section-card">
-        {perms.is_admin && (
+        {perms.can_create_sucursal && (
           <ListToolbar
             search=""
             onSearchChange={() => {}}
             showSearch={false}
-            onAdd={() => { setError(""); setSucursalOpen(true); }}
+            onAdd={() => { setError(""); setCreateOpen(true); }}
             addLabel="Nueva sucursal"
-            action={
-              <button
-                type="button"
-                className="btn-ghost btn-sm"
-                onClick={() => { setError(""); setIslaOpen(true); }}
-                disabled={!selectedId}
-              >
-                + Nueva isla
-              </button>
-            }
           />
         )}
         <div className="table-wrap">
@@ -136,14 +83,11 @@ export function SucursalesPage() {
               {sucursales.map((s) => (
                 <tr
                   key={s.id}
-                  className={`clickable${selectedId === s.id ? " row-selected" : ""}`}
-                  onClick={() => {
-                    setSelectedId(s.id);
-                    setSucursal(s.id);
-                  }}
+                  className={auth?.user.id_sucursal === s.id ? "row-selected" : "clickable"}
+                  onClick={() => setSucursal(s.id)}
                 >
                   <td>{s.nombre}</td>
-                  <td>{s.direccion}</td>
+                  <td>{s.direccion || "—"}</td>
                   <td>{s.activo_label}</td>
                 </tr>
               ))}
@@ -152,68 +96,23 @@ export function SucursalesPage() {
         </div>
       </div>
 
-      <div className="section-card">
-        <div className="section-card-head">
-          <h3>Islas — {selectedSucursal?.nombre ?? "Selecciona sucursal"}</h3>
-          {perms.is_admin && selectedId && (
-            <button type="button" className="btn-add" onClick={() => setIslaOpen(true)} title="Nueva isla" aria-label="Nueva isla">
-              +
-            </button>
-          )}
-        </div>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr><th>Isla</th><th>Activa</th></tr>
-            </thead>
-            <tbody>
-              {islas.map((i) => (
-                <tr key={i.id}>
-                  <td>{i.nombre}</td>
-                  <td>{i.activo_label}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
       <Modal
-        open={sucursalOpen}
+        open={createOpen}
         wide
         title="Nueva sucursal"
-        onClose={() => setSucursalOpen(false)}
-        footer={
-          <ModalActions onCancel={() => setSucursalOpen(false)} onSave={createSucursal} saveLabel="Crear sucursal" />
-        }
+        onClose={() => setCreateOpen(false)}
+        footer={(
+          <ModalActions
+            onCancel={() => setCreateOpen(false)}
+            onSave={createSucursal}
+            saveLabel="Crear sucursal"
+          />
+        )}
       >
         {error && <p className="error-text">{error}</p>}
         <div className="form-grid form-grid-2col form-grid-spaced">
           <FormInput label="Nombre" value={sucNombre} onChange={setSucNombre} placeholder="Ingresar nombre" autoFocus />
           <FormInput label="Dirección" value={sucDir} onChange={setSucDir} placeholder="Ingresar dirección" />
-        </div>
-      </Modal>
-
-      <Modal
-        open={islaOpen}
-        wide
-        title={`Nueva isla — ${selectedSucursal?.nombre ?? ""}`}
-        onClose={() => setIslaOpen(false)}
-        footer={
-          <ModalActions onCancel={() => setIslaOpen(false)} onSave={createIsla} saveLabel="Crear isla" />
-        }
-      >
-        {error && <p className="error-text">{error}</p>}
-        <div className="form-grid form-grid-2col form-grid-spaced">
-          <FormInput label="Nombre isla" value={islaNombre} onChange={setIslaNombre} placeholder="Ingresar nombre" autoFocus />
-          <FormSelect
-            label="Mecánico (opcional)"
-            value={islaMecId === "" ? "" : String(islaMecId)}
-            onChange={(v) => setIslaMecId(v ? Number(v) : "")}
-            options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
-            placeholder="Sin asignar"
-            searchable
-          />
         </div>
       </Modal>
     </div>

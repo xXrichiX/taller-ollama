@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS sucursales (
   id INT AUTO_INCREMENT PRIMARY KEY,
   nombre VARCHAR(120) NOT NULL,
   direccion VARCHAR(255),
-  activo TINYINT(1) NOT NULL DEFAULT 1
+  activo TINYINT(1) NOT NULL DEFAULT 1,
+  id_propietario INT NULL
 );
 
 CREATE TABLE IF NOT EXISTS roles (
@@ -258,9 +259,6 @@ INSERT IGNORE INTO roles (id, nombre, descripcion) VALUES
 INSERT IGNORE INTO puestos (id, nombre) VALUES
 (1, 'Admin'),
 (2, 'Mecánico');
-
-INSERT IGNORE INTO usuarios (id, nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto) VALUES
-(1, 'Admin Sistema', 'admin@iespro.mx', 'admin1234', 1, NULL, 0, 1, 1);
 
 INSERT IGNORE INTO marcas (id, nombre) VALUES
 (1, 'Nissan'), (2, 'Toyota'), (3, 'Ford'), (4, 'Chevrolet');

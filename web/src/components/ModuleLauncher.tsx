@@ -15,6 +15,7 @@ export function ModuleLauncher({ open, onClose }: { open: boolean; onClose: () =
   const modules: Module[] = [
     { path: "/", label: "Inicio", icon: "⌂", show: true },
     { path: "/sucursales", label: "Sucursales", icon: "▦", show: perms.is_staff },
+    { path: "/islas", label: "Islas", icon: "⛽", show: perms.is_staff },
     { path: "/clientes", label: "Clientes", icon: "👥", show: perms.is_staff },
     { path: "/vehiculos", label: perms.is_cliente ? "Mis Vehículos" : "Vehículos", icon: "🚗", show: true },
     { path: "/citas", label: perms.is_cliente ? "Mis Citas" : "Citas", icon: "📅", show: true },

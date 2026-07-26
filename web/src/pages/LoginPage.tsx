@@ -6,8 +6,8 @@ export function LoginPage() {
   const { login, register, auth } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("admin@iespro.mx");
-  const [password, setPassword] = useState("admin1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [nombre, setNombre] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -36,7 +36,7 @@ export function LoginPage() {
     <div className="login-page">
       <div className="login-card">
         <h1>IESPRO-Taller</h1>
-        <p className="subtitle">Sistema de citas</p>
+        <p className="subtitle">Gestión de taller y citas</p>
         <form onSubmit={submit} className="form-grid">
           {mode === "register" && (
             <div className="form-row">

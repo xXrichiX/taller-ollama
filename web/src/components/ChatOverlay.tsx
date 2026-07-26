@@ -7,10 +7,7 @@ export function ChatOverlay({ open, onClose }: { open: boolean; onClose: () => v
       <div className="overlay-backdrop" onClick={onClose} />
       <div className="chat-overlay" role="dialog" aria-modal="true">
         <header className="overlay-header">
-          <div>
-            <h2>Asistente IA</h2>
-            <p className="muted">Multi-agente · RAG · Transaccional</p>
-          </div>
+          <h2>Asistente IA</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Cerrar">×</button>
         </header>
         <ChatPanel compact />
