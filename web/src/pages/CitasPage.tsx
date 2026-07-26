@@ -4,6 +4,12 @@ import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
+import {
+  FormInput,
+  FormMultiSelect,
+  FormSelect,
+  TimeSelect,
+} from "../components/forms";
 
 interface Cita {
   id: number;
@@ -204,7 +210,6 @@ export function CitasPage() {
     }
   };
 
-  const title = perms.is_cliente ? "Mis Citas" : "Citas";
   const createLabel = perms.is_cliente ? "Solicitar cita" : "Nueva cita";
   const canCreate = perms.can_create_citas || perms.is_cliente;
 
@@ -221,17 +226,7 @@ export function CitasPage() {
   }, [rows, search]);
 
   return (
-    <div className="page">
-      <div className="page-header page-header-compact">
-        <div>
-          <h2>{title}</h2>
-          <p className="page-subtitle">Agenda y seguimiento de órdenes</p>
-        </div>
-        <div className="page-stat-inline">
-          <span className="page-stat-value">{rows.length}</span>
-          <span className="page-stat-label">citas</span>
-        </div>
-      </div>
+    <div className="page page-list">
       {error && <p className="error-text">{error}</p>}
 
       <div className="section-card">
@@ -300,43 +295,55 @@ export function CitasPage() {
       >
         {detail && (
           <>
-            <p className="drawer-context">
+            <p className="modal-context">
               Falla: {String(detail.cita.descripcion_fallo || "—")}
             </p>
-            <div className="form-grid form-grid-spaced">
-              <div className="form-row">
-                <label>Estado</label>
-                <select value={manage.estado} onChange={(e) => setManage({ ...manage, estado: e.target.value })}>
-                  {estados.map((e) => <option key={e} value={e}>{e}</option>)}
-                </select>
-              </div>
-              {["diagnostico", "observaciones", "solucion"].map((k) => (
-                <div className="form-row" key={k}>
-                  <label>{k}</label>
-                  <input
-                    value={manage[k as keyof typeof manage]}
-                    onChange={(e) => setManage({ ...manage, [k]: e.target.value })}
-                  />
-                </div>
-              ))}
+            <div className="form-grid form-grid-2col form-grid-spaced">
+              <FormSelect
+                label="Estado"
+                value={manage.estado}
+                onChange={(v) => setManage({ ...manage, estado: v })}
+                options={estados.map((e) => ({ value: e, label: e }))}
+                placeholder="Seleccionar estado"
+              />
+              <FormInput
+                label="Diagnóstico"
+                value={manage.diagnostico}
+                onChange={(v) => setManage({ ...manage, diagnostico: v })}
+                placeholder="Ingresar diagnóstico"
+              />
+              <FormInput
+                label="Observaciones"
+                value={manage.observaciones}
+                onChange={(v) => setManage({ ...manage, observaciones: v })}
+                placeholder="Ingresar observaciones"
+                className="form-span-2"
+              />
+              <FormInput
+                label="Solución"
+                value={manage.solucion}
+                onChange={(v) => setManage({ ...manage, solucion: v })}
+                placeholder="Ingresar solución aplicada"
+                className="form-span-2"
+              />
               {perms.can_manage_branch && (
-                <div className="form-cols-2">
-                  <div className="form-row">
-                    <label>Mecánico</label>
-                    <select
-                      value={manage.id_mecanico}
-                      onChange={(e) => setManage({ ...manage, id_mecanico: e.target.value })}
-                    >
-                      {mecanicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                    </select>
-                  </div>
-                  <div className="form-row">
-                    <label>Isla</label>
-                    <select value={manage.id_isla} onChange={(e) => setManage({ ...manage, id_isla: e.target.value })}>
-                      {islas.map((i) => <option key={i.id} value={i.id}>{i.nombre}</option>)}
-                    </select>
-                  </div>
-                </div>
+                <>
+                  <FormSelect
+                    label="Mecánico"
+                    value={manage.id_mecanico}
+                    onChange={(v) => setManage({ ...manage, id_mecanico: v })}
+                    options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
+                    placeholder="Seleccionar mecánico"
+                    searchable
+                  />
+                  <FormSelect
+                    label="Isla"
+                    value={manage.id_isla}
+                    onChange={(v) => setManage({ ...manage, id_isla: v })}
+                    options={islas.map((i) => ({ value: String(i.id), label: i.nombre }))}
+                    placeholder="Seleccionar isla"
+                  />
+                </>
               )}
             </div>
           </>
@@ -359,82 +366,90 @@ export function CitasPage() {
           />
         }
       >
-        <div className="form-grid form-grid-spaced">
+        <div className="form-grid form-grid-2col form-grid-spaced">
           {!perms.is_cliente && (
-            <div className="form-row">
-              <label>Cliente</label>
-              <select value={form.id_cliente} onChange={(e) => onClienteChange(e.target.value)}>
-                <option value="">Selecciona</option>
-                {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-            </div>
+            <FormSelect
+              label="Cliente"
+              value={form.id_cliente}
+              onChange={onClienteChange}
+              options={clientes.map((c) => ({ value: String(c.id), label: c.nombre }))}
+              placeholder="Seleccionar cliente"
+              searchable
+            />
           )}
-          <div className="form-row">
-            <label>Vehículo</label>
-            <select value={form.id_vehiculo} onChange={(e) => setForm({ ...form, id_vehiculo: e.target.value })}>
-              <option value="">Selecciona</option>
-              {vehiculos.map((v) => (
-                <option key={v.id} value={v.id}>{v.placa} — {v.marca} {v.modelo}</option>
-              ))}
-            </select>
-          </div>
-          <div className="form-cols-2">
-            <div className="form-row">
-              <label>Fecha cita</label>
-              <input type="date" value={form.fecha_cita} onChange={(e) => setForm({ ...form, fecha_cita: e.target.value })} />
-            </div>
-            <div className="form-row">
-              <label>Hora cita</label>
-              <input type="time" value={form.hora_cita} onChange={(e) => setForm({ ...form, hora_cita: e.target.value })} />
-            </div>
-          </div>
-          <div className="form-row">
-            <label>Descripción fallo</label>
-            <input value={form.descripcion_fallo} onChange={(e) => setForm({ ...form, descripcion_fallo: e.target.value })} />
-          </div>
+          <FormSelect
+            label="Vehículo"
+            value={form.id_vehiculo}
+            onChange={(v) => setForm({ ...form, id_vehiculo: v })}
+            options={vehiculos.map((v) => ({
+              value: String(v.id),
+              label: `${v.placa} — ${v.marca} ${v.modelo}`,
+            }))}
+            placeholder="Seleccionar vehículo"
+            searchable
+            className={perms.is_cliente ? "form-span-2" : ""}
+          />
+          <FormInput
+            label="Fecha cita"
+            type="date"
+            value={form.fecha_cita}
+            onChange={(v) => setForm({ ...form, fecha_cita: v })}
+          />
+          <TimeSelect
+            label="Hora cita"
+            value={form.hora_cita}
+            onChange={(v) => setForm({ ...form, hora_cita: v })}
+          />
+          <FormInput
+            label="Descripción fallo"
+            value={form.descripcion_fallo}
+            onChange={(v) => setForm({ ...form, descripcion_fallo: v })}
+            placeholder="Describe el problema del vehículo"
+            className="form-span-2"
+          />
           {perms.can_manage_branch && (
-            <div className="form-cols-2">
-              <div className="form-row">
-                <label>Mecánico</label>
-                <select value={form.id_mecanico} onChange={(e) => setForm({ ...form, id_mecanico: e.target.value })}>
-                  {mecanicos.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                </select>
-              </div>
-              <div className="form-row">
-                <label>Isla</label>
-                <select value={form.id_isla} onChange={(e) => setForm({ ...form, id_isla: e.target.value })}>
-                  {islas.map((i) => <option key={i.id} value={i.id}>{i.nombre}</option>)}
-                </select>
-              </div>
-            </div>
+            <>
+              <FormSelect
+                label="Mecánico"
+                value={form.id_mecanico}
+                onChange={(v) => setForm({ ...form, id_mecanico: v })}
+                options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
+                placeholder="Seleccionar mecánico"
+                searchable
+              />
+              <FormSelect
+                label="Isla"
+                value={form.id_isla}
+                onChange={(v) => setForm({ ...form, id_isla: v })}
+                options={islas.map((i) => ({ value: String(i.id), label: i.nombre }))}
+                placeholder="Seleccionar isla"
+              />
+            </>
           )}
-          <div className="form-cols-2">
-            <div className="form-row">
-              <label>Fecha compromiso</label>
-              <input type="date" value={form.fecha_compromiso} onChange={(e) => setForm({ ...form, fecha_compromiso: e.target.value })} />
-            </div>
-            <div className="form-row">
-              <label>Hora compromiso</label>
-              <input type="time" value={form.hora_compromiso} onChange={(e) => setForm({ ...form, hora_compromiso: e.target.value })} />
-            </div>
-          </div>
-          <div className="form-row">
-            <label>Mantenimiento</label>
-            <p className="form-hint">Mantén Ctrl/Cmd para elegir varios servicios.</p>
-            <select
-              multiple
-              value={form.servicio_ids.map(String)}
-              onChange={(e) => {
-                const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
-                setForm({ ...form, servicio_ids: ids });
-              }}
-              className="multi-select"
-            >
-              {servicios.map((s) => (
-                <option key={s.id} value={s.id}>{s.nombre} — ${s.precio}</option>
-              ))}
-            </select>
-          </div>
+          <FormInput
+            label="Fecha compromiso"
+            type="date"
+            value={form.fecha_compromiso}
+            onChange={(v) => setForm({ ...form, fecha_compromiso: v })}
+          />
+          <TimeSelect
+            label="Hora compromiso"
+            value={form.hora_compromiso}
+            onChange={(v) => setForm({ ...form, hora_compromiso: v })}
+            withSeconds
+          />
+          <FormMultiSelect
+            label="Mantenimiento"
+            values={form.servicio_ids}
+            onChange={(ids) => setForm({ ...form, servicio_ids: ids })}
+            placeholder="Seleccionar servicios"
+            className="form-span-2"
+            options={servicios.map((s) => ({
+              value: String(s.id),
+              label: s.nombre,
+              meta: s.precio != null ? `$${s.precio}` : undefined,
+            }))}
+          />
         </div>
       </Modal>
     </div>

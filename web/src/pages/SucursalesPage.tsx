@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
+import { FormInput, FormSelect } from "../components/forms";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 
@@ -99,20 +100,7 @@ export function SucursalesPage() {
   };
 
   return (
-    <div className="page">
-      <div className="page-header page-header-compact">
-        <div>
-          <h2>Sucursales</h2>
-          <p className="page-subtitle">Sucursales e islas de trabajo</p>
-        </div>
-        <div className="page-header-actions">
-          <div className="page-stat-inline">
-            <span className="page-stat-value">{sucursales.length}</span>
-            <span className="page-stat-label">sucursales</span>
-          </div>
-        </div>
-      </div>
-
+    <div className="page page-list">
       {error && !sucursalOpen && !islaOpen && <p className="error-text">{error}</p>}
 
       <div className="section-card">
@@ -192,6 +180,7 @@ export function SucursalesPage() {
 
       <Modal
         open={sucursalOpen}
+        wide
         title="Nueva sucursal"
         onClose={() => setSucursalOpen(false)}
         footer={
@@ -199,20 +188,15 @@ export function SucursalesPage() {
         }
       >
         {error && <p className="error-text">{error}</p>}
-        <div className="form-grid form-grid-spaced">
-          <div className="form-row">
-            <label>Nombre</label>
-            <input value={sucNombre} onChange={(e) => setSucNombre(e.target.value)} autoFocus />
-          </div>
-          <div className="form-row">
-            <label>Dirección</label>
-            <input value={sucDir} onChange={(e) => setSucDir(e.target.value)} />
-          </div>
+        <div className="form-grid form-grid-2col form-grid-spaced">
+          <FormInput label="Nombre" value={sucNombre} onChange={setSucNombre} placeholder="Ingresar nombre" autoFocus />
+          <FormInput label="Dirección" value={sucDir} onChange={setSucDir} placeholder="Ingresar dirección" />
         </div>
       </Modal>
 
       <Modal
         open={islaOpen}
+        wide
         title={`Nueva isla — ${selectedSucursal?.nombre ?? ""}`}
         onClose={() => setIslaOpen(false)}
         footer={
@@ -220,23 +204,16 @@ export function SucursalesPage() {
         }
       >
         {error && <p className="error-text">{error}</p>}
-        <div className="form-grid form-grid-spaced">
-          <div className="form-row">
-            <label>Nombre isla</label>
-            <input value={islaNombre} onChange={(e) => setIslaNombre(e.target.value)} autoFocus />
-          </div>
-          <div className="form-row">
-            <label>Mecánico (opcional)</label>
-            <select
-              value={islaMecId}
-              onChange={(e) => setIslaMecId(e.target.value ? Number(e.target.value) : "")}
-            >
-              <option value="">— Sin asignar —</option>
-              {mecanicos.map((m) => (
-                <option key={m.id} value={m.id}>{m.nombre}</option>
-              ))}
-            </select>
-          </div>
+        <div className="form-grid form-grid-2col form-grid-spaced">
+          <FormInput label="Nombre isla" value={islaNombre} onChange={setIslaNombre} placeholder="Ingresar nombre" autoFocus />
+          <FormSelect
+            label="Mecánico (opcional)"
+            value={islaMecId === "" ? "" : String(islaMecId)}
+            onChange={(v) => setIslaMecId(v ? Number(v) : "")}
+            options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
+            placeholder="Sin asignar"
+            searchable
+          />
         </div>
       </Modal>
     </div>

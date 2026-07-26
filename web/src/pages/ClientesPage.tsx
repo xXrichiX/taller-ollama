@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { FormInput } from "../components/forms";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 import { getInitials } from "../utils/initials";
@@ -66,18 +67,7 @@ export function ClientesPage() {
   };
 
   return (
-    <div className="page">
-      <div className="page-header page-header-compact">
-        <div>
-          <h2>Clientes</h2>
-          <p className="page-subtitle">Directorio de clientes del taller</p>
-        </div>
-        <div className="page-stat-inline">
-          <span className="page-stat-value">{rows.length}</span>
-          <span className="page-stat-label">registrados</span>
-        </div>
-      </div>
-
+    <div className="page page-list">
       {error && !createOpen && <p className="error-text">{error}</p>}
 
       <div className="section-card">
@@ -118,6 +108,7 @@ export function ClientesPage() {
 
       <Modal
         open={createOpen}
+        wide
         title="Nuevo cliente"
         onClose={() => setCreateOpen(false)}
         footer={
@@ -129,19 +120,28 @@ export function ClientesPage() {
         }
       >
         {error && <p className="error-text">{error}</p>}
-        <div className="form-grid form-grid-spaced">
-          <div className="form-row">
-            <label>Nombre</label>
-            <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} autoFocus />
-          </div>
-          <div className="form-row">
-            <label>Teléfono</label>
-            <input value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
-          </div>
-          <div className="form-row">
-            <label>Email</label>
-            <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          </div>
+        <div className="form-grid form-grid-2col form-grid-spaced">
+          <FormInput
+            label="Nombre"
+            value={form.nombre}
+            onChange={(v) => setForm({ ...form, nombre: v })}
+            placeholder="Ingresar nombre"
+            autoFocus
+          />
+          <FormInput
+            label="Teléfono"
+            value={form.telefono}
+            onChange={(v) => setForm({ ...form, telefono: v })}
+            placeholder="Ingresar teléfono"
+          />
+          <FormInput
+            label="Email"
+            type="email"
+            value={form.email}
+            onChange={(v) => setForm({ ...form, email: v })}
+            placeholder="Ingresar correo"
+            className="form-span-2"
+          />
         </div>
       </Modal>
     </div>

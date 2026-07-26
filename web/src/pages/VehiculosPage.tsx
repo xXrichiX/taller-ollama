@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
+import { FormInput, FormSelect, FormTextarea } from "../components/forms";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 
@@ -125,7 +126,6 @@ export function VehiculosPage() {
     }
   };
 
-  const title = perms.is_cliente ? "Mis Vehículos" : "Vehículos";
   const createLabel = perms.is_cliente ? "Registrar vehículo" : "Nuevo vehículo";
 
   const filtered = useMemo(() => {
@@ -141,18 +141,7 @@ export function VehiculosPage() {
   }, [rows, search]);
 
   return (
-    <div className="page">
-      <div className="page-header page-header-compact">
-        <div>
-          <h2>{title}</h2>
-          <p className="page-subtitle">Flota registrada en la sucursal</p>
-        </div>
-        <div className="page-stat-inline">
-          <span className="page-stat-value">{rows.length}</span>
-          <span className="page-stat-label">vehículos</span>
-        </div>
-      </div>
-
+    <div className="page page-list">
       {error && !createOpen && <p className="error-text">{error}</p>}
 
       <div className="section-card">
@@ -214,86 +203,62 @@ export function VehiculosPage() {
         }
       >
         {error && <p className="error-text">{error}</p>}
-        <div className="form-grid form-grid-spaced">
-          <div className="form-cols-2">
-            <div className="form-row">
-              <label>Placa</label>
-              <input value={form.placa} onChange={(e) => setForm({ ...form, placa: e.target.value })} autoFocus />
-            </div>
-            <div className="form-row">
-              <label>Número económico</label>
-              <input value={form.numero_economico} onChange={(e) => setForm({ ...form, numero_economico: e.target.value })} />
-            </div>
-          </div>
-          <div className="form-cols-2">
-            <div className="form-row">
-              <label>Serie</label>
-              <input value={form.serie} onChange={(e) => setForm({ ...form, serie: e.target.value })} />
-            </div>
-            <div className="form-row">
-              <label>Modelo</label>
-              <input value={form.modelo} onChange={(e) => setForm({ ...form, modelo: e.target.value })} />
-            </div>
-          </div>
-          <div className="form-cols-2">
-            <div className="form-row">
-              <label>Kilometraje</label>
-              <input type="number" value={form.kilometraje} onChange={(e) => setForm({ ...form, kilometraje: e.target.value })} />
-            </div>
-            <div className="form-row">
-              <label>Días mantenimiento</label>
-              <input type="number" value={form.dias_mantenimiento} onChange={(e) => setForm({ ...form, dias_mantenimiento: e.target.value })} />
-            </div>
-          </div>
-          <div className="form-cols-2">
-            <div className="form-row">
-              <label>Marca</label>
-              <select value={form.id_marca} onChange={(e) => setForm({ ...form, id_marca: e.target.value })}>
-                {marcas.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-              </select>
-            </div>
-            <div className="form-row">
-              <label>Combustible</label>
-              <select value={form.id_tipo_combustible} onChange={(e) => setForm({ ...form, id_tipo_combustible: e.target.value })}>
-                {combustibles.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="form-row">
-            <label>Tipo unidad</label>
-            <select value={form.id_tipo_unidad} onChange={(e) => setForm({ ...form, id_tipo_unidad: e.target.value })}>
-              {unidades.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-            </select>
-          </div>
+        <div className="form-grid form-grid-2col form-grid-spaced">
+          <FormInput label="Placa" value={form.placa} onChange={(v) => setForm({ ...form, placa: v })} placeholder="Ingresar placa" autoFocus />
+          <FormInput label="Número económico" value={form.numero_economico} onChange={(v) => setForm({ ...form, numero_economico: v })} placeholder="Ingresar número" />
+          <FormInput label="Serie" value={form.serie} onChange={(v) => setForm({ ...form, serie: v })} placeholder="Ingresar serie" />
+          <FormInput label="Modelo" value={form.modelo} onChange={(v) => setForm({ ...form, modelo: v })} placeholder="Ingresar modelo" />
+          <FormInput label="Kilometraje" type="number" value={form.kilometraje} onChange={(v) => setForm({ ...form, kilometraje: v })} />
+          <FormInput label="Días mantenimiento" type="number" value={form.dias_mantenimiento} onChange={(v) => setForm({ ...form, dias_mantenimiento: v })} />
+          <FormSelect
+            label="Marca"
+            value={form.id_marca}
+            onChange={(v) => setForm({ ...form, id_marca: v })}
+            options={marcas.map((m) => ({ value: String(m.id), label: m.nombre }))}
+            placeholder="Seleccionar marca"
+            searchable
+          />
+          <FormSelect
+            label="Combustible"
+            value={form.id_tipo_combustible}
+            onChange={(v) => setForm({ ...form, id_tipo_combustible: v })}
+            options={combustibles.map((m) => ({ value: String(m.id), label: m.nombre }))}
+            placeholder="Seleccionar combustible"
+          />
+          <FormSelect
+            label="Tipo unidad"
+            value={form.id_tipo_unidad}
+            onChange={(v) => setForm({ ...form, id_tipo_unidad: v })}
+            options={unidades.map((m) => ({ value: String(m.id), label: m.nombre }))}
+            placeholder="Seleccionar tipo"
+          />
           {!perms.is_cliente && (
-            <div className="form-row">
-              <label>Propietario</label>
-              <select value={form.id_cliente} onChange={(e) => setForm({ ...form, id_cliente: e.target.value })}>
-                <option value="">Selecciona cliente</option>
-                {clientes.map((c) => (
-                  <option key={c.id} value={c.id}>{c.nombre}</option>
-                ))}
-              </select>
-            </div>
+            <FormSelect
+              label="Propietario"
+              value={form.id_cliente}
+              onChange={(v) => setForm({ ...form, id_cliente: v })}
+              options={clientes.map((c) => ({ value: String(c.id), label: c.nombre }))}
+              placeholder="Seleccionar cliente"
+              searchable
+            />
           )}
           {perms.can_manage_branch && (
-            <div className="form-row">
-              <label>Mecánico asignado</label>
-              <select
-                value={form.id_mecanico_asignado}
-                onChange={(e) => setForm({ ...form, id_mecanico_asignado: e.target.value })}
-              >
-                <option value="">— Sin asignar —</option>
-                {mecanicos.map((m) => (
-                  <option key={m.id} value={m.id}>{m.nombre}</option>
-                ))}
-              </select>
-            </div>
+            <FormSelect
+              label="Mecánico asignado"
+              value={form.id_mecanico_asignado}
+              onChange={(v) => setForm({ ...form, id_mecanico_asignado: v })}
+              options={mecanicos.map((m) => ({ value: String(m.id), label: m.nombre }))}
+              placeholder="Sin asignar"
+              searchable
+            />
           )}
-          <div className="form-row">
-            <label>Observaciones</label>
-            <textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3} />
-          </div>
+          <FormTextarea
+            label="Observaciones"
+            value={form.observaciones}
+            onChange={(v) => setForm({ ...form, observaciones: v })}
+            placeholder="Notas adicionales del vehículo"
+            className="form-span-2"
+          />
         </div>
       </Modal>
     </div>

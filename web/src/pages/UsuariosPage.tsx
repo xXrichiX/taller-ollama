@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { FormInput, FormMultiSelect, FormSelect } from "../components/forms";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 import { getInitials } from "../utils/initials";
@@ -132,69 +133,61 @@ export function UsuariosPage() {
   const formFields = (
     <>
       {error && <p className="error-text">{error}</p>}
-      <div className="form-grid form-grid-spaced">
-        <div className="form-row">
-          <label>Nombre</label>
-          <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} disabled={!!editingId} />
-        </div>
-        <div className="form-row">
-          <label>Email</label>
-          <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} disabled={!!editingId} />
-        </div>
+      <div className="form-grid form-grid-2col form-grid-spaced">
+        <FormInput
+          label="Nombre"
+          value={form.nombre}
+          onChange={(v) => setForm({ ...form, nombre: v })}
+          placeholder="Ingresar nombre"
+          disabled={!!editingId}
+        />
+        <FormInput
+          label="Email"
+          type="email"
+          value={form.email}
+          onChange={(v) => setForm({ ...form, email: v })}
+          placeholder="Ingresar correo"
+          disabled={!!editingId}
+        />
         {!editingId && (
-          <div className="form-row">
-            <label>Contraseña</label>
-            <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-          </div>
+          <FormInput
+            label="Contraseña"
+            type="password"
+            value={form.password}
+            onChange={(v) => setForm({ ...form, password: v })}
+            placeholder="Ingresar contraseña"
+            className="form-span-2"
+          />
         )}
-        <div className="form-row">
-          <label>Puesto</label>
-          <select
-            value={form.id_puesto}
-            onChange={(e) => {
-              const p = puestos.find((x) => x.id === Number(e.target.value));
-              setForm({
-                ...form,
-                id_puesto: e.target.value,
-                puesto_nombre: p?.nombre || "",
-              });
-            }}
-          >
-            {puestos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-          </select>
-        </div>
-        <div className="form-row">
-          <label>Sucursales (mecánico)</label>
-          <p className="form-hint">Mantén Ctrl/Cmd para seleccionar varias.</p>
-          <select
-            multiple
-            value={form.sucursales_ids.map(String)}
-            onChange={(e) => {
-              const ids = Array.from(e.target.selectedOptions).map((o) => Number(o.value));
-              setForm({ ...form, sucursales_ids: ids });
-            }}
-            className="multi-select"
-          >
-            {sucursales.map((s) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
-          </select>
-        </div>
+        <FormSelect
+          label="Puesto"
+          value={form.id_puesto}
+          onChange={(v) => {
+            const p = puestos.find((x) => x.id === Number(v));
+            setForm({
+              ...form,
+              id_puesto: v,
+              puesto_nombre: p?.nombre || "",
+            });
+          }}
+          options={puestos.map((p) => ({ value: String(p.id), label: p.nombre }))}
+          placeholder="Seleccionar puesto"
+          className="form-span-2"
+        />
+        <FormMultiSelect
+          label="Sucursales (mecánico)"
+          values={form.sucursales_ids}
+          onChange={(ids) => setForm({ ...form, sucursales_ids: ids })}
+          placeholder="Seleccionar sucursales"
+          className="form-span-2"
+          options={sucursales.map((s) => ({ value: String(s.id), label: s.nombre }))}
+        />
       </div>
     </>
   );
 
   return (
-    <div className="page">
-      <div className="page-header page-header-compact">
-        <div>
-          <h2>Usuarios</h2>
-          <p className="page-subtitle">Personal del taller y accesos al sistema</p>
-        </div>
-        <div className="page-stat-inline">
-          <span className="page-stat-value">{rows.length}</span>
-          <span className="page-stat-label">usuarios</span>
-        </div>
-      </div>
-
+    <div className="page page-list">
       {error && !panelOpen && <p className="error-text">{error}</p>}
 
       <div className="section-card">
