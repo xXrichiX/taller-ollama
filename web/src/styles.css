@@ -2299,14 +2299,119 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .chat-compose {
   display: flex;
   gap: 0.5rem;
+  align-items: center;
   padding: 0.85rem 1rem;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
 
-.chat-compose input { flex: 1; }
+.chat-compose-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem 0.35rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
 
-.btn-send { min-width: 88px; }
+.chat-compose-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.chat-compose-field.voice-active,
+.chat-compose-field:has(.voice-btn.listening) {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.12);
+}
+
+.chat-compose input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0.5rem;
+  box-shadow: none;
+}
+
+.chat-compose input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.chat-compose input.voice-active-input {
+  color: var(--text);
+}
+
+.voice-btn {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color 0.2s, background 0.2s;
+}
+
+.voice-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.voice-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.voice-btn.listening {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.voice-btn-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  pointer-events: none;
+}
+
+.voice-btn.listening .voice-btn-ring {
+  border-color: rgba(239, 68, 68, 0.45);
+  animation: voice-ring 1.4s ease-out infinite;
+}
+
+@keyframes voice-ring {
+  0% { transform: scale(0.92); opacity: 0.9; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+.voice-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0 1rem 0.65rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.voice-error {
+  padding: 0 1rem 0.65rem;
+  margin: 0;
+}
+
+.btn-send { min-width: 88px; flex-shrink: 0; }
 
 /* Login */
 .login-page {

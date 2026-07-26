@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ROUTE_LABELS, streamChat } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
+import { useSpeechInput } from "../hooks/useSpeechInput";
+import { VoiceMicButton } from "./VoiceMicButton";
 
 interface Conversation {
   id: number;
@@ -83,12 +85,11 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
     setActiveId(id);
   };
 
-  const send = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!auth || !input.trim() || sending) return;
+  const submitMessage = useCallback(async (raw: string) => {
+    if (!auth || !raw.trim() || sending) return;
     setError("");
     setSending(true);
-    const text = input.trim();
+    const text = raw.trim();
     setInput("");
     setMessages((m) => [
       ...m,
@@ -101,37 +102,40 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
         text,
         auth.user.id_sucursal,
         {
-        onStatus: (label) => setStatus(label),
-        onToken: (chunk) => {
-          setMessages((prev) => {
-            const copy = [...prev];
-            for (let i = copy.length - 1; i >= 0; i -= 1) {
-              if (copy[i].role === "assistant" && copy[i].streaming) {
-                copy[i] = { ...copy[i], content: copy[i].content + chunk };
-                break;
+          onStatus: (label) => setStatus(label),
+          onToken: (chunk) => {
+            setMessages((prev) => {
+              const copy = [...prev];
+              for (let i = copy.length - 1; i >= 0; i -= 1) {
+                if (copy[i].role === "assistant" && copy[i].streaming) {
+                  copy[i] = { ...copy[i], content: copy[i].content + chunk };
+                  break;
+                }
               }
-            }
-            return copy;
-          });
+              return copy;
+            });
+          },
+          onDone: (data) => {
+            setMessages((prev) => {
+              const copy = [...prev];
+              const last = copy[copy.length - 1];
+              if (last?.role === "assistant") {
+                copy[copy.length - 1] = {
+                  role: "assistant",
+                  content: last.content || data.answer || "",
+                  route: data.route,
+                };
+              }
+              return copy;
+            });
+            setStatus("");
+            loadConversations();
+          },
+          onError: (msg) => setError(msg),
         },
-        onDone: (data) => {
-          setMessages((prev) => {
-            const copy = [...prev];
-            const last = copy[copy.length - 1];
-            if (last?.role === "assistant") {
-              copy[copy.length - 1] = {
-                role: "assistant",
-                content: last.content || data.answer || "",
-                route: data.route,
-              };
-            }
-            return copy;
-          });
-          setStatus("");
-          loadConversations();
-        },
-        onError: (msg) => setError(msg),
-      }, auth.token, auth.user.id_isla);
+        auth.token,
+        auth.user.id_isla,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
       setMessages((m) => m.filter((x) => !x.streaming));
@@ -139,6 +143,19 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
       setSending(false);
       setStatus("");
     }
+  }, [auth, loadConversations, sending]);
+
+  const speech = useSpeechInput({
+    disabled: sending,
+    onTranscript: setInput,
+    onAutoSend: (text) => {
+      void submitMessage(text);
+    },
+  });
+
+  const send = (e: React.FormEvent) => {
+    e.preventDefault();
+    void submitMessage(input);
   };
 
   if (!canChat) {
@@ -197,16 +214,42 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
             </div>
           )}
           <form className="chat-compose" onSubmit={send}>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Escribe tu pregunta..."
-              disabled={sending}
-            />
+            <div className="chat-compose-field">
+              {speech.supported && (
+                <VoiceMicButton
+                  listening={speech.listening}
+                  disabled={sending}
+                  onClick={speech.toggleListening}
+                  title={
+                    speech.listening
+                      ? "Detener y enviar"
+                      : "Hablar (envía solo tras 2 s de silencio)"
+                  }
+                />
+              )}
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder={
+                  speech.listening
+                    ? "Escuchando… deja de hablar 2 s para enviar"
+                    : "Escribe tu pregunta o usa el micrófono…"
+                }
+                disabled={sending}
+                className={speech.listening ? "voice-active-input" : undefined}
+              />
+            </div>
             <button className="btn btn-send" type="submit" disabled={sending || !input.trim()}>
               {sending ? "…" : "Enviar"}
             </button>
           </form>
+          {speech.listening && (
+            <p className="voice-hint">
+              <span className="pulse-dot" />
+              Escuchando — se enviará automáticamente tras {speech.silenceSeconds} s de silencio
+            </p>
+          )}
+          {speech.voiceError && <p className="error-text voice-error">{speech.voiceError}</p>}
         </div>
       </div>
     </div>
