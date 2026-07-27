@@ -31,6 +31,7 @@ from services.chat_intents import (
     get_capabilities_answer,
     get_casual_chat_answer,
     get_friendly_fallback_answer,
+    get_guided_create_cita_answer,
     get_greeting_answer,
     is_acknowledgment,
     is_capabilities_question,
@@ -712,6 +713,15 @@ class ChatService:
         if is_capabilities_question(question):
             answer = stream_answer(get_capabilities_answer(self.rol_nombre))
             return finalize(answer, "help")
+
+        guided_create = get_guided_create_cita_answer(
+            question,
+            es_propietario=self.es_propietario,
+            es_cliente=is_cliente(self.rol_nombre),
+        )
+        if guided_create:
+            answer = stream_answer(guided_create)
+            return finalize(answer, "guided_create")
 
         if is_memory_recall_question(question):
             emit_status("searching", "Buscando en conversaciones anteriores...")

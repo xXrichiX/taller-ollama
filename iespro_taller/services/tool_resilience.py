@@ -80,13 +80,25 @@ def tool_failure_user_message(tool_calls_log: list[dict[str, Any]]) -> str:
     detalle = errors[0] if len(errors) == 1 else "\n".join(f"- {e}" for e in errors)
     combined = " ".join(errors).lower()
 
+    if "no encontré cliente" in combined or "no encontre cliente" in combined:
+        return (
+            "No encontré ese cliente en el sistema.\n\n"
+            "Regístralo primero en la pestaña Clientes o dime el nombre exacto como aparece ahí.\n\n"
+            "Luego indica: cliente, placa y falla para agendar la cita."
+        )
+
+    if "faltan" in combined or "falta" in combined:
+        return (
+            "Para crear la cita me faltan datos.\n\n"
+            f"{detalle}\n\n"
+            "Puedes decírmelos poco a poco en español claro."
+        )
+
     if any(k in combined for k in ("placa", "modelo", "vehículo", "vehiculo", "cliente")):
         return (
             "Claro, te ayudo a agendar la cita, pero me faltan algunos datos.\n\n"
             f"{detalle}\n\n"
-            "Puedes decirlo así:\n"
-            "Crea una cita para Roberto García, placa ABC-123, mecánico Carlos, "
-            "isla 1, falla: ruido en frenos."
+            "Dime cliente, placa y qué falla tiene el vehículo."
         )
 
     if "cita" in combined:

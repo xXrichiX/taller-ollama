@@ -9,10 +9,31 @@ import tempfile
 from pathlib import Path
 
 _model = None
+_MODEL_DIRNAME = "vosk-model-small-es-0.42"
 
 
-def _model_path() -> Path:
-    return Path(os.getenv("VOSK_MODEL_PATH", "/models/vosk-model-small-es-0.42"))
+def _model_candidates() -> list[Path]:
+    env_path = (os.getenv("VOSK_MODEL_PATH") or "").strip()
+    project_root = Path(__file__).resolve().parent.parent
+    candidates: list[Path] = []
+    if env_path:
+        candidates.append(Path(env_path))
+    candidates.extend([
+        project_root / "models" / _MODEL_DIRNAME,
+        Path("/models") / _MODEL_DIRNAME,
+    ])
+    return candidates
+
+
+def resolve_model_path() -> Path | None:
+    for path in _model_candidates():
+        if path.is_dir():
+            return path
+    return None
+
+
+def speech_available() -> bool:
+    return resolve_model_path() is not None
 
 
 def _get_model():
@@ -20,9 +41,13 @@ def _get_model():
     if _model is None:
         from vosk import Model
 
-        path = _model_path()
-        if not path.is_dir():
-            raise RuntimeError(f"Modelo Vosk no encontrado en {path}")
+        path = resolve_model_path()
+        if not path:
+            searched = ", ".join(str(p) for p in _model_candidates())
+            raise RuntimeError(
+                f"Modelo Vosk no encontrado. Descárgalo con: "
+                f"bash scripts/download-vosk-model.sh (buscado en: {searched})"
+            )
         _model = Model(str(path))
     return _model
 
@@ -33,6 +58,21 @@ def transcribe_audio(data: bytes) -> dict:
         return {"ok": False, "error": "Audio vacío."}
     if len(data) > 5 * 1024 * 1024:
         return {"ok": False, "error": "Audio demasiado largo (máx. 5 MB)."}
+
+    if not speech_available():
+        return {
+            "ok": False,
+            "error": (
+                "La transcripción por voz no está configurada en este servidor. "
+                "Ejecuta: bash scripts/download-vosk-model.sh "
+                "o escribe tu mensaje con el teclado."
+            ),
+        }
+
+    try:
+        model = _get_model()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
     with tempfile.TemporaryDirectory() as tmp:
         inp = Path(tmp) / "input.bin"
@@ -57,13 +97,12 @@ def transcribe_audio(data: bytes) -> dict:
             timeout=45,
         )
         if proc.returncode != 0 or not wav.is_file():
-            return {"ok": False, "error": "No se pudo procesar el audio."}
+            return {"ok": False, "error": "No se pudo procesar el audio (¿ffmpeg instalado?)."}
 
         import wave
 
         from vosk import KaldiRecognizer
 
-        model = _get_model()
         with wave.open(str(wav), "rb") as wf:
             rec = KaldiRecognizer(model, wf.getframerate())
             parts: list[str] = []

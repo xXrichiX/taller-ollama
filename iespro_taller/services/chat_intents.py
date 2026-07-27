@@ -92,6 +92,77 @@ def extract_placa_from_text(text: str) -> str | None:
     return raw
 
 
+def is_create_cita_intent(question: str) -> bool:
+    q = _norm(question)
+    if not re.search(r"\b(crea|crear|creame|agenda|agendar|solicita|solicitar)\b", q):
+        return False
+    if any(w in q for w in ("cita", "citas", "servicio", "orden", "ordenes")):
+        return True
+    return bool(re.search(r"\b(crea|crear|creame)\s+(\d+|una?)\b", q))
+
+
+def _question_has_cliente_name(question: str) -> bool:
+    q = _norm(question)
+    return bool(
+        re.search(r"\bpara\s+[a-z]", q)
+        or re.search(r"\bcliente\s+[a-z]", q)
+    )
+
+
+def _question_has_falla_hint(question: str) -> bool:
+    q = _norm(question)
+    markers = (
+        "falla", "freno", "frenos", "ruido", "problema", "no arranca",
+        "aceite", "motor", "vibra", "chirrido", "servicio de", "reparar",
+        "reparacion", "reparación", "chequeo", "mantenimiento",
+    )
+    return any(m in q for m in markers)
+
+
+def is_incomplete_create_cita_request(question: str) -> bool:
+    if not is_create_cita_intent(question):
+        return False
+    has_placa = bool(extract_placa_from_text(question))
+    has_cliente = _question_has_cliente_name(question)
+    has_falla = _question_has_falla_hint(question)
+    if has_placa and has_falla:
+        return False
+    if has_cliente and has_placa:
+        return not has_falla
+    return True
+
+
+def get_guided_create_cita_answer(
+    question: str,
+    *,
+    es_propietario: bool = False,
+    es_cliente: bool = False,
+) -> str | None:
+    if not is_incomplete_create_cita_request(question):
+        return None
+
+    if es_cliente:
+        needed = ["placa de tu vehículo", "descripción de la falla"]
+        intro = "Con gusto te agendo una cita. Necesito:\n\n"
+        ejemplo = "\n\nEjemplo: agenda cita para mi placa ABC-123, falla: ruido en frenos."
+    elif es_propietario:
+        needed = ["nombre del cliente", "placa del vehículo", "descripción de la falla"]
+        intro = "Te ayudo a crear la cita. Dime estos datos (puedes mandarlos poco a poco):\n\n"
+        ejemplo = "\n\nEjemplo: crea cita para Juan Pérez, placa ABC-123, falla: ruido en frenos."
+    else:
+        needed = [
+            "nombre del cliente",
+            "placa del vehículo",
+            "descripción de la falla",
+            "mecánico",
+            "isla o bahía",
+        ]
+        intro = "Para crear la cita necesito:\n\n"
+        ejemplo = "\n\nEjemplo: crea cita para Juan Pérez, placa ABC-123, mecánico Carlos, isla 1, falla: ruido en frenos."
+
+    return intro + "\n".join(f"- {item}" for item in needed) + ejemplo
+
+
 PERSONAL_VEHICLE_MARKERS = (
     "mi auto", "mi carro", "mis autos", "mis carros",
     "mi vehiculo", "mi vehículo", "mis vehiculos", "mis vehículos",
@@ -255,6 +326,7 @@ def _is_action_request(question: str) -> bool:
     q = _norm(question)
     markers = (
         "crea una cita", "crear una cita", "creame una cita", "crear cita",
+        "creame cita", "crea cita", "creame 1 cita", "crea 1 cita",
         "agenda una cita", "agendar cita", "marca como", "marcar como",
         "lista los", "lista las", "listar ", "listame", "cambia el estado",
         "buscar fallas", "busca fallas",
@@ -263,6 +335,8 @@ def _is_action_request(question: str) -> bool:
         "actualizar cita", "actualiza cita", "modificar cita", "modifica cita",
     )
     if any(m in q for m in markers):
+        return True
+    if re.search(r"\b(crea|crear|creame)\s+(\d+|una?)\s*cita", q):
         return True
     if re.search(r"(me )?puedes crear\b", q) and any(
         w in q for w in ("cita", "cliente", "vehiculo", "vehículo", "placa")

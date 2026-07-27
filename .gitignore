@@ -17,6 +17,7 @@ __pycache__/
 # Datos locales generados en runtime (no versionar)
 db_vectorial/
 iespro_taller/data/
+iespro_taller/models/
 iespro_taller/.venv/
 web/node_modules/
 web/dist/

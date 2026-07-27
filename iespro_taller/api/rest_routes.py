@@ -122,6 +122,17 @@ def auth_logout(session: AppSession = Depends(require_session)):
   return {"ok": True}
 
 
+@router.get("/speech/status")
+def speech_status(session: AppSession = Depends(require_session)):
+  from services import speech_service
+
+  path = speech_service.resolve_model_path()
+  return {
+    "available": speech_service.speech_available(),
+    "model_path": str(path) if path else None,
+  }
+
+
 @router.post("/speech/transcribe")
 async def speech_transcribe(
   audio: UploadFile = File(...),
@@ -130,7 +141,13 @@ async def speech_transcribe(
   from services import speech_service
 
   data = await audio.read()
-  result = speech_service.transcribe_audio(data)
+  try:
+    result = speech_service.transcribe_audio(data)
+  except Exception:
+    raise HTTPException(
+      status_code=503,
+      detail="Transcripción de voz no disponible. Usa el teclado o configura Vosk.",
+    )
   if not result.get("ok"):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo transcribir."))
   return {"text": result["text"]}
