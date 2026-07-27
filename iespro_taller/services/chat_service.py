@@ -274,12 +274,7 @@ class ChatService:
             self.id_conversacion = reciente["id"]
             return self.id_conversacion
 
-        self.id_conversacion = self.repo.crear_conversacion(
-            self.id_usuario,
-            self.id_sucursal,
-            titulo="Asistente del taller",
-        )
-        return self.id_conversacion
+        return None
 
     def start_new_conversation(self) -> int | None:
         """Abre chat vacío: reutiliza uno sin mensajes o crea uno nuevo."""
@@ -321,6 +316,22 @@ class ChatService:
         self._pending_new_conversation = False
         self.id_conversacion = id_conversacion
         return True
+
+    def delete_conversation(self, id_conversacion: int) -> bool:
+        if not self.id_usuario or not self.id_sucursal:
+            return False
+        convs = {c["id"] for c in self.list_conversations()}
+        if id_conversacion not in convs:
+            return False
+        ok = self.repo.eliminar_conversacion(
+            id_conversacion,
+            self.id_usuario,
+            self.id_sucursal,
+        )
+        if ok and self.id_conversacion == id_conversacion:
+            self.id_conversacion = None
+            self._pending_new_conversation = False
+        return ok
 
     def bootstrap(self) -> tuple[bool, str]:
         try:

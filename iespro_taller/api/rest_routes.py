@@ -1131,6 +1131,15 @@ def chat_activate(id_conv: int, session: AppSession = Depends(require_session)):
   return {"ok": True}
 
 
+@router.delete("/chat/conversations/{id_conv}")
+def chat_delete_conversation(id_conv: int, session: AppSession = Depends(require_session)):
+  require_sucursal(session)
+  ok = session.chat.delete_conversation(id_conv)
+  if not ok:
+    raise HTTPException(status_code=404, detail="Conversación no encontrada")
+  return {"ok": True}
+
+
 @router.get("/chat/conversations/{id_conv}/messages")
 def chat_messages(id_conv: int, session: AppSession = Depends(require_session)):
   require_sucursal(session)
@@ -1152,7 +1161,8 @@ def chat_send(body: ChatMessageBody, session: AppSession = Depends(require_sessi
   require_sucursal(session)
   if is_workshop_staff(session.user.get("rol_nombre")):
     require_isla(session)
-  session.chat.ensure_conversation()
+  if not session.chat.ensure_conversation():
+    raise HTTPException(status_code=400, detail="Crea o selecciona una conversación primero.")
   result = session.chat.ask(body.message.strip())
   return {
     "answer": result.get("answer"),
@@ -1176,7 +1186,8 @@ def chat_stream(body: ChatMessageBody, session: AppSession = Depends(require_ses
   require_sucursal(session)
   if is_workshop_staff(session.user.get("rol_nombre")):
     require_isla(session)
-  session.chat.ensure_conversation()
+  if not session.chat.ensure_conversation():
+    raise HTTPException(status_code=400, detail="Crea o selecciona una conversación primero.")
   message = body.message.strip()
   event_q: queue.Queue[tuple[str, Any]] = queue.Queue()
 

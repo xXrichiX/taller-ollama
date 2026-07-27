@@ -29,7 +29,11 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesRequestRef = useRef(0);
-  const canStartNewConversation = messages.length > 0;
+  const activeConv = conversations.find((c) => c.id === activeId);
+  const activeHasMessages =
+    messages.length > 0 || (activeConv?.num_mensajes ?? 0) > 0;
+  const canStartNewConversation =
+    conversations.length === 0 || activeHasMessages;
 
   const scrollBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -95,6 +99,32 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
     setMessages([]);
     setInput("");
     await loadConversations();
+    await api(`/api/chat/conversations/${res.id}/activate`, { method: "POST" }, auth.token);
+  };
+
+  const deleteConversation = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!auth) return;
+    setError("");
+    try {
+      await api(`/api/chat/conversations/${id}`, { method: "DELETE" }, auth.token);
+      const remaining = conversations.filter((c) => c.id !== id);
+      setConversations(remaining);
+      if (activeId === id) {
+        const nextId = remaining[0]?.id ?? null;
+        setActiveId(nextId);
+        setMessages([]);
+        setInput("");
+        if (nextId) {
+          await api(`/api/chat/conversations/${nextId}/activate`, { method: "POST" }, auth.token);
+          await loadMessages(nextId);
+        }
+      } else {
+        await loadConversations();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar");
+    }
   };
 
   const activate = async (id: number) => {
@@ -105,6 +135,10 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
 
   const submitMessage = useCallback(async (raw: string) => {
     if (!auth || !raw.trim() || sending) return;
+    if (!activeId) {
+      setError("Pulsa + Nueva conversación para empezar.");
+      return;
+    }
     setError("");
     setSending(true);
     const text = raw.trim();
@@ -159,7 +193,7 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
     } finally {
       setSending(false);
     }
-  }, [auth, loadConversations, sending]);
+  }, [activeId, auth, loadConversations, sending]);
 
   const speech = useSpeechInput({
     disabled: false,
@@ -197,22 +231,37 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
             disabled={!canStartNewConversation}
             title={
               canStartNewConversation
-                ? "Iniciar otra conversación"
+                ? conversations.length === 0
+                  ? "Crear tu primera conversación"
+                  : "Iniciar otra conversación"
                 : "Escribe algo en esta conversación antes de abrir otra"
             }
           >
             + Nueva conversación
           </button>
           <div className="conv-list">
+            {conversations.length === 0 && (
+              <p className="conv-empty-hint">Sin conversaciones aún</p>
+            )}
             {conversations.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`conv-item ${activeId === c.id ? "active" : ""}`}
-                onClick={() => activate(c.id)}
-              >
-                {c.titulo || `Chat #${c.id}`}
-              </button>
+              <div key={c.id} className="conv-item-row">
+                <button
+                  type="button"
+                  className={`conv-item ${activeId === c.id ? "active" : ""}`}
+                  onClick={() => activate(c.id)}
+                >
+                  {c.titulo || `Chat #${c.id}`}
+                </button>
+                <button
+                  type="button"
+                  className="conv-delete"
+                  aria-label="Eliminar conversación"
+                  title="Eliminar"
+                  onClick={(e) => void deleteConversation(c.id, e)}
+                >
+                  ×
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -221,6 +270,11 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
             {loadingMessages && (
               <p className="chat-messages-loading" aria-hidden>
                 <span className="app-loader-spinner" />
+              </p>
+            )}
+            {!loadingMessages && !activeId && conversations.length === 0 && (
+              <p className="chat-welcome-hint">
+                Pulsa <strong>+ Nueva conversación</strong> para empezar a chatear.
               </p>
             )}
             {messages.map((m, i) => (
@@ -250,7 +304,11 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
                 className={speech.voiceActive ? "voice-active-input" : undefined}
               />
             </div>
-            <button className="btn btn-send" type="submit" disabled={sending || !input.trim()}>
+            <button
+              className="btn btn-send"
+              type="submit"
+              disabled={sending || !input.trim() || !activeId}
+            >
               {sending ? "…" : "Enviar"}
             </button>
           </form>

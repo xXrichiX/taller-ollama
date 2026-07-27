@@ -212,3 +212,22 @@ class ConversationRepository:
                     "mensajes": mensajes,
                 })
         return resultado
+
+    def eliminar_conversacion(
+        self,
+        id_conversacion: int,
+        id_usuario: int,
+        id_sucursal: int,
+    ) -> bool:
+        row = fetch_one(
+            """
+            SELECT id FROM conversaciones
+            WHERE id = %s AND id_usuario = %s AND id_sucursal = %s
+            """,
+            (id_conversacion, id_usuario, id_sucursal),
+        )
+        if not row:
+            return False
+        execute("DELETE FROM mensajes_chat WHERE id_conversacion = %s", (id_conversacion,))
+        execute("DELETE FROM conversaciones WHERE id = %s", (id_conversacion,))
+        return True
