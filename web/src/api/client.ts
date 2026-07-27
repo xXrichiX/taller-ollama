@@ -1,14 +1,3 @@
-const TOKEN_KEY = "iespro_token";
-
-export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setStoredToken(token: string | null) {
-  if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
-}
-
 async function parseError(res: Response): Promise<string> {
   if (res.status === 429) {
     return "Demasiadas peticiones. Espera un momento e inténtalo de nuevo.";
@@ -29,16 +18,29 @@ export async function api<T>(
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string> | undefined),
   };
-  const t = token ?? getStoredToken();
-  if (t) headers.Authorization = `Bearer ${t}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
   if (options.body && !headers["Content-Type"]) {
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(path, {
+    ...options,
+    headers,
+    credentials: "include",
+  });
   if (!res.ok) throw new Error(await parseError(res));
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+export type PublicAuthConfig = {
+  registration_enabled: boolean;
+  turnstile_site_key: string;
+  invite_required: boolean;
+};
+
+export async function fetchPublicAuthConfig(): Promise<PublicAuthConfig> {
+  return api<PublicAuthConfig>("/api/auth/public-config");
 }
 
 export type StreamHandlers = {
@@ -55,13 +57,13 @@ export async function streamChat(
   token?: string | null,
   idIsla?: number | null,
 ): Promise<void> {
-  const t = token ?? getStoredToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const res = await fetch("/api/chat/stream", {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${t}`,
-      "Content-Type": "application/json",
-    },
+    headers,
+    credentials: "include",
     body: JSON.stringify({
       message,
       id_sucursal: idSucursal,
@@ -105,14 +107,17 @@ export async function transcribeSpeech(
   audio: Blob,
   token?: string | null,
 ): Promise<string> {
-  const t = token ?? getStoredToken();
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const form = new FormData();
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
   form.append("audio", audio, `recording.${ext}`);
 
   const res = await fetch("/api/speech/transcribe", {
     method: "POST",
-    headers: t ? { Authorization: `Bearer ${t}` } : {},
+    headers,
+    credentials: "include",
     body: form,
   });
   if (!res.ok) throw new Error(await parseError(res));

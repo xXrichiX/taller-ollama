@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLoader } from "../components/AppLoader";
+import { fetchPublicAuthConfig, type PublicAuthConfig } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
 export function LoginPage() {
@@ -10,28 +12,64 @@ export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [nombre, setNombre] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [publicConfig, setPublicConfig] = useState<PublicAuthConfig | null>(null);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const turnstileRef = useRef<TurnstileInstance | null>(null);
+
+  useEffect(() => {
+    fetchPublicAuthConfig()
+      .then(setPublicConfig)
+      .catch(() =>
+        setPublicConfig({
+          registration_enabled: false,
+          turnstile_site_key: "",
+          invite_required: false,
+        }),
+      );
+  }, []);
 
   useEffect(() => {
     if (auth) navigate("/", { replace: true });
   }, [auth, navigate]);
 
+  useEffect(() => {
+    setCaptchaToken("");
+    turnstileRef.current?.reset();
+  }, [mode]);
+
   if (authLoading) {
     return <AppLoader />;
   }
 
+  const registrationEnabled = publicConfig?.registration_enabled ?? false;
+  const turnstileSiteKey = publicConfig?.turnstile_site_key ?? "";
+  const inviteRequired = publicConfig?.invite_required ?? false;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (mode === "register" && turnstileSiteKey && !captchaToken) {
+      setError("Completa la verificación CAPTCHA.");
+      return;
+    }
     setLoading(true);
     try {
       if (mode === "login") await login(email, password);
-      else await register(nombre, email, password);
+      else {
+        await register(nombre, email, password, {
+          inviteCode,
+          captchaToken,
+        });
+      }
       navigate("/", { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
+      turnstileRef.current?.reset();
+      setCaptchaToken("");
     } finally {
       setLoading(false);
     }
@@ -108,6 +146,29 @@ export function LoginPage() {
               </button>
             </div>
           </div>
+          {mode === "register" && inviteRequired && (
+            <div className="form-row">
+              <label htmlFor="login-invite">Código de invitación</label>
+              <input
+                id="login-invite"
+                className="login-input"
+                placeholder="Código proporcionado por el administrador"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                required
+              />
+            </div>
+          )}
+          {mode === "register" && turnstileSiteKey && (
+            <div className="form-row turnstile-row">
+              <Turnstile
+                ref={turnstileRef}
+                siteKey={turnstileSiteKey}
+                onSuccess={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+              />
+            </div>
+          )}
           {error && <p className="error-text">{error}</p>}
           <button className="btn btn-with-loader" type="submit" disabled={loading}>
             {loading && <span className="btn-spinner" aria-hidden />}
@@ -116,18 +177,21 @@ export function LoginPage() {
               : (mode === "login" ? "Entrar" : "Crear cuenta")}
           </button>
         </form>
-        <p className="muted" style={{ marginTop: "1rem", textAlign: "center" }}>
-          {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              setMode(mode === "login" ? "register" : "login");
-            }}
-          >
-            {mode === "login" ? "Regístrate" : "Inicia sesión"}
-          </a>
-        </p>
+        {(mode === "login" ? registrationEnabled : true) && (
+          <p className="muted" style={{ marginTop: "1rem", textAlign: "center" }}>
+            {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                if (mode === "login" && !registrationEnabled) return;
+                setMode(mode === "login" ? "register" : "login");
+              }}
+            >
+              {mode === "login" ? "Regístrate" : "Inicia sesión"}
+            </a>
+          </p>
+        )}
       </div>
     </div>
   );

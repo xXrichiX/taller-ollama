@@ -6,7 +6,11 @@ from config import RATE_LIMIT_ENABLED
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-limiter = Limiter(key_func=get_remote_address, enabled=RATE_LIMIT_ENABLED)
+limiter = Limiter(
+  key_func=get_remote_address,
+  enabled=RATE_LIMIT_ENABLED,
+  default_limits=["120/minute"],
+)
 
 
 def rate_limit(rule: str):

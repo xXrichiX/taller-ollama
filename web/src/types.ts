@@ -27,7 +27,7 @@ export interface Permissions {
 }
 
 export interface AuthState {
-  token: string;
+  token?: string;
   user: User;
   role_label: string;
   permissions: Permissions;

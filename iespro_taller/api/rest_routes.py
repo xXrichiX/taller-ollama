@@ -8,11 +8,12 @@ import threading
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.rate_limit import rate_limit
 from api.security_messages import REGISTER_GENERIC_MESSAGE
+from api.session_cookies import clear_session_cookie, json_with_session
 from api.session import (
   AppSession,
   apply_user_to_session,
@@ -25,7 +26,14 @@ from api.session import (
   user_payload,
 )
 from services import catalog_service, cita_service, inventory_service
-from config import REGISTRATION_ENABLED, REGISTRATION_INVITE_CODE
+from config import (
+  IS_PRODUCTION,
+  REGISTRATION_ENABLED,
+  REGISTRATION_INVITE_CODE,
+  TURNSTILE_SECRET_KEY,
+  TURNSTILE_SITE_KEY,
+)
+from services.turnstile import turnstile_enabled, verify_turnstile
 from services.estado_labels import ESTADOS_MECANICO_UI, ESTADOS_UI, estado_a_etiqueta, etiqueta_a_estado
 from services.password_policy import normalize_password, validate_password
 from services.user_roles import (
@@ -52,6 +60,16 @@ class RegisterBody(BaseModel):
   email: str
   password: str
   invite_code: str = ""
+  captcha_token: str = ""
+
+
+@router.get("/auth/public-config")
+def auth_public_config():
+  return {
+    "registration_enabled": REGISTRATION_ENABLED,
+    "turnstile_site_key": TURNSTILE_SITE_KEY if TURNSTILE_SECRET_KEY else "",
+    "invite_required": bool(REGISTRATION_INVITE_CODE),
+  }
 
 
 def _user_is_propietario(session: AppSession) -> bool:
@@ -88,7 +106,7 @@ def auth_login(request: Request, body: LoginBody):
   sucursales = user.get("sucursales_ids") or []
 
   session = create_session(user)
-  return {
+  payload = {
     "token": session.token,
     "user": user_payload(user, session),
     "role_label": role_display_label(
@@ -96,6 +114,7 @@ def auth_login(request: Request, body: LoginBody):
       es_propietario=bool(user.get("es_propietario")),
     ),
   }
+  return json_with_session(payload, session.token)
 
 
 @router.post("/auth/register")
@@ -105,6 +124,10 @@ def auth_register(request: Request, body: RegisterBody):
     raise HTTPException(status_code=403, detail="El registro público está deshabilitado.")
   if REGISTRATION_INVITE_CODE and body.invite_code.strip() != REGISTRATION_INVITE_CODE:
     raise HTTPException(status_code=403, detail="Código de invitación inválido.")
+  if turnstile_enabled():
+    client_ip = request.client.host if request.client else None
+    if not verify_turnstile(body.captcha_token, client_ip):
+      raise HTTPException(status_code=400, detail="Verificación CAPTCHA fallida.")
 
   result = catalog_service.register_usuario(
     body.nombre.strip(),
@@ -121,18 +144,22 @@ def auth_register(request: Request, body: RegisterBody):
     return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
 
   session = create_session(user)
-  return {
+  payload = {
     "ok": True,
     "token": session.token,
     "user": user_payload(user, session),
     "sucursal": result.get("sucursal"),
   }
+  return json_with_session(payload, session.token)
 
 
 @router.post("/auth/logout")
-def auth_logout(session: AppSession = Depends(require_session)):
+@rate_limit("30/minute")
+def auth_logout(request: Request, session: AppSession = Depends(require_session)):
   delete_session(session.token)
-  return {"ok": True}
+  response = JSONResponse(content={"ok": True})
+  clear_session_cookie(response)
+  return response
 
 
 @router.get("/speech/status")
@@ -171,7 +198,8 @@ async def speech_transcribe(
 
 
 @router.get("/auth/me")
-def auth_me(session: AppSession = Depends(require_session)):
+@rate_limit("60/minute")
+def auth_me(request: Request, session: AppSession = Depends(require_session)):
   rol = session.user.get("rol_nombre")
   if catalog_service.user_needs_taller_setup(session.user["id"], rol):
     catalog_service.provision_taller_personal(session.user["id"], session.user.get("nombre", ""))
@@ -1157,6 +1185,17 @@ class TokenBody(BaseModel):
 def rag_bootstrap(session: AppSession = Depends(require_session)):
   ok, msg = session.chat.bootstrap()
   return {"ok": ok, "message": msg}
+
+
+@router.get("/health/detail")
+def health_detail(session: AppSession = Depends(require_session)):
+  """Detalle de BD; en producción solo dueño del taller."""
+  if IS_PRODUCTION:
+    _require_propietario(session)
+  from db.connection import test_connection
+
+  ok, msg = test_connection()
+  return {"status": "ok" if ok else "degraded", "database": msg}
 
 
 @router.get("/observability/recent")

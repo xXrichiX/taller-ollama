@@ -6,8 +6,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import Header, HTTPException
+from fastapi import Cookie, Header, HTTPException
 
+from config import SESSION_COOKIE_NAME
 from services import catalog_service, cita_service
 from services.chat_service import ChatService
 from services.user_roles import is_cliente, is_mecanico, is_workshop_staff
@@ -99,7 +100,13 @@ def clear_sessions() -> None:
   _sessions.clear()
 
 
-def _extract_token(authorization: str | None, x_session_token: str | None) -> str | None:
+def _extract_token(
+  authorization: str | None,
+  x_session_token: str | None,
+  cookie_token: str | None = None,
+) -> str | None:
+  if cookie_token:
+    return cookie_token.strip()
   if x_session_token:
     return x_session_token.strip()
   if authorization and authorization.lower().startswith("bearer "):
@@ -110,8 +117,9 @@ def _extract_token(authorization: str | None, x_session_token: str | None) -> st
 def require_session(
   authorization: str | None = Header(default=None),
   x_session_token: str | None = Header(default=None, alias="X-Session-Token"),
+  session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
 ) -> AppSession:
-  session = get_session(_extract_token(authorization, x_session_token))
+  session = get_session(_extract_token(authorization, x_session_token, session_cookie))
   if not session:
     raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
   return session

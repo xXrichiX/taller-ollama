@@ -60,6 +60,16 @@ REGISTRATION_ENABLED = os.getenv(
 REGISTRATION_INVITE_CODE = os.getenv("REGISTRATION_INVITE_CODE", "").strip()
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1") == "1"
 
+SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "iespro_session")
+SESSION_COOKIE_SECURE = os.getenv(
+  "SESSION_COOKIE_SECURE",
+  "1" if IS_PRODUCTION else "0",
+) == "1"
+SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", str(60 * 60 * 24 * 7)))
+
+TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "").strip()
+TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
+
 # Voz (micrófono): umbrales anti-ruido; ajustables por env si hace falta
 VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "1.2"))
 VOICE_RMS_MIN = float(os.getenv("VOICE_RMS_MIN", "450"))

@@ -34,6 +34,7 @@ services:
       CHROMA_PATH: /data/chroma
       APP_ENV: development
       REGISTRATION_ENABLED: "1"
+      SESSION_COOKIE_SECURE: "0"
       CORS_ORIGINS: http://localhost:3000,http://localhost:5173,http://localhost:8080
       CORS_ALLOW_ALL: ${CORS_ALLOW_ALL:-0}
     extra_hosts:

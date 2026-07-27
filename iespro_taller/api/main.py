@@ -24,6 +24,7 @@ from db.init_db import init_database  # noqa: E402
 from api.rest_routes import router  # noqa: E402
 from api.session import clear_sessions  # noqa: E402
 from api.rate_limit import limiter  # noqa: E402
+from api.security_headers import SecurityHeadersMiddleware  # noqa: E402
 
 
 @asynccontextmanager
@@ -44,6 +45,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 @app.exception_handler(RequestValidationError)
@@ -73,12 +75,3 @@ def health():
 
   ok, _msg = test_connection()
   return {"status": "ok" if ok else "degraded"}
-
-
-@app.get("/api/health/detail")
-def health_detail():
-  """Detalle interno (solo útil en desarrollo / monitoreo autenticado)."""
-  from db.connection import test_connection
-
-  ok, msg = test_connection()
-  return {"status": "ok" if ok else "degraded", "database": msg}

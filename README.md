@@ -89,8 +89,10 @@ Variables en `.env` / `docker-compose.prod.yml`:
 | `REGISTRATION_ENABLED` | `0` | Cierra registro público |
 | `REGISTRATION_INVITE_CODE` | opcional | Código para registrar si está habilitado |
 | `RATE_LIMIT_ENABLED` | `1` | Límite de peticiones por IP |
+| `SESSION_COOKIE_SECURE` | `1` | Cookie de sesión solo por HTTPS |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | opcional | CAPTCHA en registro |
 
-Incluye: bcrypt en contraseñas, rate limiting, observabilidad solo para dueño del taller, inventario con permisos por rol.
+Incluye: bcrypt, rate limiting, cookies HttpOnly, cabeceras CSP, observabilidad solo dueño, inventario por rol, Turnstile opcional en registro.
 
 ---
 
