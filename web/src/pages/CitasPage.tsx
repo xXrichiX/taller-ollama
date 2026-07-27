@@ -193,7 +193,7 @@ export function CitasPage() {
     }
   };
 
-  const createLabel = perms.is_cliente ? "Solicitar servicio" : "Nueva orden";
+  const createLabel = perms.is_cliente ? "Solicitar servicio" : "Nueva cita";
   const canCreate = perms.can_create_citas || perms.is_cliente;
 
   const estadoOptions = useMemo(() => uniqueColumnValues(rows, (c) => c.estado_label), [rows]);
@@ -281,7 +281,7 @@ export function CitasPage() {
       <Modal
         open={drawerOpen && selected !== null && perms.can_manage_citas}
         wide
-        title={`Orden #${selected ?? ""}`}
+        title={`Cita #${selected ?? ""}`}
         onClose={() => { setDrawerOpen(false); setSelected(null); setDetail(null); }}
         footer={
           detail ? (
@@ -300,7 +300,7 @@ export function CitasPage() {
             </p>
             <div className="form-grid form-grid-2col form-grid-spaced">
               <FormSelect
-                label="Estado de la orden"
+                label="Estado de la cita"
                 value={manage.estado}
                 onChange={(v) => setManage({ ...manage, estado: v })}
                 options={estados.map((e) => ({ value: e, label: e }))}
@@ -334,7 +334,7 @@ export function CitasPage() {
       <Modal
         open={createOpen}
         wide
-        title={perms.is_cliente ? "Solicitar servicio" : "Nueva orden de servicio"}
+        title={perms.is_cliente ? "Solicitar servicio" : "Nueva cita de servicio"}
         onClose={() => setCreateOpen(false)}
         footer={
           <ModalActions

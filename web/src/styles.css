@@ -378,8 +378,21 @@ select:disabled, input:disabled {
 }
 
 .module-tile-icon {
-  font-size: 1.5rem;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  color: #e5e7eb;
+}
+
+.module-tile-icon .module-svg-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.module-tile:hover .module-tile-icon {
+  color: #fff;
 }
 
 .module-tile-label {

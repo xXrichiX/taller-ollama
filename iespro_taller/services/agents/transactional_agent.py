@@ -32,13 +32,16 @@ SUCURSAL_TOOLS = frozenset({
 
 ISLA_TOOLS = frozenset({
   "listar_inventario",
+  "contar_inventario",
 })
 
 TX_SYSTEM = """Eres el agente transaccional de IESPRO-Taller.
 Tu único trabajo es consultar o modificar la base de datos del taller mediante tools.
 - Usa function calling para listar, crear, editar o cancelar citas, y para consultar inventario.
-- Para conteos exactos puedes usar SQL implícito vía tools.
+- Para conteos exactos puedes usar SQL implícito vía tools o contar_inventario / contar_citas.
 - No inventes datos. No pidas IDs numéricos al usuario.
+- Si piden crear una cita y faltan datos, NO llames crear_cita_natural: pregunta qué falta (cliente, placa, falla).
+- "Orden" y "cita" son lo mismo; di siempre cita al usuario.
 - Responde en español, breve y profesional.
 """
 
@@ -60,7 +63,11 @@ class TransactionalAgent:
     if not is_cliente(self.chat.rol_nombre) and (
       not is_mecanico(self.chat.rol_nombre) or getattr(self.chat, "es_propietario", False)
     ):
-      sql_answer = run_sql_query(question, self.chat.id_sucursal)
+      sql_answer = run_sql_query(
+        question,
+        self.chat.id_sucursal,
+        getattr(self.chat, "id_isla", None),
+      )
       if sql_answer:
         emit_status("thinking", "Preparando respuesta...")
         return self._stream(sql_answer, emit_token), [], "sql"

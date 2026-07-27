@@ -71,6 +71,7 @@ SUCURSAL_TOOLS = frozenset({
 
 ISLA_TOOLS = frozenset({
     "listar_inventario",
+    "contar_inventario",
 })
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,11 @@ Reglas:
 5. "Eliminar", "borrar" o "quitar" una cita significa CANCELARLA (estado CANCELADA, inactiva). Nunca borres registros.
 6. Para editar citas usa editar_cita_natural con placa y los campos a cambiar.
 7. Para cancelar usa cancelar_cita_natural (también si el usuario dice eliminar o calear por error de voz).
+8. Si el usuario dice "orden" u "órdenes", se refiere a CITAS. Usa siempre la palabra cita al responder.
+9. Para CREAR una cita: no llames crear_cita_natural hasta tener los datos mínimos (cliente, placa o vehículo, falla).
+   Si faltan datos, pregunta en español claro qué falta, uno o dos campos por mensaje, por ejemplo:
+   "Para crear la cita necesito: nombre del cliente, placa del vehículo y qué falla reporta."
+   Si el usuario es dueño de taller o cliente, no pidas mecánico ni isla (se asignan solos).
 """ + PLAIN_TEXT_RULE
 
 STAFF_MANAGER_PROMPT = """
@@ -107,7 +113,8 @@ ROL ACTUAL: Administrador de sucursal o jefe de taller. Operas en nombre de cual
 Reglas para admin de sucursal:
 - Puedes crear, editar y cancelar citas de cualquier placa o cliente de tu sucursal.
 - Puedes asignar y reasignar mecánicos e islas.
-- Puedes consultar inventario y stock bajo de la isla activa.
+- Puedes consultar inventario y stock bajo de la isla activa (cuántos artículos hay o listar piezas).
+- Al crear citas por chat, pide los datos que falten paso a paso (cliente, placa, falla).
 - Para fallas similares, busca por placa, nombre de cliente o síntoma en todo el historial de la sucursal.
 - No asumas "mi auto" ni vehículos del usuario logueado; el personal no tiene autos personales aquí.
 """
@@ -382,7 +389,7 @@ class ChatService:
     def _build_system_prompt(self) -> str:
         prompt = SYSTEM_PROMPT + f"\nSucursal activa: {self.id_sucursal}"
         if self.id_isla:
-            prompt += f"\nIsla activa (solo consulta órdenes y stock de esta bahía): {self.id_isla}"
+            prompt += f"\nIsla activa (solo consulta citas y stock de esta bahía): {self.id_isla}"
         if is_admin(self.rol_nombre):
             prompt += ADMIN_PROMPT
         elif is_staff_manager(self.rol_nombre):
@@ -920,6 +927,7 @@ class ChatService:
             "contar_citas": "Contando citas...",
             "listar_islas": "Consultando islas de trabajo...",
             "listar_inventario": "Consultando inventario...",
+            "contar_inventario": "Contando inventario...",
             "listar_mecanicos": "Consultando mecánicos...",
             "buscar_fallas_similares": "Buscando fallas similares...",
             "crear_cita_natural": "Agendando cita...",

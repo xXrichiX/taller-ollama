@@ -99,6 +99,26 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "contar_inventario",
+            "description": (
+                "Cuenta artículos en inventario/stock de la isla activa. "
+                "Opcionalmente solo los que tienen stock bajo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id_isla": {"type": "integer", "description": "Isla/bahía (se usa la activa si no se indica)"},
+                    "solo_stock_bajo": {
+                        "type": "boolean",
+                        "description": "Si es true, solo cuenta artículos con stock en o bajo el mínimo",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "listar_inventario",
             "description": (
                 "Lista inventario/stock de piezas y refacciones de la isla activa. "
@@ -123,7 +143,9 @@ TOOL_DEFINITIONS = [
             "name": "crear_cita_natural",
             "description": (
                 "Crea una cita usando nombres y placa (NO pidas IDs al usuario). "
-                "Resuelve cliente, vehículo, mecánico e isla en el backend."
+                "Solo llámala cuando tengas cliente, placa o vehículo, y descripción de la falla. "
+                "Si faltan datos, pregunta al usuario antes de llamar esta función. "
+                "Mecánico e isla son opcionales si el taller asigna automáticamente."
             ),
             "parameters": {
                 "type": "object",
@@ -137,12 +159,14 @@ TOOL_DEFINITIONS = [
                     "id_sucursal": {"type": "integer"},
                     "fecha_cita": {"type": "string", "description": "YYYY-MM-DD HH:MM:SS"},
                     "servicios": {"type": "array", "items": {"type": "integer"}},
+                    "asignacion_automatica": {
+                        "type": "boolean",
+                        "description": "True si el taller asigna mecánico e isla sin pedirlos al usuario",
+                    },
                 },
                 "required": [
                     "nombre_cliente",
                     "descripcion_fallo",
-                    "nombre_mecanico",
-                    "isla",
                 ],
             },
         },
@@ -333,6 +357,7 @@ class ToolsService:
             "mecanicos_en_isla": self._mecanicos_en_isla,
             "listar_islas": self._listar_islas,
             "listar_inventario": self._listar_inventario,
+            "contar_inventario": self._contar_inventario,
             "vehiculos_de_cliente": self._vehiculos_de_cliente,
             "buscar_fallas_similares": self._buscar_fallas_similares,
             "cambiar_estado_cita": self._cambiar_estado_cita,
@@ -351,7 +376,7 @@ class ToolsService:
                 "error": "Esa acción solo la puede hacer el personal del taller.",
                 "recoverable": True,
             }
-        if self.es_mecanico and name in MECANICO_DENIED_TOOLS:
+        if self.es_mecanico and not self.es_propietario and name in MECANICO_DENIED_TOOLS:
             return {
                 "ok": False,
                 "error": "Como mecánico solo puedes consultar y actualizar estado de tus citas asignadas.",
@@ -391,6 +416,8 @@ class ToolsService:
             return scoped
         if self.es_propietario and self.id_sucursal:
             scoped["id_sucursal"] = self.id_sucursal
+            if name == "crear_cita_natural":
+                scoped["asignacion_automatica"] = True
             if self.id_isla and name in (
                 "listar_citas",
                 "contar_citas",
@@ -399,6 +426,7 @@ class ToolsService:
                 "cancelar_cita_natural",
                 "editar_cita_natural",
                 "listar_inventario",
+                "contar_inventario",
             ):
                 scoped["id_isla"] = self.id_isla
             scoped.pop("id_mecanico", None)
@@ -416,6 +444,7 @@ class ToolsService:
                 "crear_cita_natural",
                 "editar_cita_natural",
                 "listar_inventario",
+                "contar_inventario",
             ):
                 scoped["id_isla"] = self.id_isla
                 scoped.pop("id_mecanico", None)
@@ -434,9 +463,24 @@ class ToolsService:
                 scoped["id_mecanico_asignado"] = self.id_mecanico
                 if self.id_sucursal:
                     scoped["id_sucursal"] = self.id_sucursal
-        if self.id_isla and name == "listar_inventario":
+        if self.id_isla and name in ("listar_inventario", "contar_inventario"):
             scoped.setdefault("id_isla", self.id_isla)
         return scoped
+
+    def _missing_cita_fields(self, args: dict, auto: bool) -> list[str]:
+        missing: list[str] = []
+        if not (args.get("nombre_cliente") or "").strip():
+            missing.append("nombre del cliente")
+        if not (args.get("descripcion_fallo") or "").strip():
+            missing.append("descripción de la falla")
+        if not args.get("placa") and not args.get("modelo_vehiculo"):
+            missing.append("placa o modelo del vehículo")
+        if not auto:
+            if not (args.get("nombre_mecanico") or "").strip():
+                missing.append("nombre del mecánico")
+            if not (args.get("isla") or "").strip() and not args.get("id_isla"):
+                missing.append("isla o bahía")
+        return missing
 
     def _assert_cita_del_cliente(self, id_cita: int) -> dict | None:
         if not self.es_cliente or not self.id_cliente:
@@ -505,6 +549,23 @@ class ToolsService:
             rows = [row for row in rows if row.get("stock_bajo")]
         return rows[:40]
 
+    def _contar_inventario(self, args: dict) -> dict[str, Any]:
+        id_isla = args.get("id_isla") or self.id_isla
+        if not id_isla:
+            return {
+                "ok": False,
+                "error": "Selecciona una isla en la barra superior para consultar inventario.",
+            }
+        rows = inventory_service.list_inventario(int(id_isla))
+        if args.get("solo_stock_bajo"):
+            rows = [row for row in rows if row.get("stock_bajo")]
+        return {
+            "ok": True,
+            "total": len(rows),
+            "solo_stock_bajo": bool(args.get("solo_stock_bajo")),
+            "id_isla": int(id_isla),
+        }
+
     def _vehiculos_de_cliente(self, args: dict) -> list[dict]:
         return cita_service.list_vehiculos(args["id_cliente"])
 
@@ -526,8 +587,21 @@ class ToolsService:
 
         id_sucursal = args.get("id_sucursal", DEFAULT_SUCURSAL_ID)
 
-        if not args.get("placa") and not args.get("modelo_vehiculo"):
-            return {"ok": False, "error": "Indica placa o modelo del vehículo."}
+        forced_isla = args.get("id_isla") or self.id_isla
+        auto = bool(
+            args.get("asignacion_automatica")
+            or self.es_propietario
+            or self.es_cliente
+            or (forced_isla and self.es_mecanico)
+        )
+        missing = self._missing_cita_fields(args, auto)
+        if missing:
+            return {
+                "ok": False,
+                "error": "Para crear la cita faltan: " + ", ".join(missing) + ".",
+                "faltan": missing,
+                "recoverable": True,
+            }
 
         cliente_res = cita_service.find_cliente_by_nombre(args["nombre_cliente"])
         if not cliente_res.get("ok"):
@@ -547,10 +621,6 @@ class ToolsService:
 
         mecanico_res = None
         isla_res = None
-        forced_isla = args.get("id_isla") or self.id_isla
-        auto = args.get("asignacion_automatica") or (
-            forced_isla and (self.es_propietario or self.es_mecanico)
-        )
         if auto:
             try:
                 defaults = cita_service.get_default_asignacion_taller(id_sucursal)
@@ -570,17 +640,17 @@ class ToolsService:
             if not isla_res.get("ok"):
                 return isla_res
 
-        if not args.get("nombre_mecanico") and not auto:
-            return {"ok": False, "error": "Indica el mecánico para la cita."}
-        if not args.get("isla") and not auto:
-            return {"ok": False, "error": "Indica la isla para la cita."}
-
         servicios = args.get("servicios") or []
         if not servicios:
-            return {
-                "ok": False,
-                "error": "Indica el servicio o agrégalo primero en el módulo Servicios del taller.",
-            }
+            tipos = catalog_service.list_tipos_mantenimiento(id_sucursal)
+            if tipos:
+                servicios = [tipos[0]["id"]]
+            else:
+                return {
+                    "ok": False,
+                    "error": "No hay servicios registrados. Crea al menos uno en el módulo Servicios.",
+                    "recoverable": True,
+                }
         fecha = args.get("fecha_cita") or "2026-06-11 09:00:00"
         cita_id = cita_service.create_cita({
             "id_cliente": cliente["id"],
@@ -745,9 +815,15 @@ class ToolsService:
         return cita_service.cambiar_estado_cita(args["id_cita"], args["estado"])
 
 
-def run_sql_query(question: str, id_sucursal: int) -> str | None:
+def run_sql_query(question: str, id_sucursal: int, id_isla: int | None = None) -> str | None:
     q = question.lower()
-    if "cuántas citas" in q or "cuantas citas" in q or "total de citas" in q:
+    count_words = ("cuánt" in q or "cuant" in q or "total" in q or "cuántos" in q or "cuantos" in q)
+    cita_terms = any(
+        term in q
+        for term in ("citas", "cita", "órdenes", "ordenes", "orden", "órden")
+    )
+
+    if cita_terms and count_words:
         if "pendiente" in q:
             total = cita_service.count_citas("PENDIENTE", id_sucursal)
             return f"Hay {total} citas pendientes en la sucursal {id_sucursal}."
@@ -757,13 +833,28 @@ def run_sql_query(question: str, id_sucursal: int) -> str | None:
         total = cita_service.count_citas(None, id_sucursal)
         return f"Hay {total} citas registradas en total."
 
-    if "clientes" in q and ("cuántos" in q or "cuantos" in q or "total" in q):
+    if "clientes" in q and count_words:
         clientes = catalog_service.list_clientes()
         return f"Hay {len(clientes)} clientes registrados."
 
-    if "vehículos" in q or "vehiculos" in q:
-        if "cuántos" in q or "cuantos" in q or "total" in q:
-            vehiculos = cita_service.list_vehiculos()
-            return f"Hay {len(vehiculos)} vehículos registrados."
+    if ("vehículos" in q or "vehiculos" in q) and count_words:
+        vehiculos = cita_service.list_vehiculos()
+        return f"Hay {len(vehiculos)} vehículos registrados."
+
+    inventario_terms = any(
+        term in q for term in ("inventario", "stock", "piezas", "pieza", "refaccion", "refacción", "refacciones")
+    )
+    if inventario_terms and count_words:
+        resolved_isla = id_isla
+        if not resolved_isla and id_sucursal:
+            islas = cita_service.list_islas(id_sucursal)
+            resolved_isla = islas[0]["id"] if islas else None
+        if not resolved_isla:
+            return "Selecciona una isla en la barra superior para consultar el inventario."
+        rows = inventory_service.list_inventario(int(resolved_isla))
+        if "bajo" in q or "mínimo" in q or "minimo" in q:
+            bajo = [row for row in rows if row.get("stock_bajo")]
+            return f"Hay {len(bajo)} artículos con stock bajo de {len(rows)} en inventario."
+        return f"Hay {len(rows)} artículos en inventario en la isla activa."
 
     return None

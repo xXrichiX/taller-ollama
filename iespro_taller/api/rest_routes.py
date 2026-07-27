@@ -378,6 +378,7 @@ def dashboard(session: AppSession = Depends(require_session)):
     "mecanicos_ocupados": mecanicos_ocupados,
     "mecanicos_total": mecanicos_total,
     "ordenes": ordenes,
+    "citas_lista": ordenes,
   }
 
 

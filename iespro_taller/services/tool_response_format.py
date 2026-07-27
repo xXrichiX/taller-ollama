@@ -73,6 +73,14 @@ def format_tool_result(name: str, result: Any) -> str:
         names = [str(r.get("nombre", "")).strip() for r in result if r.get("nombre")]
         return f"Islas del taller ({len(names)}):\n{_lines(names)}"
 
+    if name == "contar_inventario" and isinstance(result, dict):
+        if not result.get("ok", True):
+            return result.get("error", "No pude contar el inventario.")
+        total = result.get("total", 0)
+        if result.get("solo_stock_bajo"):
+            return f"Hay {total} artículos con stock bajo en inventario."
+        return f"Hay {total} artículos en inventario."
+
     if name == "listar_inventario" and isinstance(result, list):
         if not result:
             return "No hay artículos en inventario para esta isla."

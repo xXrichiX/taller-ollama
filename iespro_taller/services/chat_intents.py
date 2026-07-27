@@ -23,7 +23,8 @@ CASUAL_CHAT_PATTERNS = (
 )
 
 WORKSHOP_HINTS = (
-    "cita", "citas", "cliente", "vehiculo", "vehículo", "placa", "auto", "carro",
+    "cita", "citas", "orden", "ordenes", "órdenes", "órden",
+    "cliente", "vehiculo", "vehículo", "placa", "auto", "carro",
     "mecanico", "mecánico", "isla", "taller", "falla", "freno", "frenos",
     "inventario", "stock", "pieza", "piezas", "refaccion", "refacción",
     "ruido", "motor", "aceite", "lista", "listar", "cuant", "cuánt",
@@ -36,7 +37,8 @@ WORKSHOP_HINTS = (
 )
 
 SUBSTANTIVE_WORKSHOP_HINTS = (
-    "cita", "citas", "cliente", "clientes", "vehiculo", "vehículo", "vehiculos",
+    "cita", "citas", "orden", "ordenes", "órdenes", "órden",
+    "cliente", "clientes", "vehiculo", "vehículo", "vehiculos",
     "vehículos", "placa", "mecanico", "mecánico", "mecanicos", "mecánicos",
     "isla", "islas", "falla", "fallas", "freno", "frenos", "ruido", "motor",
     "inventario", "stock", "pieza", "piezas", "refaccion", "refacción",
@@ -171,6 +173,15 @@ def normalize_workshop_question(question: str) -> str:
         (r"\bedita\b", "edita"),
     )
     for pattern, replacement in typo_map:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+    orden_map = (
+        (r"\bórdenes\b", "citas"),
+        (r"\bordenes\b", "citas"),
+        (r"\bórden\b", "cita"),
+        (r"\borden\b", "cita"),
+    )
+    for pattern, replacement in orden_map:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
     norm = _norm(text)
@@ -470,12 +481,14 @@ CAPABILITIES_ANSWER = """Puedo ayudarte con el taller de estas formas:
 Consultas (datos exactos):
 - ¿Cuántas citas hay registradas?
 - ¿Cuántos clientes o vehículos hay?
+- ¿Cuántos artículos hay en inventario?
 
 Historial de fallas parecidas:
 - ¿Hay casos similares a ruido al frenar?
 
 Acciones que ejecuto en el sistema:
-- Crea una cita para Roberto García, placa ABC-123, mecánico Carlos, isla 1, falla: ruido en frenos
+- Si pides crear una cita, te voy pidiendo los datos que falten (cliente, placa, falla).
+- Crea una cita para Roberto García, placa ABC-123, falla: ruido en frenos
 - Edita la cita de ABC-123: cambia el mecánico a Ana y la falla a vibración en volante
 - Marca como completada la cita de la placa ABC-123
 - Cancela (o elimina) la cita de la placa ABC-123 — queda inactiva, no se borra de la base

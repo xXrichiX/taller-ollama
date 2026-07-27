@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
 import { estadoPillClass } from "../utils/ordenStatus";
 
-interface OrdenRow {
+interface CitaRow {
   id: number;
   hora?: string;
   fecha_programada?: string;
@@ -19,7 +19,8 @@ interface OrdenRow {
 interface DashboardData {
   title: string;
   stats: Record<string, number>;
-  ordenes: OrdenRow[];
+  ordenes: CitaRow[];
+  citas_lista?: CitaRow[];
 }
 
 function DashSparkline({ color = "#2185d0" }: { color?: string }) {
@@ -129,12 +130,12 @@ export function DashboardPage() {
     return () => window.clearInterval(interval);
   }, [load]);
 
-  const openOrden = (id: number) => {
+  const openCita = (id: number) => {
     if (perms.can_manage_citas) navigate(`/citas?cita=${id}`);
     else navigate("/citas");
   };
 
-  const goOrdenes = () => navigate("/citas");
+  const goCitas = () => navigate("/citas");
 
   if (!data) {
     if (loading) {
@@ -146,7 +147,7 @@ export function DashboardPage() {
   const s = data.stats;
   const showCliente = !perms.is_cliente;
   const isStaff = perms.can_manage_branch && !perms.is_cliente;
-  const ordenes = data.ordenes ?? [];
+  const citas = data.citas_lista ?? data.ordenes ?? [];
 
   return (
     <div className="page page-dashboard">
@@ -186,7 +187,7 @@ export function DashboardPage() {
       )}
 
       <div className="dash-section-head">
-        <h2>Órdenes</h2>
+        <h2>Citas</h2>
       </div>
 
       <div className="dash-cards-row dash-cards-row--3">
@@ -196,21 +197,21 @@ export function DashboardPage() {
           icon={<IconCalendar />}
           variant="warn"
           footer={<DashSparkline color="#f59e0b" />}
-          onClick={goOrdenes}
+          onClick={goCitas}
         />
         <DashMetricCard
           label="En proceso"
           value={s.en_proceso ?? 0}
           icon={<IconCar />}
           variant="process"
-          onClick={goOrdenes}
+          onClick={goCitas}
         />
         <DashMetricCard
           label="Completadas"
           value={s.completadas ?? 0}
           icon={<IconCheck />}
           variant="done"
-          onClick={goOrdenes}
+          onClick={goCitas}
         />
       </div>
 
@@ -228,18 +229,18 @@ export function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {ordenes.length === 0 ? (
+              {citas.length === 0 ? (
                 <tr>
                   <td colSpan={showCliente ? 6 : 5} className="table-no-results">
-                    Sin órdenes en esta isla
+                    Sin citas en esta isla
                   </td>
                 </tr>
               ) : (
-                ordenes.map((o) => (
+                citas.map((o) => (
                   <tr
                     key={o.id}
                     className={perms.can_manage_citas ? "clickable" : ""}
-                    onClick={() => openOrden(o.id)}
+                    onClick={() => openCita(o.id)}
                   >
                     <td>{o.fecha_programada || "—"}</td>
                     <td>{o.hora || "—"}</td>
