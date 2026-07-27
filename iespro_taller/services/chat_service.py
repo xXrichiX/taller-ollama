@@ -31,7 +31,6 @@ from services.chat_intents import (
     get_capabilities_answer,
     get_casual_chat_answer,
     get_friendly_fallback_answer,
-    get_unclear_input_answer,
     get_guided_create_cita_answer,
     get_guided_create_entity_answer,
     get_greeting_answer,
@@ -725,7 +724,7 @@ class ChatService:
             return finalize(answer, "help")
 
         if is_casual_nonsense(question):
-            answer = stream_answer(get_unclear_input_answer(self.rol_nombre))
+            answer = stream_answer(get_friendly_fallback_answer(self.rol_nombre))
             return finalize(answer, "help")
 
         if is_capabilities_question(question):

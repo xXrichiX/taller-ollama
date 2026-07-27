@@ -91,7 +91,7 @@ def tool_failure_user_message(tool_calls_log: list[dict[str, Any]]) -> str:
         return (
             "Para crear la cita me faltan datos.\n\n"
             f"{detalle}\n\n"
-            "Puedes decírmelos poco a poco en español claro."
+            "Puedes decírmelos poco a poco."
         )
 
     if any(k in combined for k in ("placa", "modelo", "vehículo", "vehiculo", "cliente")):

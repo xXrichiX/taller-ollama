@@ -7,7 +7,7 @@ from typing import Any, Callable
 from services.agents.rag_agent import RagAgent
 from services.agents.router_agent import RouteIntent, RouterAgent
 from services.agents.transactional_agent import TransactionalAgent
-from services.chat_intents import get_friendly_fallback_answer, get_unclear_input_answer, looks_like_gibberish
+from services.chat_intents import get_friendly_fallback_answer
 from services.guardrails import BLOCKED_MESSAGE
 
 
@@ -66,10 +66,7 @@ class MultiAgentOrchestrator:
       return finalize(answer, final_route, tool_calls=tool_calls)
 
     if intent == RouteIntent.HELP:
-      if looks_like_gibberish(question):
-        fallback = get_unclear_input_answer(self.chat.rol_nombre)
-      else:
-        fallback = get_friendly_fallback_answer(self.chat.rol_nombre)
+      fallback = get_friendly_fallback_answer(self.chat.rol_nombre)
       answer = self._stream(fallback, emit_token)
       return finalize(answer, "help")
 

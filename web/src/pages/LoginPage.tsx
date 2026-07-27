@@ -40,7 +40,7 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1 className="login-brand">IESPRO</h1>
+        <h1 className="login-brand">Taller</h1>
         <form onSubmit={submit} className="form-grid">
           {mode === "register" && (
             <div className="form-row">

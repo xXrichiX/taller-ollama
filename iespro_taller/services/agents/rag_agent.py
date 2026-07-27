@@ -7,7 +7,6 @@ from typing import Any, Callable
 import ollama
 
 from config import OLLAMA_CHAT_MODEL
-from services.chat_intents import get_unclear_input_answer, is_similarity_question, looks_like_gibberish
 from services.text_format import plain_chat_text
 from services.user_roles import is_cliente, is_mecanico
 
@@ -24,10 +23,6 @@ class RagAgent:
     emit_status: Callable[[str, str], None],
     emit_token: Callable[[str], None],
   ) -> tuple[str, list[dict], dict]:
-    if looks_like_gibberish(question) or not is_similarity_question(question):
-      text = get_unclear_input_answer(self.chat.rol_nombre)
-      return self._stream(text, emit_token), [], {}
-
     emit_status("searching", "Buscando fallas similares (híbrido + rerank)...")
 
     if is_cliente(self.chat.rol_nombre):

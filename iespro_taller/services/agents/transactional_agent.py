@@ -8,12 +8,7 @@ from typing import Any, Callable
 import ollama
 
 from config import OLLAMA_CHAT_MODEL
-from services.chat_intents import (
-  allows_mutating_tool,
-  get_unclear_input_answer,
-  looks_like_gibberish,
-  looks_like_hallucinated_direct_answer,
-)
+from services.chat_intents import allows_mutating_tool, get_friendly_fallback_answer, is_gibberish_input
 from services.text_format import plain_chat_text
 from services.tool_resilience import (
   call_signature,
@@ -45,6 +40,7 @@ Tu único trabajo es consultar o modificar la base de datos del taller mediante 
 - Usa function calling para listar, crear, editar o cancelar citas, clientes, vehículos, servicios e inventario.
 - Para conteos exactos puedes usar SQL implícito vía tools o contar_inventario / contar_citas.
 - No inventes datos. No pidas IDs numéricos al usuario.
+- Si el mensaje no tiene sentido o no entiendes qué pide, di que no entendiste y pide que lo reformule. NUNCA inventes citas, placas ni diagnósticos.
 - Si piden crear algo y faltan datos, NO llames la tool: pregunta qué falta.
 - Tras un registro exitoso, ofrece ayudar con el siguiente paso (ej. vehículo después de cliente).
 - Preséntate como "tu asistente", sin marcas. "Orden" y "cita" son lo mismo; di siempre cita.
@@ -65,6 +61,9 @@ class TransactionalAgent:
     emit_token: Callable[[str], None],
   ) -> tuple[str, list[dict], str]:
     emit_status("searching", "Consultando base de datos...")
+
+    if is_gibberish_input(question):
+      return self._stream(get_friendly_fallback_answer(self.chat.rol_nombre), emit_token), [], "help"
 
     if not is_cliente(self.chat.rol_nombre) and (
       not is_mecanico(self.chat.rol_nombre) or getattr(self.chat, "es_propietario", False)
@@ -112,13 +111,7 @@ class TransactionalAgent:
     tool_calls = msg.get("tool_calls") or []
 
     if not tool_calls:
-      if looks_like_gibberish(question):
-        answer = get_unclear_input_answer(self.chat.rol_nombre)
-        return self._stream(answer, emit_token), [], "help"
       content = plain_chat_text(msg.get("content", "No pude procesar la solicitud."))
-      if looks_like_hallucinated_direct_answer(content):
-        answer = get_unclear_input_answer(self.chat.rol_nombre)
-        return self._stream(answer, emit_token), [], "help"
       return self._stream(content, emit_token), [], "llm_direct"
 
     messages.append(msg)
