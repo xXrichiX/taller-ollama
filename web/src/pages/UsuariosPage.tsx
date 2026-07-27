@@ -268,7 +268,7 @@ export function UsuariosPage() {
           <ModalActions
             onCancel={() => { setPanelOpen(false); setEditingId(null); }}
             onSave={save}
-            saveLabel={editingId ? "Guardar cambios" : "Crear usuario"}
+            mode={editingId ? "edit" : "create"}
           />
         }
       >

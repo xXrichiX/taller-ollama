@@ -144,7 +144,7 @@ export function ServiciosPage() {
           <ModalActions
             onCancel={() => setModalOpen(false)}
             onSave={save}
-            saveLabel="Guardar"
+            mode={editingId ? "edit" : "create"}
           />
         )}
       >

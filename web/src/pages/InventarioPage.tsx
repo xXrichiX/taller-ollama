@@ -229,7 +229,7 @@ export function InventarioPage() {
           <ModalActions
             onCancel={() => setModalOpen(false)}
             onSave={save}
-            saveLabel={editingId ? "Guardar cambios" : "Agregar al inventario"}
+            mode={editingId ? "edit" : "create"}
           />
         )}
       >

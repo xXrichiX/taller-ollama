@@ -160,7 +160,7 @@ export function ClientesPage() {
           <ModalActions
             onCancel={() => setCreateOpen(false)}
             onSave={save}
-            saveLabel="Guardar cliente"
+            mode="create"
           />
         }
       >

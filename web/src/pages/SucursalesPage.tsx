@@ -117,7 +117,7 @@ export function SucursalesPage() {
           <ModalActions
             onCancel={() => setCreateOpen(false)}
             onSave={createIsla}
-            saveLabel="Crear isla"
+            mode="create"
           />
         )}
       >

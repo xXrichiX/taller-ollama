@@ -288,7 +288,7 @@ export function CitasPage() {
             <ModalActions
               onCancel={() => { setDrawerOpen(false); setSelected(null); setDetail(null); }}
               onSave={updateCita}
-              saveLabel="Guardar cambios"
+              mode="edit"
             />
           ) : undefined
         }
@@ -343,7 +343,7 @@ export function CitasPage() {
               await createCita();
               setCreateOpen(false);
             }}
-            saveLabel={perms.is_cliente ? "Solicitar" : "Registrar orden"}
+            mode="create"
           />
         }
       >

@@ -243,7 +243,7 @@ export function VehiculosPage() {
           <ModalActions
             onCancel={() => setCreateOpen(false)}
             onSave={save}
-            saveLabel="Guardar vehículo"
+            mode="create"
           />
         }
       >

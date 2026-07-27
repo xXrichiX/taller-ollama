@@ -97,7 +97,7 @@ export function ProfileMenu({ onLogout }: { onLogout: () => void }) {
           <ModalActions
             onCancel={() => setProfileOpen(false)}
             onSave={saveProfile}
-            saveLabel="Guardar"
+            mode="edit"
             saving={saving}
           />
         )}

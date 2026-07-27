@@ -39,19 +39,22 @@ export function Modal({
 export function ModalActions({
   onCancel,
   onSave,
-  saveLabel = "Guardar",
+  mode,
+  saveLabel,
   saving = false,
 }: {
   onCancel: () => void;
   onSave: () => void;
+  mode?: "create" | "edit";
   saveLabel?: string;
   saving?: boolean;
 }) {
+  const label = saveLabel ?? (mode === "create" ? "Crear" : "Guardar");
   return (
     <div className="modal-actions">
       <button type="button" className="btn-text" onClick={onCancel}>Cancelar</button>
       <button type="button" className="btn btn-save" onClick={onSave} disabled={saving}>
-        {saveLabel}
+        {label}
       </button>
     </div>
   );

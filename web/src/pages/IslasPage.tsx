@@ -151,7 +151,7 @@ export function IslasPage() {
           <ModalActions
             onCancel={() => setCreateOpen(false)}
             onSave={createIsla}
-            saveLabel="Crear isla"
+            mode="create"
           />
         )}
       >
