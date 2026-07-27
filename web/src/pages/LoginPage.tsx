@@ -1,13 +1,8 @@
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLoader } from "../components/AppLoader";
-import {
-  ApiError,
-  fetchCaptchaChallenge,
-  fetchPublicAuthConfig,
-  type PublicAuthConfig,
-} from "../api/client";
+import { ApiError, fetchPublicAuthConfig, type PublicAuthConfig } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
 const LOGIN_COOLDOWN_SEC = 60;
@@ -26,23 +21,8 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [publicConfig, setPublicConfig] = useState<PublicAuthConfig | null>(null);
   const [captchaToken, setCaptchaToken] = useState("");
-  const [simpleQuestion, setSimpleQuestion] = useState("");
-  const [simpleChallenge, setSimpleChallenge] = useState("");
-  const [simpleAnswer, setSimpleAnswer] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const turnstileRef = useRef<TurnstileInstance | null>(null);
-
-  const loadSimpleCaptcha = useCallback(async () => {
-    try {
-      const data = await fetchCaptchaChallenge();
-      setSimpleChallenge(data.captcha_challenge);
-      setSimpleQuestion(data.question);
-      setSimpleAnswer("");
-    } catch {
-      setSimpleQuestion("");
-      setSimpleChallenge("");
-    }
-  }, []);
 
   useEffect(() => {
     fetchPublicAuthConfig()
@@ -63,12 +43,8 @@ export function LoginPage() {
 
   useEffect(() => {
     setCaptchaToken("");
-    setSimpleAnswer("");
     turnstileRef.current?.reset();
-    if (mode === "register" && publicConfig?.captcha_mode === "simple") {
-      loadSimpleCaptcha();
-    }
-  }, [mode, publicConfig?.captcha_mode, loadSimpleCaptcha]);
+  }, [mode]);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -91,7 +67,6 @@ export function LoginPage() {
   const registrationEnabled = publicConfig?.registration_enabled ?? false;
   const turnstileSiteKey = publicConfig?.turnstile_site_key ?? "";
   const inviteRequired = publicConfig?.invite_required ?? false;
-  const simpleCaptcha = publicConfig?.captcha_mode === "simple";
   const blocked = cooldown > 0;
 
   const startCooldown = (seconds: number, message?: string) => {
@@ -108,12 +83,6 @@ export function LoginPage() {
       setError("Completa la verificación CAPTCHA.");
       return;
     }
-    if (mode === "register" && simpleCaptcha) {
-      if (!simpleChallenge || !simpleAnswer.trim()) {
-        setError("Resuelve la verificación de seguridad.");
-        return;
-      }
-    }
 
     setLoading(true);
     try {
@@ -122,8 +91,6 @@ export function LoginPage() {
         await register(nombre, email, password, {
           inviteCode,
           captchaToken,
-          captchaChallenge: simpleChallenge,
-          captchaAnswer: simpleAnswer.trim(),
         });
       }
       navigate("/", { replace: true });
@@ -137,9 +104,6 @@ export function LoginPage() {
       }
       turnstileRef.current?.reset();
       setCaptchaToken("");
-      if (mode === "register" && simpleCaptcha) {
-        await loadSimpleCaptcha();
-      }
     } finally {
       setLoading(false);
     }
@@ -235,23 +199,6 @@ export function LoginPage() {
                 placeholder="Código proporcionado por el administrador"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value)}
-                required
-                disabled={blocked}
-              />
-            </div>
-          )}
-          {mode === "register" && simpleCaptcha && simpleQuestion && (
-            <div className="form-row">
-              <label htmlFor="login-captcha">Verificación de seguridad</label>
-              <p className="muted captcha-question">{simpleQuestion}</p>
-              <input
-                id="login-captcha"
-                className="login-input"
-                type="number"
-                inputMode="numeric"
-                placeholder="Tu respuesta"
-                value={simpleAnswer}
-                onChange={(e) => setSimpleAnswer(e.target.value)}
                 required
                 disabled={blocked}
               />
