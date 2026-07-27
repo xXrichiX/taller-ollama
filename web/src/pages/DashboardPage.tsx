@@ -138,7 +138,7 @@ export function DashboardPage() {
 
   if (!data) {
     if (loading) {
-      return <AppLoader message="Cargando panel…" fullScreen={false} />;
+      return <AppLoader fullScreen={false} />;
     }
     return null;
   }

@@ -11,55 +11,23 @@
         align-items: center;
         justify-content: center;
         margin: 0;
-        font-family: Inter, system-ui, -apple-system, sans-serif;
         background: #f4f6f8;
-        color: #1f2937;
       }
-      #app-boot .card {
-        text-align: center;
-        padding: 2rem 2.5rem;
-        border-radius: 16px;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
-      }
-      #app-boot .mark {
-        width: 52px;
-        height: 52px;
-        margin: 0 auto 0.85rem;
-        border-radius: 14px;
-        background: linear-gradient(145deg, #2185d0, #1a6daa);
-        display: grid;
-        place-items: center;
-      }
-      #app-boot .mark span {
-        width: 22px;
-        height: 22px;
-        border-radius: 6px;
-        border: 3px solid rgba(255, 255, 255, 0.9);
-        border-top-color: transparent;
-        animation: boot-spin 0.9s linear infinite;
-      }
-      #app-boot h1 {
-        margin: 0 0 0.75rem;
-        font-size: 1.05rem;
-      }
-      #app-boot p {
-        margin: 0;
-        font-size: 0.88rem;
-        color: #6b7280;
+      #app-boot .spinner {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 3px solid #e5e7eb;
+        border-top-color: #2185d0;
+        animation: boot-spin 0.75s linear infinite;
       }
       @keyframes boot-spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
     <div id="root">
-      <div id="app-boot" aria-busy="true" aria-label="Cargando IESPRO-Taller">
-        <div class="card">
-          <div class="mark"><span></span></div>
-          <h1>IESPRO-Taller</h1>
-          <p>Iniciando aplicación…</p>
-        </div>
+      <div id="app-boot" aria-busy="true" aria-label="Cargando">
+        <div class="spinner"></div>
       </div>
     </div>
     <script type="module" src="/src/main.tsx"></script>

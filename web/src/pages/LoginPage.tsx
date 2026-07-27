@@ -19,7 +19,7 @@ export function LoginPage() {
   }, [auth, navigate]);
 
   if (authLoading) {
-    return <AppLoader message="Restaurando sesión…" />;
+    return <AppLoader />;
   }
 
   const submit = async (e: React.FormEvent) => {

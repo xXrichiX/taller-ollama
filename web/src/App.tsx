@@ -15,7 +15,7 @@ import { SucursalesPage } from "./pages/SucursalesPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { auth, loading } = useAuth();
-  if (loading) return <AppLoader message="Restaurando sesión…" />;
+  if (loading) return <AppLoader />;
   if (!auth) return <Navigate to="/login" replace />;
   return children;
 }

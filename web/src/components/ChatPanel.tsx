@@ -26,7 +26,9 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesRequestRef = useRef(0);
   const canStartNewConversation = messages.length > 0;
 
   const scrollBottom = () => {
@@ -42,18 +44,25 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
 
   const loadMessages = useCallback(async (id: number) => {
     if (!auth) return;
-    const res = await api<{ messages: Array<{ role: string; contenido?: string; route?: string }> }>(
-      `/api/chat/conversations/${id}/messages`,
-      {},
-      auth.token,
-    );
-    setMessages(
-      res.messages.map((m) => ({
-        role: m.role,
-        content: m.contenido || "",
-        route: m.route,
-      })),
-    );
+    const requestId = ++messagesRequestRef.current;
+    setLoadingMessages(true);
+    try {
+      const res = await api<{ messages: Array<{ role: string; contenido?: string; route?: string }> }>(
+        `/api/chat/conversations/${id}/messages`,
+        {},
+        auth.token,
+      );
+      if (requestId !== messagesRequestRef.current) return;
+      setMessages(
+        res.messages.map((m) => ({
+          role: m.role,
+          content: m.contenido || "",
+          route: m.route,
+        })),
+      );
+    } finally {
+      if (requestId === messagesRequestRef.current) setLoadingMessages(false);
+    }
   }, [auth]);
 
   useEffect(() => {
@@ -89,9 +98,9 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
   };
 
   const activate = async (id: number) => {
-    if (!auth) return;
-    await api(`/api/chat/conversations/${id}/activate`, { method: "POST" }, auth.token);
+    if (!auth || id === activeId) return;
     setActiveId(id);
+    await api(`/api/chat/conversations/${id}/activate`, { method: "POST" }, auth.token);
   };
 
   const submitMessage = useCallback(async (raw: string) => {
@@ -153,7 +162,7 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
   }, [auth, loadConversations, sending]);
 
   const speech = useSpeechInput({
-    disabled: sending,
+    disabled: false,
     authToken: auth?.token,
     onTranscript: setInput,
     onAutoSend: (text) => {
@@ -208,8 +217,13 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
           </div>
         </div>
         <div className="chat-main">
-          <div className="chat-messages">
-{messages.map((m, i) => (
+          <div className={`chat-messages${loadingMessages ? " is-loading" : ""}`}>
+            {loadingMessages && (
+              <p className="chat-messages-loading" aria-hidden>
+                <span className="app-loader-spinner" />
+              </p>
+            )}
+            {messages.map((m, i) => (
               <div key={i} className={`msg-row ${m.role === "user" ? "user" : "bot"}`}>
                 <div className={`msg-bubble ${m.streaming ? "streaming" : ""}`}>
                   {m.content || (m.streaming ? "▍" : "")}
@@ -225,7 +239,7 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
             <div className={`chat-compose-field${speech.voiceActive ? " voice-active" : ""}`}>
               <VoiceMicButton
                 listening={speech.listening}
-                disabled={sending}
+                disabled={false}
                 onClick={speech.toggleListening}
                 title={speech.listening ? "Detener y enviar" : "Hablar (envía al dejar de hablar)"}
               />
@@ -233,7 +247,6 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Escribe tu pregunta o usa el micrófono…"
-                disabled={sending}
                 className={speech.voiceActive ? "voice-active-input" : undefined}
               />
             </div>
