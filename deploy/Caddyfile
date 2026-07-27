@@ -1,10 +1,15 @@
-# HTTP sigue sirviendo la app (no redirige) para que nunca "muera" el sitio.
-# HTTPS usa certificado autofirmado con la IP del servidor (micrófono).
+# HTTPS automático (Let's Encrypt) en el dominio sslip.io del servidor.
+# El micrófono del navegador SOLO funciona en HTTPS con certificado válido.
+#
+# Ejemplo IP 200.234.226.167 → dominio 200-234-226-167.sslip.io
+# Usa: https://200-234-226-167.sslip.io
 
 {
+	email {$ACME_EMAIL}
 	admin off
 }
 
+# HTTP por IP (sin micrófono) — sigue funcionando como respaldo
 :80 {
 	reverse_proxy frontend:80 {
 		header_up X-Forwarded-Proto {scheme}
@@ -12,8 +17,8 @@
 	}
 }
 
-:443 {
-	tls /etc/certs/server.crt /etc/certs/server.key
+# HTTPS con certificado real — usar esta URL para el asistente de voz
+{$PUBLIC_DOMAIN} {
 	reverse_proxy frontend:80 {
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-Host {host}
