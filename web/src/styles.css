@@ -2560,10 +2560,13 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
   box-shadow: var(--shadow);
 }
 
-.login-card h1 {
-  margin: 0;
+.login-card h1,
+.login-card .login-brand {
+  margin: 0 0 1.5rem;
   font-size: 1.75rem;
   color: var(--iespro-blue);
+  text-align: center;
+  width: 100%;
 }
 
 .login-card .subtitle { color: var(--muted); margin: 0.35rem 0 1.5rem; }

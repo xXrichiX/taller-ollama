@@ -129,6 +129,34 @@ def format_tool_result(name: str, result: Any) -> str:
             return f"Vehículo: {v.get('placa', '?')} — {v.get('modelo', '')}"
         return result.get("error", "No encontré ese vehículo.")
 
+    if name == "crear_cliente_natural" and isinstance(result, dict):
+        if result.get("ok"):
+            tel = result.get("telefono") or "sin teléfono"
+            return f"Cliente registrado: {result.get('nombre', '?')} (tel. {tel})."
+        return result.get("error", "No se pudo registrar el cliente.")
+
+    if name == "crear_vehiculo_natural" and isinstance(result, dict):
+        if result.get("ok"):
+            return (
+                f"Vehículo registrado: {result.get('placa', '?')} "
+                f"({result.get('marca', '')} {result.get('modelo', '')}).".strip()
+            )
+        return result.get("error", "No se pudo registrar el vehículo.")
+
+    if name == "crear_servicio_natural" and isinstance(result, dict):
+        if result.get("ok"):
+            precio = result.get("precio", 0)
+            return f"Servicio creado: {result.get('nombre', '?')} (${precio:.2f})."
+        return result.get("error", "No se pudo crear el servicio.")
+
+    if name == "crear_inventario_natural" and isinstance(result, dict):
+        if result.get("ok"):
+            return (
+                f"Artículo agregado al inventario: {result.get('nombre', '?')} "
+                f"({result.get('cantidad', 0)} en stock)."
+            )
+        return result.get("error", "No se pudo agregar al inventario.")
+
     if name == "crear_cita_natural" and isinstance(result, dict):
         if result.get("ok"):
             return (

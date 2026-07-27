@@ -99,6 +99,90 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "crear_cliente_natural",
+            "description": (
+                "Registra un cliente nuevo en el taller. Solo llámala cuando tengas al menos el nombre. "
+                "Si faltan datos, pregunta al usuario antes."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre": {"type": "string", "description": "Nombre completo del cliente"},
+                    "telefono": {"type": "string", "description": "Teléfono (solo números)"},
+                    "email": {"type": "string", "description": "Correo electrónico"},
+                },
+                "required": ["nombre"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_vehiculo_natural",
+            "description": (
+                "Registra un vehículo para un cliente (por nombre de cliente o placa). "
+                "Requiere placa; modelo y marca son opcionales."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "placa": {"type": "string"},
+                    "nombre_cliente": {"type": "string", "description": "Cliente dueño del vehículo"},
+                    "modelo": {"type": "string"},
+                    "marca": {"type": "string", "description": "Marca del auto, ej. Toyota"},
+                    "id_sucursal": {"type": "integer"},
+                },
+                "required": ["placa"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_servicio_natural",
+            "description": (
+                "Crea un servicio del catálogo del taller (tipo de mantenimiento). "
+                "Requiere nombre; precio y descripción son opcionales."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre": {"type": "string"},
+                    "descripcion": {"type": "string"},
+                    "precio": {"type": "number", "description": "Precio en pesos"},
+                    "id_sucursal": {"type": "integer"},
+                },
+                "required": ["nombre"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "crear_inventario_natural",
+            "description": (
+                "Agrega un artículo al inventario de la isla activa. "
+                "Requiere nombre; cantidad, código y precio son opcionales."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nombre": {"type": "string"},
+                    "codigo": {"type": "string"},
+                    "cantidad": {"type": "number"},
+                    "stock_minimo": {"type": "number"},
+                    "precio_unitario": {"type": "number"},
+                    "unidad": {"type": "string", "description": "Ej. pza, lt, kg"},
+                    "descripcion": {"type": "string"},
+                    "id_isla": {"type": "integer"},
+                },
+                "required": ["nombre"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "contar_inventario",
             "description": (
                 "Cuenta artículos en inventario/stock de la isla activa. "
@@ -300,10 +384,14 @@ CLIENTE_DENIED_TOOLS = frozenset({
     "listar_mecanicos",
     "listar_islas",
     "listar_inventario",
+    "contar_inventario",
     "mecanicos_en_isla",
     "cambiar_estado_cita_natural",
     "cambiar_estado_cita",
     "editar_cita_natural",
+    "crear_cliente_natural",
+    "crear_servicio_natural",
+    "crear_inventario_natural",
 })
 
 
@@ -316,6 +404,10 @@ MECANICO_DENIED_TOOLS = frozenset({
     "crear_cita_natural",
     "editar_cita_natural",
     "cancelar_cita_natural",
+    "crear_cliente_natural",
+    "crear_vehiculo_natural",
+    "crear_servicio_natural",
+    "crear_inventario_natural",
 })
 
 
@@ -351,6 +443,10 @@ class ToolsService:
             "crear_cita_natural": self._crear_cita_natural,
             "buscar_cliente": self._buscar_cliente,
             "buscar_vehiculo": self._buscar_vehiculo,
+            "crear_cliente_natural": self._crear_cliente_natural,
+            "crear_vehiculo_natural": self._crear_vehiculo_natural,
+            "crear_servicio_natural": self._crear_servicio_natural,
+            "crear_inventario_natural": self._crear_inventario_natural,
             "cambiar_estado_cita_natural": self._cambiar_estado_cita_natural,
             "cancelar_cita_natural": self._cancelar_cita_natural,
             "editar_cita_natural": self._editar_cita_natural,
@@ -408,6 +504,8 @@ class ToolsService:
         if self.es_cliente and self.id_cliente:
             if name in ("listar_citas", "contar_citas", "listar_vehiculos", "vehiculos_de_cliente", "buscar_vehiculo"):
                 scoped["id_cliente"] = self.id_cliente
+            if name == "crear_vehiculo_natural":
+                scoped["nombre_cliente"] = self.nombre_cliente
             if name == "crear_cita_natural" and self.nombre_cliente:
                 scoped["nombre_cliente"] = self.nombre_cliente
                 scoped.setdefault("asignacion_automatica", True)
@@ -422,6 +520,9 @@ class ToolsService:
                 "listar_citas",
                 "contar_citas",
                 "crear_cita_natural",
+                "crear_vehiculo_natural",
+                "crear_servicio_natural",
+                "crear_inventario_natural",
                 "cambiar_estado_cita_natural",
                 "cancelar_cita_natural",
                 "editar_cita_natural",
@@ -463,8 +564,10 @@ class ToolsService:
                 scoped["id_mecanico_asignado"] = self.id_mecanico
                 if self.id_sucursal:
                     scoped["id_sucursal"] = self.id_sucursal
-        if self.id_isla and name in ("listar_inventario", "contar_inventario"):
+        if self.id_isla and name in ("listar_inventario", "contar_inventario", "crear_inventario_natural"):
             scoped.setdefault("id_isla", self.id_isla)
+        if self.id_sucursal and name in ("crear_cliente_natural", "crear_vehiculo_natural", "crear_servicio_natural"):
+            scoped.setdefault("id_sucursal", self.id_sucursal)
         return scoped
 
     def _missing_cita_fields(self, args: dict, auto: bool) -> list[str]:
@@ -581,6 +684,169 @@ class ToolsService:
 
     def _listar_mecanicos(self, args: dict) -> list[dict]:
         return cita_service.list_mecanicos(args.get("id_sucursal", 1))
+
+    def _resolve_marca_id(self, nombre: str | None) -> int:
+        marcas = catalog_service.list_marcas()
+        if not marcas:
+            return 1
+        if nombre:
+            norm = nombre.strip().lower()
+            for m in marcas:
+                if (m.get("nombre") or "").lower() == norm:
+                    return int(m["id"])
+            for m in marcas:
+                if norm in (m.get("nombre") or "").lower():
+                    return int(m["id"])
+        return int(marcas[0]["id"])
+
+    def _crear_cliente_natural(self, args: dict) -> dict:
+        nombre = (args.get("nombre") or "").strip()
+        if len(nombre) < 2:
+            return {
+                "ok": False,
+                "error": "Para crear el cliente necesito el nombre completo.",
+                "faltan": ["nombre"],
+                "recoverable": True,
+            }
+        telefono = (args.get("telefono") or "").strip()
+        email = (args.get("email") or "").strip()
+        if telefono and (len(telefono) < 7 or not any(ch.isdigit() for ch in telefono)):
+            return {"ok": False, "error": "Teléfono inválido. Usa solo números.", "recoverable": True}
+        if email and ("@" not in email or "." not in email.split("@")[-1]):
+            return {"ok": False, "error": "Correo inválido.", "recoverable": True}
+        id_cliente = catalog_service.create_cliente(nombre, telefono, email, None)
+        return {"ok": True, "id_cliente": id_cliente, "nombre": nombre, "telefono": telefono or None}
+
+    def _crear_vehiculo_natural(self, args: dict) -> dict:
+        from config import DEFAULT_SUCURSAL_ID
+
+        placa_raw = (args.get("placa") or "").strip()
+        if not placa_raw:
+            return {
+                "ok": False,
+                "error": "Para registrar el vehículo necesito la placa.",
+                "faltan": ["placa"],
+                "recoverable": True,
+            }
+        placa = cita_service._norm_placa(placa_raw)
+        if not placa:
+            placa = placa_raw.upper()
+
+        id_sucursal = args.get("id_sucursal") or self.id_sucursal or DEFAULT_SUCURSAL_ID
+        id_cliente = self.id_cliente if self.es_cliente else None
+        nombre_cliente = (args.get("nombre_cliente") or "").strip()
+
+        if self.es_cliente and self.id_cliente:
+            id_cliente = self.id_cliente
+        elif nombre_cliente:
+            cliente_res = cita_service.find_cliente_by_nombre(nombre_cliente)
+            if not cliente_res.get("ok"):
+                return cliente_res
+            id_cliente = cliente_res["cliente"]["id"]
+        else:
+            return {
+                "ok": False,
+                "error": "Indica a qué cliente pertenece el vehículo (nombre del cliente).",
+                "faltan": ["nombre del cliente"],
+                "recoverable": True,
+            }
+
+        marcas = catalog_service.list_marcas()
+        combustibles = catalog_service.list_tipos_combustible()
+        unidades = catalog_service.list_tipos_unidad()
+        id_marca = self._resolve_marca_id(args.get("marca"))
+        id_combustible = int(combustibles[0]["id"]) if combustibles else 1
+        id_unidad = int(unidades[0]["id"]) if unidades else 1
+        modelo = (args.get("modelo") or "Sin especificar").strip() or "Sin especificar"
+
+        id_usuario = catalog_service.ensure_cliente_usuario(int(id_cliente))
+        id_mecanico = self.id_mecanico if self.es_mecanico and not self.es_propietario else None
+
+        vid = cita_service.create_vehiculo({
+            "numero_economico": "",
+            "placa": placa,
+            "serie": "",
+            "id_marca": id_marca,
+            "modelo": modelo,
+            "id_tipo_combustible": id_combustible,
+            "id_tipo_unidad": id_unidad,
+            "kilometraje": 0,
+            "dias_mantenimiento": 90,
+            "observaciones": None,
+            "id_cliente": id_cliente,
+            "id_usuario": id_usuario,
+            "id_sucursal": id_sucursal,
+            "id_mecanico_asignado": id_mecanico,
+        })
+        marca_nombre = next((m["nombre"] for m in marcas if int(m["id"]) == id_marca), "")
+        return {
+            "ok": True,
+            "id_vehiculo": vid,
+            "placa": placa,
+            "modelo": modelo,
+            "marca": marca_nombre,
+            "id_cliente": id_cliente,
+        }
+
+    def _crear_servicio_natural(self, args: dict) -> dict:
+        from config import DEFAULT_SUCURSAL_ID
+
+        nombre = (args.get("nombre") or "").strip()
+        if len(nombre) < 2:
+            return {
+                "ok": False,
+                "error": "Para crear el servicio necesito el nombre.",
+                "faltan": ["nombre del servicio"],
+                "recoverable": True,
+            }
+        id_sucursal = args.get("id_sucursal") or self.id_sucursal or DEFAULT_SUCURSAL_ID
+        descripcion = (args.get("descripcion") or "").strip()
+        precio = float(args.get("precio") or 0)
+        if precio < 0:
+            return {"ok": False, "error": "El precio no puede ser negativo.", "recoverable": True}
+        sid = catalog_service.create_tipo_mantenimiento(nombre, descripcion, precio, int(id_sucursal))
+        return {"ok": True, "id_servicio": sid, "nombre": nombre, "precio": precio}
+
+    def _crear_inventario_natural(self, args: dict) -> dict:
+        from config import DEFAULT_SUCURSAL_ID
+
+        nombre = (args.get("nombre") or "").strip()
+        if len(nombre) < 2:
+            return {
+                "ok": False,
+                "error": "Para agregar al inventario necesito el nombre del artículo.",
+                "faltan": ["nombre"],
+                "recoverable": True,
+            }
+        id_isla = args.get("id_isla") or self.id_isla
+        if not id_isla:
+            return {
+                "ok": False,
+                "error": "Selecciona una isla en la barra superior para agregar inventario.",
+                "recoverable": True,
+            }
+        id_sucursal = args.get("id_sucursal") or self.id_sucursal or DEFAULT_SUCURSAL_ID
+        cantidad = float(args.get("cantidad") or 0)
+        stock_minimo = float(args.get("stock_minimo") or 0)
+        precio_unitario = float(args.get("precio_unitario") or 0)
+        if cantidad < 0 or stock_minimo < 0 or precio_unitario < 0:
+            return {"ok": False, "error": "Cantidades y precios no pueden ser negativos.", "recoverable": True}
+        iid = inventory_service.create_item(int(id_sucursal), int(id_isla), {
+            "codigo": (args.get("codigo") or "").strip(),
+            "nombre": nombre,
+            "descripcion": (args.get("descripcion") or "").strip(),
+            "cantidad": cantidad,
+            "stock_minimo": stock_minimo,
+            "precio_unitario": precio_unitario,
+            "unidad": (args.get("unidad") or "pza").strip() or "pza",
+        })
+        return {
+            "ok": True,
+            "id_inventario": iid,
+            "nombre": nombre,
+            "cantidad": cantidad,
+            "id_isla": int(id_isla),
+        }
 
     def _crear_cita_natural(self, args: dict) -> dict:
         from config import DEFAULT_SUCURSAL_ID

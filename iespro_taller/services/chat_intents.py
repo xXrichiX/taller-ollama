@@ -52,6 +52,10 @@ SUBSTANTIVE_WORKSHOP_HINTS = (
 
 MUTATING_TOOLS = frozenset({
     "crear_cita_natural",
+    "crear_cliente_natural",
+    "crear_vehiculo_natural",
+    "crear_servicio_natural",
+    "crear_inventario_natural",
     "cambiar_estado_cita_natural",
     "cambiar_estado_cita",
     "cancelar_cita_natural",
@@ -96,9 +100,41 @@ def is_create_cita_intent(question: str) -> bool:
     q = _norm(question)
     if not re.search(r"\b(crea|crear|creame|agenda|agendar|solicita|solicitar)\b", q):
         return False
-    if any(w in q for w in ("cita", "citas", "servicio", "orden", "ordenes")):
+    if re.search(
+        r"\b(crea|crear|creame|registra|agrega)\b.*\b(cliente|vehiculo|vehículo|inventario|articulo|artículo|pieza|refaccion|refacción)\b",
+        q,
+    ):
+        return False
+    if re.search(r"\b(crea|crear|creame|registra|agrega)\s+(un\s+)?servicio\b", q) and "cita" not in q:
+        return False
+    if any(w in q for w in ("cita", "citas", "orden", "ordenes")):
         return True
     return bool(re.search(r"\b(crea|crear|creame)\s+(\d+|una?)\b", q))
+
+
+def is_create_cliente_intent(question: str) -> bool:
+    q = _norm(question)
+    return bool(re.search(r"\b(crea|crear|creame|registra|agrega)\b.*\bcliente", q))
+
+
+def is_create_vehiculo_intent(question: str) -> bool:
+    q = _norm(question)
+    return bool(re.search(r"\b(crea|crear|creame|registra|agrega)\b.*\b(vehiculo|vehículo|auto|carro)\b", q))
+
+
+def is_create_servicio_intent(question: str) -> bool:
+    q = _norm(question)
+    return bool(
+        re.search(r"\b(crea|crear|creame|registra|agrega)\s+(un\s+)?servicio\b", q)
+        and "cita" not in q
+    )
+
+
+def is_create_inventario_intent(question: str) -> bool:
+    q = _norm(question)
+    return bool(
+        re.search(r"\b(crea|crear|creame|registra|agrega)\b.*\b(inventario|articulo|artículo|pieza|refaccion|refacción|stock)\b", q)
+    )
 
 
 def _question_has_cliente_name(question: str) -> bool:
@@ -161,6 +197,98 @@ def get_guided_create_cita_answer(
         ejemplo = "\n\nEjemplo: crea cita para Juan Pérez, placa ABC-123, mecánico Carlos, isla 1, falla: ruido en frenos."
 
     return intro + "\n".join(f"- {item}" for item in needed) + ejemplo
+
+
+def is_incomplete_create_cliente_request(question: str) -> bool:
+    if not is_create_cliente_intent(question):
+        return False
+    q = _norm(question)
+    return not re.search(r"\bcliente\s+[a-záéíóúñ]{2,}", q)
+
+
+def is_incomplete_create_vehiculo_request(question: str) -> bool:
+    if not is_create_vehiculo_intent(question):
+        return False
+    has_placa = bool(extract_placa_from_text(question))
+    q = _norm(question)
+    has_cliente = _question_has_cliente_name(question) or "mi auto" in q or "mi vehiculo" in q or "mi vehículo" in q
+    if has_placa and has_cliente:
+        return False
+    return True
+
+
+def is_incomplete_create_servicio_request(question: str) -> bool:
+    if not is_create_servicio_intent(question):
+        return False
+    q = _norm(question)
+    return not re.search(r"\bservicio\s+[a-záéíóúñ0-9]", q)
+
+
+def is_incomplete_create_inventario_request(question: str) -> bool:
+    if not is_create_inventario_intent(question):
+        return False
+    q = _norm(question)
+    return not any(
+        term in q
+        for term in ("llamado", "llamada", "nombre", "de aceite", "de freno", "pieza ")
+    ) and not re.search(r"\b(inventario|articulo|artículo|pieza)\s+[a-záéíóúñ]{3,}", q)
+
+
+def get_guided_create_entity_answer(
+    question: str,
+    *,
+    es_propietario: bool = False,
+    es_cliente: bool = False,
+) -> str | None:
+    if is_incomplete_create_cliente_request(question):
+        if es_cliente:
+            return None
+        return (
+            "Te ayudo a registrar al cliente. Necesito:\n\n"
+            "- Nombre completo\n"
+            "- Teléfono (opcional)\n"
+            "- Correo (opcional)\n\n"
+            "Ejemplo: crea cliente Juan Pérez, teléfono 9991234567"
+        )
+
+    if is_incomplete_create_vehiculo_request(question):
+        if es_cliente:
+            return (
+                "Registro tu vehículo. Dime:\n\n"
+                "- Placa\n"
+                "- Modelo (opcional)\n\n"
+                "Ejemplo: registra mi vehículo placa ABC-123, modelo Corolla 2020"
+            )
+        return (
+            "Te ayudo a registrar el vehículo. Necesito:\n\n"
+            "- Placa\n"
+            "- Cliente (nombre)\n"
+            "- Modelo y marca (opcionales)\n\n"
+            "Ejemplo: crea vehículo placa ABC-123 para Juan Pérez, modelo Aveo"
+        )
+
+    if is_incomplete_create_servicio_request(question):
+        if es_cliente:
+            return None
+        return (
+            "Creo el servicio en tu catálogo. Necesito:\n\n"
+            "- Nombre del servicio\n"
+            "- Precio (opcional)\n\n"
+            "Ejemplo: crea servicio Cambio de aceite, precio 500"
+        )
+
+    if is_incomplete_create_inventario_request(question):
+        if es_cliente:
+            return None
+        return (
+            "Agrego el artículo al inventario de tu isla. Necesito:\n\n"
+            "- Nombre del artículo\n"
+            "- Cantidad (opcional)\n"
+            "- Código o precio (opcionales)\n\n"
+            "Ejemplo: agrega al inventario filtro de aceite, cantidad 10"
+        )
+
+    return None
 
 
 PERSONAL_VEHICLE_MARKERS = (
@@ -327,6 +455,10 @@ def _is_action_request(question: str) -> bool:
     markers = (
         "crea una cita", "crear una cita", "creame una cita", "crear cita",
         "creame cita", "crea cita", "creame 1 cita", "crea 1 cita",
+        "crea cliente", "crear cliente", "registra cliente",
+        "crea vehiculo", "crear vehiculo", "registra vehiculo",
+        "crea servicio", "crear servicio", "agrega servicio",
+        "crea inventario", "agrega inventario", "agregar inventario",
         "agenda una cita", "agendar cita", "marca como", "marcar como",
         "lista los", "lista las", "listar ", "listame", "cambia el estado",
         "buscar fallas", "busca fallas",
@@ -444,11 +576,11 @@ def get_casual_chat_answer(rol_nombre: str | None = None) -> str:
 
     if is_cliente(rol_nombre):
         return (
-            "Soy el asistente de IESPRO-Taller. Te ayudo con tus citas y vehículos. "
+            "Soy tu asistente. Te ayudo con tus citas y vehículos. "
             "¿Qué necesitas?"
         )
     return (
-        "Soy el asistente de IESPRO-Taller. Te ayudo con citas, clientes, vehículos e inventario. "
+        "Soy tu asistente. Te ayudo con citas, clientes, vehículos, servicios e inventario. "
         "¿Qué necesitas?"
     )
 
@@ -561,8 +693,12 @@ Historial de fallas parecidas:
 - ¿Hay casos similares a ruido al frenar?
 
 Acciones que ejecuto en el sistema:
-- Si pides crear una cita, te voy pidiendo los datos que falten (cliente, placa, falla).
-- Crea una cita para Roberto García, placa ABC-123, falla: ruido en frenos
+- Te guío paso a paso para crear clientes, vehículos, servicios, inventario y citas.
+- Crea cliente Juan Pérez, teléfono 9991234567
+- Crea vehículo placa ABC-123 para Juan Pérez
+- Crea servicio Cambio de aceite, precio 500
+- Agrega al inventario filtro de aceite, cantidad 10
+- Crea cita para Roberto García, placa ABC-123, falla: ruido en frenos
 - Edita la cita de ABC-123: cambia el mecánico a Ana y la falla a vibración en volante
 - Marca como completada la cita de la placa ABC-123
 - Cancela (o elimina) la cita de la placa ABC-123 — queda inactiva, no se borra de la base
@@ -576,13 +712,13 @@ Consultas del taller completo:
 - ¿Cuántas citas hay? ¿Cuántos clientes o vehículos?
 - Fallas similares por placa, cliente o síntoma en todo el historial
 
-Flujo de mostrador (cliente sin app):
-- Registra cliente, vehículo y cita desde las pestañas Clientes, Vehículos y Citas
-- O pídeme por chat, por ejemplo:
-  Crea una cita para María López, placa XYZ-789, mecánico Carlos, isla 2, falla: ruido en frenos
+Flujo por chat (te pido los datos que falten):
+- Crea cliente → luego vehículo → luego cita, en el orden que quieras
+- Ejemplo: Crea cliente María López, luego vehículo ABC-123 para María, luego cita con falla de frenos
 
 Acciones en el sistema:
-- Crear, editar o cancelar citas de cualquier placa
+- Crear clientes, vehículos, servicios del catálogo, artículos de inventario y citas
+- Editar o cancelar citas de cualquier placa
 - Cambiar mecánico, isla, falla o estado de una cita
 - Listar citas, clientes, vehículos, mecánicos, islas e inventario/stock de la isla activa
 
@@ -615,20 +751,20 @@ def get_greeting_answer(rol_nombre: str | None = None) -> str:
 
 CAPABILITIES_ANSWER_CLIENTE = """Puedo ayudarte con tus vehículos y citas:
 
+- Registrar tu vehículo por chat (placa y modelo)
 - Ver cuántas citas tienes o listar las tuyas
-- Agendar cita con la placa de tu auto y la falla (el taller asigna mecánico e isla)
-- Cancelar una cita activa de tu vehículo, por ejemplo: cancela la cita de ABC-123
-- Buscar fallas similares si mencionas la placa de tu auto
+- Agendar cita con la placa de tu auto y la falla
+- Cancelar una cita activa de tu vehículo
+- Buscar fallas similares de tu placa
 
-Primero registra tu vehículo en la pestaña Vehículos si aún no lo has hecho.
-No puedo ver datos de otros clientes ni gestionar el taller completo."""
+Ejemplo: registra mi vehículo placa ABC-123, modelo Corolla"""
 
 
-GREETING_ANSWER_CLIENTE = """Hola. Soy el asistente de IESPRO-Taller.
+GREETING_ANSWER_CLIENTE = """Hola. Soy tu asistente.
 
-Puedo ayudarte con tus citas y tus vehículos registrados.
+Puedo ayudarte con tus citas y vehículos.
 
-Dime qué necesitas, por ejemplo: lista mis citas, o agenda cita para mi placa ABC-123 con falla de frenos."""
+Dime qué necesitas, por ejemplo: lista mis citas, o registra mi vehículo placa ABC-123."""
 
 
 CAPABILITIES_ANSWER_MECANICO = """Como mecánico solo trabajo con TU historial en la sucursal activa:
@@ -641,11 +777,11 @@ CAPABILITIES_ANSWER_MECANICO = """Como mecánico solo trabajo con TU historial e
 No puedo ver el trabajo de otros mecánicos ni datos de otras sucursales."""
 
 
-GREETING_ANSWER_MECANICO = """Hola. Soy el asistente de IESPRO-Taller.
+GREETING_ANSWER_MECANICO = """Hola. Soy tu asistente.
 
 Estás en modo mecánico: solo veo tu historial en esta sucursal.
 
-Dime qué necesitas, por ejemplo: lista mis citas, o ¿hay casos míos similares a ruido al frenar?"""
+Dime qué necesitas, por ejemplo: lista mis citas."""
 
 
 MECANICO_FALLBACK_ANSWER = """No entendí bien eso.
@@ -658,32 +794,32 @@ Prueba con:
 - Fallas similares a ruido al frenar"""
 
 
-GREETING_ANSWER_STAFF = """Hola. Soy el asistente de IESPRO-Taller.
+GREETING_ANSWER_STAFF = """Hola. Soy tu asistente.
 
-Estás en modo personal del taller: puedo consultar todo el historial, buscar fallas por placa o cliente, y crear o modificar citas en nombre de cualquier cliente.
+Puedo crear clientes, vehículos, servicios, inventario y citas; también consultar y buscar fallas.
 
-Dime qué necesitas, por ejemplo: fallas similares a la placa ABC-123, o crea una cita para Roberto García."""
+Dime qué necesitas, por ejemplo: crea un cliente, o ¿cuántas citas hay?"""
 
 
-GREETING_ANSWER = """Hola. Soy el asistente de IESPRO-Taller.
+GREETING_ANSWER = """Hola. Soy tu asistente.
 
-Puedo ayudarte con citas, clientes, vehículos, islas y mecánicos del taller.
+Puedo ayudarte con citas, clientes, vehículos, servicios e inventario.
 
-Dime qué necesitas, por ejemplo: ¿Cuántas citas hay? o lista los clientes."""
+Dime qué necesitas, por ejemplo: ¿cuántas citas hay? o crea un cliente."""
 
 
 FRIENDLY_FALLBACK_ANSWER = """No entendí bien eso, pero aquí estoy.
 
-Soy el asistente del taller. Puedo consultar datos, crear citas o buscar fallas parecidas.
+Soy tu asistente del taller. Puedo consultar datos, crear registros o buscar fallas parecidas.
 
 Prueba con algo como:
 - ¿Cuántas citas hay?
-- Lista los clientes
-- Crea una cita para Roberto García, placa ABC-123, mecánico Carlos, isla 1, falla: ruido en frenos"""
+- Crea un cliente
+- Crea vehículo placa ABC-123 para Juan Pérez"""
 
 
 INVALID_INPUT_ANSWER = FRIENDLY_FALLBACK_ANSWER
 
-ACKNOWLEDGMENT_ANSWER = """Entendido. ¿En qué más te ayudo con el taller?
+ACKNOWLEDGMENT_ANSWER = """Listo. ¿Quieres que haga algo más?
 
-Puedo listar citas, contar pendientes, buscar fallas parecidas o agendar una cita."""
+Puedo crear otro cliente, vehículo, servicio, artículo de inventario o una cita."""

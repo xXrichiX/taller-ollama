@@ -40,8 +40,7 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>IESPRO-Taller</h1>
-        <p className="subtitle">Gestión de taller y citas</p>
+        <h1 className="login-brand">IESPRO</h1>
         <form onSubmit={submit} className="form-grid">
           {mode === "register" && (
             <div className="form-row">

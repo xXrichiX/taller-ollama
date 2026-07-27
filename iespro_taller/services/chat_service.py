@@ -32,6 +32,7 @@ from services.chat_intents import (
     get_casual_chat_answer,
     get_friendly_fallback_answer,
     get_guided_create_cita_answer,
+    get_guided_create_entity_answer,
     get_greeting_answer,
     is_acknowledgment,
     is_capabilities_question,
@@ -66,13 +67,16 @@ from services.agents.orchestrator import MultiAgentOrchestrator
 
 SUCURSAL_TOOLS = frozenset({
     "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
-    "crear_cita_natural", "cambiar_estado_cita_natural",
+    "crear_cita_natural", "crear_cliente_natural", "crear_vehiculo_natural",
+    "crear_servicio_natural",
+    "cambiar_estado_cita_natural",
     "cancelar_cita_natural", "editar_cita_natural",
 })
 
 ISLA_TOOLS = frozenset({
     "listar_inventario",
     "contar_inventario",
+    "crear_inventario_natural",
 })
 
 logger = logging.getLogger(__name__)
@@ -86,12 +90,12 @@ FORMATO DE RESPUESTA (obligatorio):
 """
 
 SYSTEM_PROMPT = """
-Eres el asistente IA de IESPRO-Taller (sistema de citas automotrices).
+Eres el asistente IA del taller (citas automotrices). Preséntate como "tu asistente", sin mencionar marcas ni productos.
 
 Decide cómo responder:
 - Preguntas de conteo o datos estructurados (cuántas citas, clientes, vehículos, inventario/stock, mecánicos en isla) → usa tools o SQL.
 - Comparar fallas, buscar casos parecidos, contexto de síntomas → usa buscar_fallas_similares (RAG).
-- Acciones (crear, editar o cancelar citas, cambiar estado, listar) → usa function calling.
+- Acciones (crear, editar o cancelar citas, clientes, vehículos, servicios, inventario; cambiar estado; listar) → usa function calling.
 
 Reglas:
 1. Responde en español, claro y profesional.
@@ -102,10 +106,11 @@ Reglas:
 6. Para editar citas usa editar_cita_natural con placa y los campos a cambiar.
 7. Para cancelar usa cancelar_cita_natural (también si el usuario dice eliminar o calear por error de voz).
 8. Si el usuario dice "orden" u "órdenes", se refiere a CITAS. Usa siempre la palabra cita al responder.
-9. Para CREAR una cita: no llames crear_cita_natural hasta tener los datos mínimos (cliente, placa o vehículo, falla).
-   Si faltan datos, pregunta en español claro qué falta, uno o dos campos por mensaje, por ejemplo:
-   "Para crear la cita necesito: nombre del cliente, placa del vehículo y qué falla reporta."
-   Si el usuario es dueño de taller o cliente, no pidas mecánico ni isla (se asignan solos).
+9. Para CREAR algo (cliente, vehículo, servicio, inventario o cita): no llames la tool hasta tener los datos mínimos.
+   Si faltan datos, pregunta en español claro, uno o dos campos por mensaje.
+   Tras crear algo con éxito, pregunta brevemente si quiere hacer algo más.
+10. Flujo típico: cliente → vehículo → cita. Puedes guiar ese orden si el usuario lo pide.
+11. Si el usuario es dueño de taller o cliente, no pidas mecánico ni isla al agendar citas (se asignan solos).
 """ + PLAIN_TEXT_RULE
 
 STAFF_MANAGER_PROMPT = """
@@ -115,7 +120,8 @@ Reglas para admin de sucursal:
 - Puedes crear, editar y cancelar citas de cualquier placa o cliente de tu sucursal.
 - Puedes asignar y reasignar mecánicos e islas.
 - Puedes consultar inventario y stock bajo de la isla activa (cuántos artículos hay o listar piezas).
-- Al crear citas por chat, pide los datos que falten paso a paso (cliente, placa, falla).
+- Puedes crear clientes, vehículos, servicios del catálogo, artículos de inventario y citas por chat.
+- Al crear, pide los datos que falten paso a paso y ofrece seguir con el siguiente paso del flujo.
 - Para fallas similares, busca por placa, nombre de cliente o síntoma en todo el historial de la sucursal.
 - No asumas "mi auto" ni vehículos del usuario logueado; el personal no tiene autos personales aquí.
 """
@@ -725,6 +731,15 @@ class ChatService:
             answer = stream_answer(get_capabilities_answer(self.rol_nombre))
             return finalize(answer, "help")
 
+        guided_entity = get_guided_create_entity_answer(
+            question,
+            es_propietario=self.es_propietario,
+            es_cliente=is_cliente(self.rol_nombre),
+        )
+        if guided_entity:
+            answer = stream_answer(guided_entity)
+            return finalize(answer, "guided_create")
+
         guided_create = get_guided_create_cita_answer(
             question,
             es_propietario=self.es_propietario,
@@ -952,6 +967,10 @@ class ChatService:
             "listar_mecanicos": "Consultando mecánicos...",
             "buscar_fallas_similares": "Buscando fallas similares...",
             "crear_cita_natural": "Agendando cita...",
+            "crear_cliente_natural": "Registrando cliente...",
+            "crear_vehiculo_natural": "Registrando vehículo...",
+            "crear_servicio_natural": "Creando servicio...",
+            "crear_inventario_natural": "Agregando al inventario...",
             "editar_cita_natural": "Actualizando cita...",
             "cancelar_cita_natural": "Cancelando cita...",
             "cambiar_estado_cita_natural": "Actualizando estado de cita...",
