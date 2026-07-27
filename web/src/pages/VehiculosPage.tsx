@@ -5,6 +5,11 @@ import { FormInput, FormSelect, FormTextarea } from "../components/forms";
 import { ListFilter, ListFilterSelect, uniqueColumnValues, useFilterModal } from "../components/ListFilter";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
+import {
+  parseInteger,
+  requireInteger,
+  requireText,
+} from "../utils/formValidation";
 
 interface Vehiculo {
   id: number;
@@ -103,16 +108,28 @@ export function VehiculosPage() {
   const save = async () => {
     if (!auth) return;
     setError("");
+    const err =
+      requireText(form.placa, "la placa")
+      || requireInteger(form.kilometraje, "El kilometraje")
+      || requireInteger(form.dias_mantenimiento, "Los días de mantenimiento", 1);
+    if (err) {
+      setError(err);
+      return;
+    }
+    if (!perms.is_cliente && !form.id_cliente) {
+      setError("Selecciona el propietario del vehículo.");
+      return;
+    }
     try {
       await api("/api/vehiculos", {
         method: "POST",
         body: JSON.stringify({
           numero_economico: form.numero_economico,
-          placa: form.placa,
+          placa: form.placa.trim(),
           serie: form.serie,
           modelo: form.modelo,
-          kilometraje: Number(form.kilometraje),
-          dias_mantenimiento: Number(form.dias_mantenimiento),
+          kilometraje: parseInteger(form.kilometraje) ?? 0,
+          dias_mantenimiento: parseInteger(form.dias_mantenimiento) ?? 90,
           observaciones: form.observaciones || null,
           id_cliente: perms.is_cliente ? null : Number(form.id_cliente),
           id_marca: Number(form.id_marca),
@@ -236,8 +253,8 @@ export function VehiculosPage() {
           <FormInput label="Número económico" value={form.numero_economico} onChange={(v) => setForm({ ...form, numero_economico: v })} placeholder="Ingresar número" />
           <FormInput label="Serie" value={form.serie} onChange={(v) => setForm({ ...form, serie: v })} placeholder="Ingresar serie" />
           <FormInput label="Modelo" value={form.modelo} onChange={(v) => setForm({ ...form, modelo: v })} placeholder="Ingresar modelo" />
-          <FormInput label="Kilometraje" type="number" value={form.kilometraje} onChange={(v) => setForm({ ...form, kilometraje: v })} />
-          <FormInput label="Días mantenimiento" type="number" value={form.dias_mantenimiento} onChange={(v) => setForm({ ...form, dias_mantenimiento: v })} />
+          <FormInput label="Kilometraje" type="integer" value={form.kilometraje} onChange={(v) => setForm({ ...form, kilometraje: v })} />
+          <FormInput label="Días mantenimiento" type="integer" value={form.dias_mantenimiento} onChange={(v) => setForm({ ...form, dias_mantenimiento: v })} />
           <FormSelect
             label="Marca"
             value={form.id_marca}

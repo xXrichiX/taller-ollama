@@ -619,10 +619,19 @@ def list_clientes(session: AppSession = Depends(require_session)):
 def create_cliente(body: ClienteCreate, session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail="Sin permiso")
+  nombre = body.nombre.strip()
+  telefono = body.telefono.strip()
+  email = body.email.strip()
+  if len(nombre) < 2:
+    raise HTTPException(status_code=400, detail="Indica el nombre del cliente.")
+  if telefono and (len(telefono) < 7 or not any(ch.isdigit() for ch in telefono)):
+    raise HTTPException(status_code=400, detail="Teléfono inválido. Usa solo números.")
+  if email and ("@" not in email or "." not in email.split("@")[-1]):
+    raise HTTPException(status_code=400, detail="Correo inválido.")
   id_cliente = catalog_service.create_cliente(
-    body.nombre.strip(),
-    body.telefono.strip(),
-    body.email.strip(),
+    nombre,
+    telefono,
+    email,
     None,
   )
   return {"ok": True, "id": id_cliente}

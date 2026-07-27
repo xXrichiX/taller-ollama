@@ -4,6 +4,11 @@ import { useAuth } from "../context/AuthContext";
 import { FormInput, FormSelect, FormTextarea } from "../components/forms";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
+import {
+  parseDecimal,
+  requireDecimal,
+  requireText,
+} from "../utils/formValidation";
 
 interface InventarioItem {
   id: number;
@@ -98,13 +103,22 @@ export function InventarioPage() {
   const save = async () => {
     if (!auth) return;
     setError("");
+    const err =
+      requireText(form.nombre, "el nombre")
+      || requireDecimal(form.cantidad, "El stock actual")
+      || requireDecimal(form.stock_minimo, "El stock mínimo")
+      || requireDecimal(form.precio_unitario, "El precio unitario");
+    if (err) {
+      setError(err);
+      return;
+    }
     const payload = {
       codigo: form.codigo,
-      nombre: form.nombre,
+      nombre: form.nombre.trim(),
       descripcion: form.descripcion,
-      cantidad: Number(form.cantidad),
-      stock_minimo: Number(form.stock_minimo),
-      precio_unitario: Number(form.precio_unitario),
+      cantidad: parseDecimal(form.cantidad) ?? 0,
+      stock_minimo: parseDecimal(form.stock_minimo) ?? 0,
+      precio_unitario: parseDecimal(form.precio_unitario) ?? 0,
       unidad: form.unidad,
     };
     try {
@@ -223,9 +237,9 @@ export function InventarioPage() {
         <div className="form-grid form-grid-2col form-grid-spaced">
           <FormInput label="Código" value={form.codigo} onChange={(v) => setForm({ ...form, codigo: v })} placeholder="Opcional, ej. FIL-01" />
           <FormInput label="Nombre" value={form.nombre} onChange={(v) => setForm({ ...form, nombre: v })} placeholder="Ej. Filtro de aceite" autoFocus />
-          <FormInput label="Stock actual" type="number" value={form.cantidad} onChange={(v) => setForm({ ...form, cantidad: v })} />
-          <FormInput label="Stock mínimo" type="number" value={form.stock_minimo} onChange={(v) => setForm({ ...form, stock_minimo: v })} />
-          <FormInput label="Precio unitario" type="number" value={form.precio_unitario} onChange={(v) => setForm({ ...form, precio_unitario: v })} />
+          <FormInput label="Stock actual" type="decimal" value={form.cantidad} onChange={(v) => setForm({ ...form, cantidad: v })} />
+          <FormInput label="Stock mínimo" type="decimal" value={form.stock_minimo} onChange={(v) => setForm({ ...form, stock_minimo: v })} />
+          <FormInput label="Precio unitario" type="decimal" value={form.precio_unitario} onChange={(v) => setForm({ ...form, precio_unitario: v })} />
           <FormSelect
             label="Unidad"
             value={form.unidad}

@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { FormInput, FormTextarea } from "../components/forms";
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
+import { parseDecimal, requireDecimal, requireText } from "../utils/formValidation";
 
 interface Servicio {
   id: number;
@@ -70,10 +71,17 @@ export function ServiciosPage() {
   const save = async () => {
     if (!auth) return;
     setError("");
+    const nombreErr = requireText(form.nombre, "el nombre del servicio");
+    const precioErr = requireDecimal(form.precio, "El precio");
+    const err = nombreErr || precioErr;
+    if (err) {
+      setError(err);
+      return;
+    }
     const payload = {
-      nombre: form.nombre,
+      nombre: form.nombre.trim(),
       descripcion: form.descripcion,
-      precio: Number(form.precio),
+      precio: parseDecimal(form.precio) ?? 0,
     };
     try {
       if (editingId) {
@@ -151,7 +159,7 @@ export function ServiciosPage() {
           />
           <FormInput
             label="Precio"
-            type="number"
+            type="decimal"
             value={form.precio}
             onChange={(v) => setForm({ ...form, precio: v })}
           />

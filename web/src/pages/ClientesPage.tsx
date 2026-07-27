@@ -6,6 +6,7 @@ import { ListFilter, ListFilterSelect, uniqueColumnValues, useFilterModal } from
 import { ListToolbar } from "../components/ListToolbar";
 import { Modal, ModalActions } from "../components/Modal";
 import { getInitials } from "../utils/initials";
+import { isValidEmail, isValidPhone, requireText } from "../utils/formValidation";
 
 interface Cliente {
   id: number;
@@ -60,6 +61,19 @@ export function ClientesPage() {
   const save = async () => {
     if (!auth) return;
     setError("");
+    const nombreErr = requireText(form.nombre, "el nombre");
+    if (nombreErr) {
+      setError(nombreErr);
+      return;
+    }
+    if (!isValidPhone(form.telefono)) {
+      setError("Teléfono inválido. Usa solo números.");
+      return;
+    }
+    if (!isValidEmail(form.email)) {
+      setError("Correo inválido.");
+      return;
+    }
     try {
       await api("/api/clientes", {
         method: "POST",
@@ -161,6 +175,7 @@ export function ClientesPage() {
           />
           <FormInput
             label="Teléfono"
+            type="tel"
             value={form.telefono}
             onChange={(v) => setForm({ ...form, telefono: v })}
             placeholder="Ingresar teléfono"
