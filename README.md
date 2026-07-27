@@ -79,6 +79,21 @@ ChromaDB: `db_vectorial/` (local) o volumen Docker `chroma_data` (prod).
 
 ---
 
+## Seguridad (producción)
+
+Variables en `.env` / `docker-compose.prod.yml`:
+
+| Variable | Prod recomendado | Descripción |
+|----------|------------------|-------------|
+| `APP_ENV` | `production` | Errores Pydantic genéricos |
+| `REGISTRATION_ENABLED` | `0` | Cierra registro público |
+| `REGISTRATION_INVITE_CODE` | opcional | Código para registrar si está habilitado |
+| `RATE_LIMIT_ENABLED` | `1` | Límite de peticiones por IP |
+
+Incluye: bcrypt en contraseñas, rate limiting, observabilidad solo para dueño del taller, inventario con permisos por rol.
+
+---
+
 ## Terminal (opcional)
 
 ```bash

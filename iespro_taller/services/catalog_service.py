@@ -2,21 +2,30 @@ from typing import Any
 
 from config import DEFAULT_SUCURSAL_ID
 from db.connection import execute, fetch_all, fetch_one
+from services.password_hash import hash_password, needs_rehash, verify_password
+from services.password_policy import normalize_password
 
 
 def login(email: str, password: str) -> dict[str, Any] | None:
+    email_norm = (email or "").strip().lower()
+    plain = normalize_password(password)
     user = fetch_one(
         """
         SELECT u.*, r.nombre AS rol_nombre, p.nombre AS puesto_nombre
         FROM usuarios u
         JOIN roles r ON r.id = u.id_rol
         LEFT JOIN puestos p ON p.id = u.id_puesto
-        WHERE u.email = %s AND u.password = %s AND u.activo = 1
+        WHERE LOWER(u.email) = %s AND u.activo = 1
         """,
-        (email, password),
+        (email_norm,),
     )
-    if not user:
+    if not user or not verify_password(plain, user.get("password")):
         return None
+    if needs_rehash(user.get("password")):
+        execute(
+            "UPDATE usuarios SET password = %s WHERE id = %s",
+            (hash_password(plain), user["id"]),
+        )
     return enrich_user_session(user)
 
 
@@ -253,7 +262,7 @@ def update_usuario_perfil(
             return {"ok": False, "error": msg}
         execute(
             "UPDATE usuarios SET nombre = %s, email = %s, password = %s WHERE id = %s",
-            (nombre, email, password, id_usuario),
+            (nombre, email, hash_password(password), id_usuario),
         )
     else:
         execute(
@@ -327,7 +336,7 @@ def register_usuario(
         return {"ok": False, "error": msg}
 
     if fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
-        return {"ok": False, "error": "Ese correo ya está registrado."}
+        return {"ok": False, "duplicate": True}
 
     from db.init_db import ensure_catalog_seeds, ensure_roles_simplified
 
@@ -371,13 +380,15 @@ def create_usuario(data: dict) -> int:
         es_cliente = data["es_cliente"]
     if "es_trabajador" in data:
         es_trabajador = data["es_trabajador"]
+    plain_pwd = data["password"]
+    hashed = hash_password(plain_pwd) if plain_pwd else hash_password("changeme")
     return execute(
         """
         INSERT INTO usuarios (nombre, email, password, id_rol, id_sucursal, es_cliente, es_trabajador, id_puesto)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
-            data["nombre"], data["email"], data["password"], data["id_rol"],
+            data["nombre"], data["email"], hashed, data["id_rol"],
             data.get("id_sucursal"), es_cliente, es_trabajador,
             data.get("id_puesto"),
         ),

@@ -52,12 +52,30 @@ def _get_model():
     return _model
 
 
+def is_allowed_audio_payload(data: bytes) -> bool:
+    """Valida magic bytes de contenedores de audio comunes."""
+    if len(data) < 12:
+        return False
+    head = data[:12]
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return True
+    if head[:4] == b"OggS":
+        return True
+    if head[:4] == b"\x1aE\xdf\xa3":
+        return True
+    if b"ftyp" in head[:8]:
+        return True
+    return False
+
+
 def transcribe_audio(data: bytes) -> dict:
     """Convierte audio (webm/ogg/mp4/wav) a texto en español."""
     if not data:
         return {"ok": False, "error": "Audio vacío."}
     if len(data) > 5 * 1024 * 1024:
         return {"ok": False, "error": "Audio demasiado largo (máx. 5 MB)."}
+    if not is_allowed_audio_payload(data):
+        return {"ok": False, "error": "Formato de audio no permitido."}
 
     if not speech_available():
         return {
@@ -82,6 +100,9 @@ def transcribe_audio(data: bytes) -> dict:
         proc = subprocess.run(
             [
                 "ffmpeg",
+                "-nostdin",
+                "-protocol_whitelist",
+                "file,pipe",
                 "-y",
                 "-i",
                 str(inp),

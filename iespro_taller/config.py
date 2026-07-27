@@ -50,6 +50,16 @@ RERANKER_MODEL = os.getenv("RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-
 EVAL_API_BASE = os.getenv("EVAL_API_BASE", f"http://localhost:{API_PORT}")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", OLLAMA_CHAT_MODEL)
 
+# Seguridad / entorno
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+IS_PRODUCTION = APP_ENV in ("production", "prod")
+REGISTRATION_ENABLED = os.getenv(
+  "REGISTRATION_ENABLED",
+  "0" if IS_PRODUCTION else "1",
+) == "1"
+REGISTRATION_INVITE_CODE = os.getenv("REGISTRATION_INVITE_CODE", "").strip()
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "1") == "1"
+
 # Voz (micrófono): umbrales anti-ruido; ajustables por env si hace falta
 VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "1.2"))
 VOICE_RMS_MIN = float(os.getenv("VOICE_RMS_MIN", "450"))

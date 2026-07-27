@@ -10,6 +10,9 @@ export function setStoredToken(token: string | null) {
 }
 
 async function parseError(res: Response): Promise<string> {
+  if (res.status === 429) {
+    return "Demasiadas peticiones. Espera un momento e inténtalo de nuevo.";
+  }
   try {
     const data = await res.json();
     return data.detail || data.message || res.statusText;

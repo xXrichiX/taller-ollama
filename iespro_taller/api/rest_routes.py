@@ -7,10 +7,12 @@ import queue
 import threading
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from api.rate_limit import rate_limit
+from api.security_messages import REGISTER_GENERIC_MESSAGE
 from api.session import (
   AppSession,
   apply_user_to_session,
@@ -23,6 +25,7 @@ from api.session import (
   user_payload,
 )
 from services import catalog_service, cita_service, inventory_service
+from config import REGISTRATION_ENABLED, REGISTRATION_INVITE_CODE
 from services.estado_labels import ESTADOS_MECANICO_UI, ESTADOS_UI, estado_a_etiqueta, etiqueta_a_estado
 from services.password_policy import normalize_password, validate_password
 from services.user_roles import (
@@ -48,6 +51,7 @@ class RegisterBody(BaseModel):
   nombre: str
   email: str
   password: str
+  invite_code: str = ""
 
 
 def _user_is_propietario(session: AppSession) -> bool:
@@ -73,7 +77,8 @@ class IslaActivaBody(BaseModel):
 
 
 @router.post("/auth/login")
-def auth_login(body: LoginBody):
+@rate_limit("5/minute")
+def auth_login(request: Request, body: LoginBody):
   user = catalog_service.login(body.email.strip(), body.password)
   if not user:
     raise HTTPException(status_code=401, detail="Credenciales incorrectas")
@@ -94,18 +99,26 @@ def auth_login(body: LoginBody):
 
 
 @router.post("/auth/register")
-def auth_register(body: RegisterBody):
+@rate_limit("3/hour")
+def auth_register(request: Request, body: RegisterBody):
+  if not REGISTRATION_ENABLED:
+    raise HTTPException(status_code=403, detail="El registro público está deshabilitado.")
+  if REGISTRATION_INVITE_CODE and body.invite_code.strip() != REGISTRATION_INVITE_CODE:
+    raise HTTPException(status_code=403, detail="Código de invitación inválido.")
+
   result = catalog_service.register_usuario(
     body.nombre.strip(),
     body.email.strip().lower(),
     normalize_password(body.password),
   )
+  if result.get("duplicate"):
+    return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
   if not result.get("ok"):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo registrar"))
 
   user = catalog_service.login(body.email.strip().lower(), normalize_password(body.password))
   if not user:
-    return {"ok": True, "message": "Cuenta creada. Inicia sesión.", "sucursal": result.get("sucursal")}
+    return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
 
   session = create_session(user)
   return {
@@ -134,13 +147,17 @@ def speech_status(session: AppSession = Depends(require_session)):
 
 
 @router.post("/speech/transcribe")
+@rate_limit("20/minute")
 async def speech_transcribe(
+  request: Request,
   audio: UploadFile = File(...),
   session: AppSession = Depends(require_session),
 ):
   from services import speech_service
 
   data = await audio.read()
+  if not speech_service.is_allowed_audio_payload(data):
+    raise HTTPException(status_code=400, detail="Formato de audio no permitido.")
   try:
     result = speech_service.transcribe_audio(data)
   except Exception:
@@ -678,6 +695,12 @@ class InventarioUpdate(BaseModel):
   unidad: str = "pza"
 
 
+class InventarioUpdateMecanico(BaseModel):
+  nombre: str
+  descripcion: str = ""
+  unidad: str = "pza"
+
+
 class InventarioAjuste(BaseModel):
   delta: float
 
@@ -701,9 +724,13 @@ def create_inventario(body: InventarioCreate, session: AppSession = Depends(requ
   nombre = body.nombre.strip()
   if not nombre:
     raise HTTPException(status_code=400, detail="Nombre requerido")
-  if body.cantidad < 0 or body.stock_minimo < 0 or body.precio_unitario < 0:
+  payload = body.model_dump()
+  if not _user_is_propietario(session):
+    payload["precio_unitario"] = 0
+    payload["stock_minimo"] = body.stock_minimo if body.stock_minimo >= 0 else 0
+  if payload["cantidad"] < 0 or payload["stock_minimo"] < 0 or payload["precio_unitario"] < 0:
     raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
-  id_item = inventory_service.create_item(id_sucursal, id_isla, body.model_dump())
+  id_item = inventory_service.create_item(id_sucursal, id_isla, payload)
   return {"ok": True, "id": id_item}
 
 
@@ -717,12 +744,35 @@ def update_inventario(
     raise HTTPException(status_code=403, detail="Sin permiso")
   id_sucursal = require_sucursal(session)
   id_isla = require_isla(session)
-  nombre = body.nombre.strip()
-  if not nombre:
-    raise HTTPException(status_code=400, detail="Nombre requerido")
-  if body.cantidad < 0 or body.stock_minimo < 0 or body.precio_unitario < 0:
-    raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
-  result = inventory_service.update_item(id_item, id_isla, body.model_dump())
+
+  existing = inventory_service.get_item(id_item, id_isla)
+  if not existing:
+    raise HTTPException(status_code=404, detail="Artículo no encontrado")
+
+  if _user_is_propietario(session):
+    nombre = body.nombre.strip()
+    if not nombre:
+      raise HTTPException(status_code=400, detail="Nombre requerido")
+    if body.cantidad < 0 or body.stock_minimo < 0 or body.precio_unitario < 0:
+      raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
+    payload = body.model_dump()
+  else:
+    mec = InventarioUpdateMecanico(
+      nombre=body.nombre,
+      descripcion=body.descripcion,
+      unidad=body.unidad,
+    )
+    nombre = mec.nombre.strip()
+    if not nombre:
+      raise HTTPException(status_code=400, detail="Nombre requerido")
+    payload = {
+      **existing,
+      "nombre": nombre,
+      "descripcion": mec.descripcion,
+      "unidad": mec.unidad,
+    }
+
+  result = inventory_service.update_item(id_item, id_isla, payload)
   if not result.get("ok"):
     raise HTTPException(status_code=404, detail=result.get("error", "No encontrado"))
   return {"ok": True}
@@ -736,6 +786,8 @@ def ajustar_inventario(
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail="Sin permiso")
+  if not _user_is_propietario(session):
+    raise HTTPException(status_code=403, detail="Solo el dueño del taller puede ajustar stock")
   id_isla = require_isla(session)
   if body.delta == 0:
     raise HTTPException(status_code=400, detail="Indica cuánto sumar o restar")
@@ -1107,6 +1159,20 @@ def rag_bootstrap(session: AppSession = Depends(require_session)):
   return {"ok": ok, "message": msg}
 
 
+@router.get("/observability/recent")
+def observability_recent(
+  limit: int = 20,
+  session: AppSession = Depends(require_session),
+):
+  _require_propietario(session)
+  from db.observability_repository import ObservabilityRepository
+
+  repo = ObservabilityRepository()
+  repo.ensure_table()
+  rows = repo.list_recent(limit=min(limit, 100))
+  return {"logs": rows}
+
+
 @router.get("/chat/conversations")
 def chat_conversations(session: AppSession = Depends(require_session)):
   require_sucursal(session)
@@ -1148,7 +1214,8 @@ def chat_messages(id_conv: int, session: AppSession = Depends(require_session)):
 
 
 @router.post("/chat")
-def chat_send(body: ChatMessageBody, session: AppSession = Depends(require_session)):
+@rate_limit("30/minute")
+def chat_send(request: Request, body: ChatMessageBody, session: AppSession = Depends(require_session)):
   if body.id_sucursal:
     session.id_sucursal = body.id_sucursal
     session.chat.id_sucursal = body.id_sucursal
@@ -1173,7 +1240,8 @@ def chat_send(body: ChatMessageBody, session: AppSession = Depends(require_sessi
 
 
 @router.post("/chat/stream")
-def chat_stream(body: ChatMessageBody, session: AppSession = Depends(require_session)):
+@rate_limit("30/minute")
+def chat_stream(request: Request, body: ChatMessageBody, session: AppSession = Depends(require_session)):
   if body.id_sucursal:
     session.id_sucursal = body.id_sucursal
     session.chat.id_sucursal = body.id_sucursal
