@@ -177,25 +177,32 @@ def ensure_inventario_isla_column() -> None:
         )
 
 
+def _ensure_role(nombre: str, descripcion: str) -> None:
+    """Inserta o actualiza un rol por nombre (evita choque UNIQUE en BD migrada)."""
+    row = fetch_one("SELECT id FROM roles WHERE nombre = %s", (nombre,))
+    if row:
+        execute(
+            "UPDATE roles SET descripcion = %s WHERE id = %s",
+            (descripcion, int(row["id"])),
+        )
+        return
+    execute(
+        "INSERT INTO roles (nombre, descripcion) VALUES (%s, %s)",
+        (nombre, descripcion),
+    )
+
+
+def _ensure_puesto(nombre: str) -> None:
+    if fetch_one("SELECT id FROM puestos WHERE nombre = %s", (nombre,)):
+        return
+    execute("INSERT INTO puestos (nombre) VALUES (%s)", (nombre,))
+
+
 def ensure_catalog_seeds() -> None:
     """Catálogos mínimos (roles, puestos, marcas). Idempotente en cada arranque."""
-    execute(
-        """
-        INSERT INTO roles (id, nombre, descripcion) VALUES
-        (1, 'MECANICO', 'Dueño o mecánico del taller'),
-        (2, 'CLIENTE', 'Cliente con acceso a la app')
-        ON DUPLICATE KEY UPDATE
-          nombre = VALUES(nombre),
-          descripcion = VALUES(descripcion)
-        """
-    )
-    execute(
-        """
-        INSERT INTO puestos (id, nombre) VALUES
-        (1, 'Mecánico')
-        ON DUPLICATE KEY UPDATE nombre = VALUES(nombre)
-        """
-    )
+    _ensure_role("MECANICO", "Dueño o mecánico del taller")
+    _ensure_role("CLIENTE", "Cliente con acceso a la app")
+    _ensure_puesto("Mecánico")
     execute(
         """
         INSERT IGNORE INTO marcas (id, nombre) VALUES

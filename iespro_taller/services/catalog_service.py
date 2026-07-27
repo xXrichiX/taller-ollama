@@ -330,9 +330,10 @@ def register_usuario(
     if fetch_one("SELECT id FROM usuarios WHERE LOWER(email) = %s", (email,)):
         return {"ok": False, "error": "Ese correo ya está registrado."}
 
-    from db.init_db import ensure_catalog_seeds
+    from db.init_db import ensure_catalog_seeds, ensure_roles_simplified
 
     ensure_catalog_seeds()
+    ensure_roles_simplified()
 
     rol = fetch_one("SELECT id FROM roles WHERE nombre = 'MECANICO'")
     puesto = fetch_one(
