@@ -30,9 +30,13 @@ SUCURSAL_TOOLS = frozenset({
   "cancelar_cita_natural", "editar_cita_natural",
 })
 
+ISLA_TOOLS = frozenset({
+  "listar_inventario",
+})
+
 TX_SYSTEM = """Eres el agente transaccional de IESPRO-Taller.
 Tu único trabajo es consultar o modificar la base de datos del taller mediante tools.
-- Usa function calling para listar, crear, editar o cancelar citas.
+- Usa function calling para listar, crear, editar o cancelar citas, y para consultar inventario.
 - Para conteos exactos puedes usar SQL implícito vía tools.
 - No inventes datos. No pidas IDs numéricos al usuario.
 - Responde en español, breve y profesional.
@@ -110,6 +114,9 @@ class TransactionalAgent:
 
       if "id_sucursal" not in args and name in SUCURSAL_TOOLS:
         args["id_sucursal"] = self.chat.id_sucursal
+
+      if "id_isla" not in args and name in ISLA_TOOLS and self.chat.id_isla:
+        args["id_isla"] = self.chat.id_isla
 
       sig = call_signature(name, args)
       if sig in seen_signatures:

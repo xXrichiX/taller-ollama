@@ -16,6 +16,7 @@ CAPABILITIES_PATTERNS = (
 WORKSHOP_HINTS = (
     "cita", "citas", "cliente", "vehiculo", "vehículo", "placa", "auto", "carro",
     "mecanico", "mecánico", "isla", "taller", "falla", "freno", "frenos",
+    "inventario", "stock", "pieza", "piezas", "refaccion", "refacción",
     "ruido", "motor", "aceite", "lista", "listar", "cuant", "cuánt",
     "crea", "crear", "agenda", "marca", "pendiente", "proceso", "complet",
     "cancelar", "cancela", "eliminar", "elimina", "borrar", "editar", "edita",
@@ -29,6 +30,7 @@ SUBSTANTIVE_WORKSHOP_HINTS = (
     "cita", "citas", "cliente", "clientes", "vehiculo", "vehículo", "vehiculos",
     "vehículos", "placa", "mecanico", "mecánico", "mecanicos", "mecánicos",
     "isla", "islas", "falla", "fallas", "freno", "frenos", "ruido", "motor",
+    "inventario", "stock", "pieza", "piezas", "refaccion", "refacción",
     "aceite", "similar", "parecid", "chirrido", "vibracion", "vibración",
     "roberto", "carlos", "abc", "listame", "listar", "lista las", "lista los",
     "cuant", "cuánt", "total de", "busca fallas", "buscar fallas", "crea cita",
@@ -439,7 +441,7 @@ Acciones que ejecuto en el sistema:
 - Marca como completada la cita de la placa ABC-123
 - Cancela (o elimina) la cita de la placa ABC-123 — queda inactiva, no se borra de la base
 
-También puedo listar citas, clientes, vehículos, mecánicos e islas. Dime qué necesitas en español claro."""
+También puedo listar citas, clientes, vehículos, mecánicos, islas e inventario. Dime qué necesitas en español claro."""
 
 
 CAPABILITIES_ANSWER_STAFF = """Como personal del taller puedo ayudarte así:
@@ -456,7 +458,7 @@ Flujo de mostrador (cliente sin app):
 Acciones en el sistema:
 - Crear, editar o cancelar citas de cualquier placa
 - Cambiar mecánico, isla, falla o estado de una cita
-- Listar citas, clientes, vehículos, mecánicos e islas
+- Listar citas, clientes, vehículos, mecánicos, islas e inventario/stock de la isla activa
 
 No uses "mi auto": actúa siempre con el nombre del cliente o la placa que te indiquen."""
 
@@ -506,6 +508,7 @@ Dime qué necesitas, por ejemplo: lista mis citas, o agenda cita para mi placa A
 CAPABILITIES_ANSWER_MECANICO = """Como mecánico solo trabajo con TU historial en la sucursal activa:
 
 - Listar o contar TUS citas asignadas
+- Consultar inventario/stock de tu isla activa
 - Buscar fallas similares en TUS reparaciones previas
 - Cambiar estado / diagnóstico de una cita que te asignaron (por placa)
 

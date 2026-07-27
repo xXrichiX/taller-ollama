@@ -1,7 +1,7 @@
 import json
 from typing import Any, Callable
 
-from services import cita_service, catalog_service
+from services import cita_service, catalog_service, inventory_service
 
 
 TOOL_DEFINITIONS = [
@@ -93,6 +93,27 @@ TOOL_DEFINITIONS = [
             "parameters": {
                 "type": "object",
                 "properties": {"id_sucursal": {"type": "integer"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "listar_inventario",
+            "description": (
+                "Lista inventario/stock de piezas y refacciones de la isla activa. "
+                "Usa busqueda para filtrar por nombre o código; solo_stock_bajo para alertas."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id_isla": {"type": "integer", "description": "Isla/bahía (se usa la activa si no se indica)"},
+                    "busqueda": {"type": "string", "description": "Filtrar por nombre, código o descripción"},
+                    "solo_stock_bajo": {
+                        "type": "boolean",
+                        "description": "Si es true, solo artículos con cantidad en o bajo el mínimo",
+                    },
+                },
             },
         },
     },
@@ -254,6 +275,7 @@ CLIENTE_DENIED_TOOLS = frozenset({
     "buscar_cliente",
     "listar_mecanicos",
     "listar_islas",
+    "listar_inventario",
     "mecanicos_en_isla",
     "cambiar_estado_cita_natural",
     "cambiar_estado_cita",
@@ -310,6 +332,7 @@ class ToolsService:
             "editar_cita_natural": self._editar_cita_natural,
             "mecanicos_en_isla": self._mecanicos_en_isla,
             "listar_islas": self._listar_islas,
+            "listar_inventario": self._listar_inventario,
             "vehiculos_de_cliente": self._vehiculos_de_cliente,
             "buscar_fallas_similares": self._buscar_fallas_similares,
             "cambiar_estado_cita": self._cambiar_estado_cita,
@@ -375,6 +398,7 @@ class ToolsService:
                 "cambiar_estado_cita_natural",
                 "cancelar_cita_natural",
                 "editar_cita_natural",
+                "listar_inventario",
             ):
                 scoped["id_isla"] = self.id_isla
             scoped.pop("id_mecanico", None)
@@ -391,6 +415,7 @@ class ToolsService:
                 "buscar_fallas_similares",
                 "crear_cita_natural",
                 "editar_cita_natural",
+                "listar_inventario",
             ):
                 scoped["id_isla"] = self.id_isla
                 scoped.pop("id_mecanico", None)
@@ -409,6 +434,8 @@ class ToolsService:
                 scoped["id_mecanico_asignado"] = self.id_mecanico
                 if self.id_sucursal:
                     scoped["id_sucursal"] = self.id_sucursal
+        if self.id_isla and name == "listar_inventario":
+            scoped.setdefault("id_isla", self.id_isla)
         return scoped
 
     def _assert_cita_del_cliente(self, id_cita: int) -> dict | None:
@@ -457,6 +484,26 @@ class ToolsService:
 
     def _listar_islas(self, args: dict) -> list[dict]:
         return cita_service.list_islas(args["id_sucursal"])
+
+    def _listar_inventario(self, args: dict) -> list[dict] | dict[str, Any]:
+        id_isla = args.get("id_isla") or self.id_isla
+        if not id_isla:
+            return {
+                "ok": False,
+                "error": "Selecciona una isla en la barra superior para consultar inventario.",
+            }
+        rows = inventory_service.list_inventario(int(id_isla))
+        busqueda = (args.get("busqueda") or "").strip().lower()
+        if busqueda:
+            rows = [
+                row for row in rows
+                if busqueda in (row.get("nombre") or "").lower()
+                or busqueda in (row.get("codigo") or "").lower()
+                or busqueda in (row.get("descripcion") or "").lower()
+            ]
+        if args.get("solo_stock_bajo"):
+            rows = [row for row in rows if row.get("stock_bajo")]
+        return rows[:40]
 
     def _vehiculos_de_cliente(self, args: dict) -> list[dict]:
         return cita_service.list_vehiculos(args["id_cliente"])

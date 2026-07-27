@@ -67,6 +67,10 @@ SUCURSAL_TOOLS = frozenset({
     "cancelar_cita_natural", "editar_cita_natural",
 })
 
+ISLA_TOOLS = frozenset({
+    "listar_inventario",
+})
+
 logger = logging.getLogger(__name__)
 
 PLAIN_TEXT_RULE = """
@@ -81,7 +85,7 @@ SYSTEM_PROMPT = """
 Eres el asistente IA de IESPRO-Taller (sistema de citas automotrices).
 
 Decide cómo responder:
-- Preguntas de conteo o datos estructurados (cuántas citas, clientes, vehículos, mecánicos en isla) → usa tools o SQL.
+- Preguntas de conteo o datos estructurados (cuántas citas, clientes, vehículos, inventario/stock, mecánicos en isla) → usa tools o SQL.
 - Comparar fallas, buscar casos parecidos, contexto de síntomas → usa buscar_fallas_similares (RAG).
 - Acciones (crear, editar o cancelar citas, cambiar estado, listar) → usa function calling.
 
@@ -101,6 +105,7 @@ ROL ACTUAL: Administrador de sucursal o jefe de taller. Operas en nombre de cual
 Reglas para admin de sucursal:
 - Puedes crear, editar y cancelar citas de cualquier placa o cliente de tu sucursal.
 - Puedes asignar y reasignar mecánicos e islas.
+- Puedes consultar inventario y stock bajo de la isla activa.
 - Para fallas similares, busca por placa, nombre de cliente o síntoma en todo el historial de la sucursal.
 - No asumas "mi auto" ni vehículos del usuario logueado; el personal no tiene autos personales aquí.
 """
@@ -133,6 +138,7 @@ Reglas:
 - No hay otros mecánicos ni sucursales: las citas se asignan automáticamente a ti.
 - No pidas mecánico ni isla al agendar; el sistema los asigna solo.
 - Al buscar fallas similares, usa todo el historial de tu taller.
+- Puedes consultar inventario y stock de tu isla activa.
 """
 
 CLIENTE_PROMPT = """
@@ -811,6 +817,9 @@ class ChatService:
                 if "id_sucursal" not in args and name in SUCURSAL_TOOLS:
                     args["id_sucursal"] = self.id_sucursal
 
+                if "id_isla" not in args and name in ISLA_TOOLS and self.id_isla:
+                    args["id_isla"] = self.id_isla
+
                 sig = call_signature(name, args)
                 if sig in seen_signatures:
                     result = {
@@ -891,6 +900,7 @@ class ChatService:
             "listar_citas": "Consultando citas del taller...",
             "contar_citas": "Contando citas...",
             "listar_islas": "Consultando islas de trabajo...",
+            "listar_inventario": "Consultando inventario...",
             "listar_mecanicos": "Consultando mecánicos...",
             "buscar_fallas_similares": "Buscando fallas similares...",
             "crear_cita_natural": "Agendando cita...",

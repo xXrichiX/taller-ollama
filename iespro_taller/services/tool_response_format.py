@@ -73,6 +73,20 @@ def format_tool_result(name: str, result: Any) -> str:
         names = [str(r.get("nombre", "")).strip() for r in result if r.get("nombre")]
         return f"Islas del taller ({len(names)}):\n{_lines(names)}"
 
+    if name == "listar_inventario" and isinstance(result, list):
+        if not result:
+            return "No hay artículos en inventario para esta isla."
+        items = []
+        for row in result:
+            nombre = str(row.get("nombre", "?")).strip()
+            cantidad = row.get("cantidad", 0)
+            unidad = row.get("unidad", "pza")
+            codigo = (row.get("codigo") or "").strip()
+            prefix = f"[{codigo}] " if codigo else ""
+            bajo = " (stock bajo)" if row.get("stock_bajo") else ""
+            items.append(f"{prefix}{nombre}: {cantidad} {unidad}{bajo}")
+        return f"Inventario de la isla ({len(items)} artículos):\n{_lines(items)}"
+
     if name == "mecanicos_en_isla" and isinstance(result, list):
         if not result:
             return "No hay mecánicos asignados a esa isla."
