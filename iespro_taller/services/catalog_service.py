@@ -295,19 +295,24 @@ def get_sucursal(id_sucursal: int) -> dict | None:
 
 
 def provision_taller_personal(id_usuario: int, nombre_usuario: str) -> int | None:
-    """Crea el taller (sucursal) del dueño/mecánico. Las islas las crea el usuario después."""
+    """Crea el taller (sucursal) del dueño/mecánico y una isla base si no existe."""
+    from services import cita_service
+
     branches = list_sucursales_usuario(id_usuario)
     if branches:
-        return int(branches[0]["id"])
+        id_sucursal = int(branches[0]["id"])
+    else:
+        nombre_taller = f"Taller de {(nombre_usuario or '').strip()}" or "Mi taller"
+        id_sucursal = create_sucursal(nombre_taller, "", id_propietario=id_usuario)
+        add_usuario_sucursal(id_usuario, id_sucursal)
+        execute(
+            "UPDATE usuarios SET id_sucursal = %s WHERE id = %s",
+            (id_sucursal, id_usuario),
+        )
 
-    nombre_taller = f"Taller de {(nombre_usuario or '').strip()}" or "Mi taller"
-    id_sucursal = create_sucursal(nombre_taller, "", id_propietario=id_usuario)
-    add_usuario_sucursal(id_usuario, id_sucursal)
-    execute(
-        "UPDATE usuarios SET id_sucursal = %s WHERE id = %s",
-        (id_sucursal, id_usuario),
-    )
-    copiar_tipos_mantenimiento_plantilla(id_sucursal)
+    if not cita_service.list_islas(id_sucursal):
+        cita_service.create_isla("Isla 1", id_sucursal)
+
     return id_sucursal
 
 
