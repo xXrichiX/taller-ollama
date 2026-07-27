@@ -2464,6 +2464,11 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 
 .btn-send { min-width: 88px; flex-shrink: 0; }
 
+.chat-shell .btn:disabled,
+.chat-shell .voice-btn:disabled {
+  cursor: default;
+}
+
 /* Login */
 .login-page {
   min-height: 100vh;
