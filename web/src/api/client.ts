@@ -1,12 +1,29 @@
-async function parseError(res: Response): Promise<string> {
+async function parseError(res: Response): Promise<never> {
+  let message = res.statusText;
   if (res.status === 429) {
-    return "Demasiadas peticiones. Espera un momento e inténtalo de nuevo.";
+    message = "Demasiadas peticiones. Espera un momento e inténtalo de nuevo.";
+  } else {
+    try {
+      const data = await res.json();
+      message = data.detail || data.message || res.statusText;
+    } catch {
+      /* keep statusText */
+    }
   }
-  try {
-    const data = await res.json();
-    return data.detail || data.message || res.statusText;
-  } catch {
-    return res.statusText;
+  const retryHeader = res.headers.get("Retry-After");
+  const retryAfterSec = retryHeader ? Number.parseInt(retryHeader, 10) : undefined;
+  throw new ApiError(message, res.status, Number.isFinite(retryAfterSec) ? retryAfterSec : undefined);
+}
+
+export class ApiError extends Error {
+  status: number;
+  retryAfterSec?: number;
+
+  constructor(message: string, status: number, retryAfterSec?: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.retryAfterSec = retryAfterSec;
   }
 }
 
@@ -28,7 +45,7 @@ export async function api<T>(
     headers,
     credentials: "include",
   });
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw await parseError(res);
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
@@ -37,7 +54,17 @@ export type PublicAuthConfig = {
   registration_enabled: boolean;
   turnstile_site_key: string;
   invite_required: boolean;
+  captcha_mode: "turnstile" | "simple" | "none";
 };
+
+export type CaptchaChallenge = {
+  captcha_challenge: string;
+  question: string;
+};
+
+export async function fetchCaptchaChallenge(): Promise<CaptchaChallenge> {
+  return api<CaptchaChallenge>("/api/auth/captcha");
+}
 
 export async function fetchPublicAuthConfig(): Promise<PublicAuthConfig> {
   return api<PublicAuthConfig>("/api/auth/public-config");
@@ -70,7 +97,7 @@ export async function streamChat(
       id_isla: idIsla ?? undefined,
     }),
   });
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw await parseError(res);
   if (!res.body) throw new Error("Sin respuesta del servidor");
 
   const reader = res.body.getReader();
@@ -120,7 +147,7 @@ export async function transcribeSpeech(
     credentials: "include",
     body: form,
   });
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw await parseError(res);
   const data = (await res.json()) as { text?: string };
   return (data.text || "").trim();
 }

@@ -2571,6 +2571,11 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 
 .login-card .subtitle { color: var(--muted); margin: 0.35rem 0 1.5rem; }
 
+.captcha-question {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
 .login-card .login-input {
   width: 100%;
   display: block;

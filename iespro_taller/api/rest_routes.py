@@ -61,15 +61,27 @@ class RegisterBody(BaseModel):
   password: str
   invite_code: str = ""
   captcha_token: str = ""
+  captcha_challenge: str = ""
+  captcha_answer: str = ""
 
 
 @router.get("/auth/public-config")
 def auth_public_config():
+  use_turnstile = bool(TURNSTILE_SECRET_KEY)
   return {
     "registration_enabled": REGISTRATION_ENABLED,
-    "turnstile_site_key": TURNSTILE_SITE_KEY if TURNSTILE_SECRET_KEY else "",
+    "turnstile_site_key": TURNSTILE_SITE_KEY if use_turnstile else "",
     "invite_required": bool(REGISTRATION_INVITE_CODE),
+    "captcha_mode": "turnstile" if use_turnstile else ("simple" if REGISTRATION_ENABLED else "none"),
   }
+
+
+@router.get("/auth/captcha")
+def auth_captcha():
+  from services.simple_captcha import issue_challenge
+
+  token, question = issue_challenge()
+  return {"captcha_challenge": token, "question": question}
 
 
 def _user_is_propietario(session: AppSession) -> bool:
@@ -118,7 +130,7 @@ def auth_login(request: Request, body: LoginBody):
 
 
 @router.post("/auth/register")
-@rate_limit("3/hour")
+@rate_limit("5/minute")
 def auth_register(request: Request, body: RegisterBody):
   if not REGISTRATION_ENABLED:
     raise HTTPException(status_code=403, detail="El registro público está deshabilitado.")
@@ -128,6 +140,11 @@ def auth_register(request: Request, body: RegisterBody):
     client_ip = request.client.host if request.client else None
     if not verify_turnstile(body.captcha_token, client_ip):
       raise HTTPException(status_code=400, detail="Verificación CAPTCHA fallida.")
+  else:
+    from services.simple_captcha import verify_challenge
+
+    if not verify_challenge(body.captcha_challenge, body.captcha_answer):
+      raise HTTPException(status_code=400, detail="Verificación de seguridad incorrecta. Intenta de nuevo.")
 
   result = catalog_service.register_usuario(
     body.nombre.strip(),

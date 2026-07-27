@@ -1,9 +1,17 @@
 import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLoader } from "../components/AppLoader";
-import { fetchPublicAuthConfig, type PublicAuthConfig } from "../api/client";
+import {
+  ApiError,
+  fetchCaptchaChallenge,
+  fetchPublicAuthConfig,
+  type PublicAuthConfig,
+} from "../api/client";
 import { useAuth } from "../context/AuthContext";
+
+const LOGIN_COOLDOWN_SEC = 60;
+const REGISTER_COOLDOWN_SEC = 60;
 
 export function LoginPage() {
   const { login, register, auth, loading: authLoading } = useAuth();
@@ -18,7 +26,23 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [publicConfig, setPublicConfig] = useState<PublicAuthConfig | null>(null);
   const [captchaToken, setCaptchaToken] = useState("");
+  const [simpleQuestion, setSimpleQuestion] = useState("");
+  const [simpleChallenge, setSimpleChallenge] = useState("");
+  const [simpleAnswer, setSimpleAnswer] = useState("");
+  const [cooldown, setCooldown] = useState(0);
   const turnstileRef = useRef<TurnstileInstance | null>(null);
+
+  const loadSimpleCaptcha = useCallback(async () => {
+    try {
+      const data = await fetchCaptchaChallenge();
+      setSimpleChallenge(data.captcha_challenge);
+      setSimpleQuestion(data.question);
+      setSimpleAnswer("");
+    } catch {
+      setSimpleQuestion("");
+      setSimpleChallenge("");
+    }
+  }, []);
 
   useEffect(() => {
     fetchPublicAuthConfig()
@@ -28,6 +52,7 @@ export function LoginPage() {
           registration_enabled: false,
           turnstile_site_key: "",
           invite_required: false,
+          captcha_mode: "none",
         }),
       );
   }, []);
@@ -38,8 +63,26 @@ export function LoginPage() {
 
   useEffect(() => {
     setCaptchaToken("");
+    setSimpleAnswer("");
     turnstileRef.current?.reset();
-  }, [mode]);
+    if (mode === "register" && publicConfig?.captcha_mode === "simple") {
+      loadSimpleCaptcha();
+    }
+  }, [mode, publicConfig?.captcha_mode, loadSimpleCaptcha]);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setInterval(() => {
+      setCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
+
+  useEffect(() => {
+    if (cooldown === 0 && error.includes("Demasiadas peticiones")) {
+      setError("");
+    }
+  }, [cooldown, error]);
 
   if (authLoading) {
     return <AppLoader />;
@@ -48,14 +91,30 @@ export function LoginPage() {
   const registrationEnabled = publicConfig?.registration_enabled ?? false;
   const turnstileSiteKey = publicConfig?.turnstile_site_key ?? "";
   const inviteRequired = publicConfig?.invite_required ?? false;
+  const simpleCaptcha = publicConfig?.captcha_mode === "simple";
+  const blocked = cooldown > 0;
+
+  const startCooldown = (seconds: number, message?: string) => {
+    setCooldown(seconds);
+    setError(message ?? "Demasiadas peticiones. Espera a que termine el contador.");
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (blocked) return;
+
     setError("");
     if (mode === "register" && turnstileSiteKey && !captchaToken) {
       setError("Completa la verificación CAPTCHA.");
       return;
     }
+    if (mode === "register" && simpleCaptcha) {
+      if (!simpleChallenge || !simpleAnswer.trim()) {
+        setError("Resuelve la verificación de seguridad.");
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       if (mode === "login") await login(email, password);
@@ -63,17 +122,34 @@ export function LoginPage() {
         await register(nombre, email, password, {
           inviteCode,
           captchaToken,
+          captchaChallenge: simpleChallenge,
+          captchaAnswer: simpleAnswer.trim(),
         });
       }
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
+      if (err instanceof ApiError && err.status === 429) {
+        const seconds = err.retryAfterSec
+          ?? (mode === "login" ? LOGIN_COOLDOWN_SEC : REGISTER_COOLDOWN_SEC);
+        startCooldown(seconds);
+      } else {
+        setError(err instanceof Error ? err.message : "Error");
+      }
       turnstileRef.current?.reset();
       setCaptchaToken("");
+      if (mode === "register" && simpleCaptcha) {
+        await loadSimpleCaptcha();
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  const buttonLabel = blocked
+    ? `Espera ${cooldown}s para reintentar`
+    : loading
+      ? (mode === "login" ? "Entrando…" : "Creando cuenta…")
+      : (mode === "login" ? "Entrar" : "Crear cuenta");
 
   return (
     <div className="login-page">
@@ -90,6 +166,7 @@ export function LoginPage() {
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
                 required
+                disabled={blocked}
               />
             </div>
           )}
@@ -103,6 +180,7 @@ export function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              disabled={blocked}
             />
           </div>
           <div className="form-row">
@@ -116,6 +194,7 @@ export function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={blocked}
               />
               <button
                 type="button"
@@ -123,6 +202,7 @@ export function LoginPage() {
                 onClick={() => setShowPassword((v) => !v)}
                 aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
                 title={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                disabled={blocked}
               >
                 {showPassword ? (
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -156,6 +236,24 @@ export function LoginPage() {
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value)}
                 required
+                disabled={blocked}
+              />
+            </div>
+          )}
+          {mode === "register" && simpleCaptcha && simpleQuestion && (
+            <div className="form-row">
+              <label htmlFor="login-captcha">Verificación de seguridad</label>
+              <p className="muted captcha-question">{simpleQuestion}</p>
+              <input
+                id="login-captcha"
+                className="login-input"
+                type="number"
+                inputMode="numeric"
+                placeholder="Tu respuesta"
+                value={simpleAnswer}
+                onChange={(e) => setSimpleAnswer(e.target.value)}
+                required
+                disabled={blocked}
               />
             </div>
           )}
@@ -170,11 +268,13 @@ export function LoginPage() {
             </div>
           )}
           {error && <p className="error-text">{error}</p>}
-          <button className="btn btn-with-loader" type="submit" disabled={loading}>
+          <button
+            className="btn btn-with-loader"
+            type="submit"
+            disabled={loading || blocked}
+          >
             {loading && <span className="btn-spinner" aria-hidden />}
-            {loading
-              ? (mode === "login" ? "Entrando…" : "Creando cuenta…")
-              : (mode === "login" ? "Entrar" : "Crear cuenta")}
+            {buttonLabel}
           </button>
         </form>
         {(mode === "login" ? registrationEnabled : true) && (
@@ -184,6 +284,7 @@ export function LoginPage() {
               href="#"
               onClick={(e) => {
                 e.preventDefault();
+                if (blocked) return;
                 if (mode === "login" && !registrationEnabled) return;
                 setMode(mode === "login" ? "register" : "login");
               }}

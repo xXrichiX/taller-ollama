@@ -18,7 +18,12 @@ interface AuthContextValue {
     nombre: string,
     email: string,
     password: string,
-    extras?: { inviteCode?: string; captchaToken?: string },
+    extras?: {
+      inviteCode?: string;
+      captchaToken?: string;
+      captchaChallenge?: string;
+      captchaAnswer?: string;
+    },
   ) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -84,7 +89,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     nombre: string,
     email: string,
     password: string,
-    extras?: { inviteCode?: string; captchaToken?: string },
+    extras?: {
+      inviteCode?: string;
+      captchaToken?: string;
+      captchaChallenge?: string;
+      captchaAnswer?: string;
+    },
   ) => {
     const data = await api<{
       token?: string;
@@ -99,6 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         password,
         invite_code: extras?.inviteCode ?? "",
         captcha_token: extras?.captchaToken ?? "",
+        captcha_challenge: extras?.captchaChallenge ?? "",
+        captcha_answer: extras?.captchaAnswer ?? "",
       }),
     });
     if (data.token && data.user) {
