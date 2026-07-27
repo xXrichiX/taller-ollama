@@ -575,7 +575,12 @@ class ToolsService:
         if not args.get("isla") and not auto:
             return {"ok": False, "error": "Indica la isla para la cita."}
 
-        servicios = args.get("servicios") or [4]
+        servicios = args.get("servicios") or []
+        if not servicios:
+            return {
+                "ok": False,
+                "error": "Indica el servicio o agrégalo primero en el módulo Servicios del taller.",
+            }
         fecha = args.get("fecha_cita") or "2026-06-11 09:00:00"
         cita_id = cita_service.create_cita({
             "id_cliente": cliente["id"],

@@ -268,7 +268,6 @@ def create_sucursal(nombre: str, direccion: str = "", id_propietario: int | None
         "INSERT INTO sucursales (nombre, direccion, id_propietario) VALUES (%s, %s, %s)",
         (nombre.strip(), direccion.strip(), id_propietario),
     )
-    copiar_tipos_mantenimiento_plantilla(id_sucursal)
     return id_sucursal
 
 
@@ -497,8 +496,6 @@ def create_tipo_unidad(nombre: str) -> int:
 
 
 def list_tipos_mantenimiento(id_sucursal: int) -> list[dict]:
-    if id_sucursal:
-        copiar_tipos_mantenimiento_plantilla(id_sucursal)
     return fetch_all(
         """
         SELECT id, nombre, descripcion, precio
@@ -508,29 +505,6 @@ def list_tipos_mantenimiento(id_sucursal: int) -> list[dict]:
         """,
         (id_sucursal,),
     )
-
-
-def copiar_tipos_mantenimiento_plantilla(id_sucursal: int) -> None:
-    """Copia el catálogo base a la sucursal si aún no tiene servicios."""
-    if not id_sucursal:
-        return
-    existe = fetch_one(
-        "SELECT id FROM tipos_mantenimiento WHERE id_sucursal = %s LIMIT 1",
-        (id_sucursal,),
-    )
-    if existe:
-        return
-    plantillas = fetch_all(
-        "SELECT nombre, descripcion, precio FROM tipos_mantenimiento_plantilla ORDER BY id"
-    )
-    for p in plantillas:
-        execute(
-            """
-            INSERT INTO tipos_mantenimiento (nombre, descripcion, precio, id_sucursal)
-            VALUES (%s, %s, %s, %s)
-            """,
-            (p["nombre"], p.get("descripcion"), p["precio"], id_sucursal),
-        )
 
 
 def create_tipo_mantenimiento(nombre: str, descripcion: str, precio: float, id_sucursal: int) -> int:

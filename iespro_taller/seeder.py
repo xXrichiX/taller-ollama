@@ -91,7 +91,11 @@ def ensure_demo_sucursal() -> tuple[int, int, list[int], list[int]]:
   else:
     mec_ids = [m["id"] for m in mec]
 
-  catalog_service.copiar_tipos_mantenimiento_plantilla(id_sucursal)
+  existing = catalog_service.list_tipos_mantenimiento(id_sucursal)
+  if not existing:
+    catalog_service.create_tipo_mantenimiento(
+      "Diagnóstico general", "Escaneo y revisión", 500.0, id_sucursal
+    )
   return id_sucursal, id_mi_taller, isla_ids, mec_ids
 
 
