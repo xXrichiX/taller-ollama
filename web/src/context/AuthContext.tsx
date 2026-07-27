@@ -35,6 +35,8 @@ const defaultPerms: Permissions = {
   can_manage_citas: false,
   can_create_citas: false,
   can_manage_usuarios: false,
+  show_isla_picker: false,
+  show_taller_module: false,
 };
 
 export function AuthProvider({ children }: { children: ReactNode }) {

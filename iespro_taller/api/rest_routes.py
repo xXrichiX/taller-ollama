@@ -86,7 +86,10 @@ def auth_login(body: LoginBody):
   return {
     "token": session.token,
     "user": user_payload(user, session),
-    "role_label": role_display_label(user.get("rol_nombre")),
+    "role_label": role_display_label(
+      user.get("rol_nombre"),
+      es_propietario=bool(user.get("es_propietario")),
+    ),
   }
 
 
@@ -149,7 +152,10 @@ def auth_me(session: AppSession = Depends(require_session)):
         apply_user_to_session(session, user)
   return {
     "user": user_payload(session.user, session),
-    "role_label": role_display_label(session.user.get("rol_nombre")),
+    "role_label": role_display_label(
+      session.user.get("rol_nombre"),
+      es_propietario=catalog_service.user_is_propietario(session.user["id"]),
+    ),
     "permissions": _permissions(session),
   }
 
@@ -219,6 +225,7 @@ def _permissions(session: AppSession) -> dict[str, bool]:
   es_propietario = catalog_service.user_is_propietario(uid)
   needs_setup = catalog_service.user_needs_taller_setup(uid, rol)
   can_create_sucursal = catalog_service.user_can_create_sucursal(uid)
+  islas = cita_service.list_islas(session.id_sucursal) if session.id_sucursal else []
   return {
     "is_admin": False,
     "is_propietario": es_propietario,
@@ -230,7 +237,9 @@ def _permissions(session: AppSession) -> dict[str, bool]:
     "can_manage_branch": es_propietario,
     "can_manage_citas": is_workshop_staff(rol) and not needs_setup,
     "can_create_citas": (es_propietario or is_mecanico(rol) or is_cliente(rol)) and not needs_setup,
-    "can_manage_usuarios": es_propietario,
+    "can_manage_usuarios": False,
+    "show_isla_picker": len(islas) > 1,
+    "show_taller_module": is_workshop_staff(rol) and len(islas) > 1,
   }
 
 
@@ -295,6 +304,7 @@ def dashboard(session: AppSession = Depends(require_session)):
   rol = session.user.get("rol_nombre")
   stats: dict[str, int] = {}
   citas_filters = _citas_filters(session)
+  es_propietario = catalog_service.user_is_propietario(session.user["id"])
 
   citas = cita_service.list_citas(**citas_filters)
   pendientes = sum(1 for c in citas if c.get("estado") in _PENDING_ESTADOS)
@@ -315,7 +325,7 @@ def dashboard(session: AppSession = Depends(require_session)):
       "en_proceso": en_proceso,
       "completadas": completadas,
     }
-  elif is_mecanico(rol):
+  elif is_mecanico(rol) and not es_propietario:
     stats = {
       "citas": len(citas),
       "pendientes": pendientes,
@@ -355,8 +365,10 @@ def dashboard(session: AppSession = Depends(require_session)):
   title = "Resumen del taller"
   if is_cliente(rol):
     title = "Mi resumen"
-  elif is_mecanico(rol):
+  elif is_mecanico(rol) and not es_propietario:
     title = "Panel del mecánico"
+  elif es_propietario:
+    title = "Mi taller"
 
   return {
     "title": title,

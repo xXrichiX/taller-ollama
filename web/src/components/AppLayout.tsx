@@ -108,7 +108,7 @@ export function AppLayout() {
             ☰
           </button>
           <span className="header-breadcrumb">{breadcrumb}</span>
-          {perms.is_staff && islas.length > 0 && (
+          {perms.is_staff && perms.show_isla_picker && islas.length > 0 && (
             <div className="header-isla-picker">
               <select
                 id="header-isla-select"

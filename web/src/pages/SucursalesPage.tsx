@@ -69,6 +69,13 @@ export function SucursalesPage() {
     <div className="page page-list">
       {error && !createOpen && <p className="error-text">{error}</p>}
 
+      {islas.length <= 1 && (
+        <p className="muted page-intro">
+          Taller básico: una bahía es suficiente. El sistema ya creó <strong>Isla 1</strong> al registrarte.
+          Solo agrega más islas si tienes varias rampas de trabajo.
+        </p>
+      )}
+
       <div className="section-card">
         <ListToolbar
           search=""

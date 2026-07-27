@@ -22,6 +22,8 @@ export interface Permissions {
   can_manage_citas: boolean;
   can_create_citas: boolean;
   can_manage_usuarios: boolean;
+  show_isla_picker: boolean;
+  show_taller_module: boolean;
 }
 
 export interface AuthState {

@@ -59,9 +59,11 @@ def flags_for_role(rol_nombre: str | None) -> tuple[int, int]:
     return 0, 0
 
 
-def role_display_label(rol_nombre: str | None) -> str:
+def role_display_label(rol_nombre: str | None, *, es_propietario: bool = False) -> str:
     """Etiqueta visible en la app."""
     rol = _norm(rol_nombre)
+    if rol == "MECANICO" and es_propietario:
+        return "Dueño del taller"
     if rol == "MECANICO":
         return "Mecánico"
     if rol == "CLIENTE":
