@@ -264,17 +264,13 @@ CREATE TABLE IF NOT EXISTS app_meta (
 );
 
 
--- Catálogo mínimo (referencia para formularios). El resto se crea desde la app.
+-- Roles: Mecánico (taller, todos los permisos) y Cliente (app).
 INSERT IGNORE INTO roles (id, nombre, descripcion) VALUES
-(1, 'ADMIN', 'Administrador del sistema'),
-(2, 'MECANICO', 'Mecánico de taller'),
-(3, 'PENDIENTE', 'Registro con código, pendiente de activación'),
-(4, 'CLIENTE', 'Cliente con acceso a la app'),
-(5, 'SUPER_ADMIN', 'Alias legacy de administrador');
+(1, 'MECANICO', 'Dueño o mecánico del taller'),
+(2, 'CLIENTE', 'Cliente con acceso a la app');
 
 INSERT IGNORE INTO puestos (id, nombre) VALUES
-(1, 'Admin'),
-(2, 'Mecánico');
+(1, 'Mecánico');
 
 INSERT IGNORE INTO marcas (id, nombre) VALUES
 (1, 'Nissan'), (2, 'Toyota'), (3, 'Ford'), (4, 'Chevrolet');

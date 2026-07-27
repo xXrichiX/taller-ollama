@@ -141,19 +141,15 @@ def list_roles() -> list[dict]:
 
 def list_puestos() -> list[dict]:
     return fetch_all(
-        "SELECT id, nombre FROM puestos WHERE nombre IN ('Admin', 'Mecánico') ORDER BY nombre"
+        "SELECT id, nombre FROM puestos WHERE nombre = 'Mecánico' ORDER BY nombre"
     )
 
 
 def rol_from_puesto(puesto_nombre: str) -> tuple[int, str]:
-    """Deriva rol interno desde puesto visible en UI (Admin → ADMIN, Mecánico → MECANICO)."""
-    p = (puesto_nombre or "").strip().lower()
-    if p == "admin":
-        row = fetch_one("SELECT id, nombre FROM roles WHERE nombre = 'ADMIN'")
-    else:
-        row = fetch_one("SELECT id, nombre FROM roles WHERE nombre = 'MECANICO'")
+    """Todo el personal del taller es Mecánico."""
+    row = fetch_one("SELECT id, nombre FROM roles WHERE nombre = 'MECANICO'")
     if not row:
-        raise ValueError("Puesto no válido.")
+        raise ValueError("Rol Mecánico no configurado.")
     return int(row["id"]), row["nombre"]
 
 
@@ -163,14 +159,11 @@ def assign_usuario_staff(
     puesto_nombre: str,
     id_sucursales: list[int] | None = None,
 ) -> dict[str, Any]:
-    """Asigna puesto y rol. Mecánico: una o varias sucursales. Admin: todas."""
+    """Asigna puesto Mecánico y sucursales del taller."""
     id_rol, rol_nombre = rol_from_puesto(puesto_nombre)
     update_usuario_puesto(id_usuario, id_puesto)
     result = update_usuario_rol(id_usuario, id_rol, rol_nombre)
-    if rol_nombre == "ADMIN":
-        execute("UPDATE usuarios SET id_sucursal = NULL WHERE id = %s", (id_usuario,))
-        set_usuario_sucursales(id_usuario, [])
-    elif id_sucursales:
+    if id_sucursales:
         set_usuario_sucursales(id_usuario, id_sucursales)
         execute(
             "UPDATE usuarios SET id_sucursal = %s WHERE id = %s",
@@ -186,14 +179,13 @@ def list_usuarios(id_sucursal: int | None = None) -> list[dict]:
         FROM usuarios u
         JOIN roles r ON r.id = u.id_rol
         LEFT JOIN puestos p ON p.id = u.id_puesto
-        WHERE r.nombre IN ('ADMIN', 'MECANICO', 'PENDIENTE')
+        WHERE r.nombre = 'MECANICO'
     """
     params: list[Any] = []
     if id_sucursal:
         query += """
           AND (
-            u.id_rol = (SELECT id FROM roles WHERE nombre = 'ADMIN' LIMIT 1)
-            OR u.id IN (SELECT id_usuario FROM usuario_sucursales WHERE id_sucursal = %s)
+            u.id IN (SELECT id_usuario FROM usuario_sucursales WHERE id_sucursal = %s)
             OR u.id_sucursal = %s
           )
         """
@@ -204,8 +196,6 @@ def list_usuarios(id_sucursal: int | None = None) -> list[dict]:
         sucursales = list_sucursales_usuario(row["id"])
         if sucursales:
             row["sucursal"] = ", ".join(s["nombre"] for s in sucursales)
-        elif row.get("rol") == "ADMIN":
-            row["sucursal"] = "Todas"
         else:
             row["sucursal"] = "—"
     return rows

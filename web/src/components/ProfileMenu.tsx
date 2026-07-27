@@ -116,7 +116,7 @@ export function ProfileMenu({ onLogout }: { onLogout: () => void }) {
             type="email"
             value={email}
             onChange={setEmail}
-            placeholder="correo@ejemplo.com"
+            placeholder="correo@gmail.com"
           />
           <FormInput
             label="Contraseña"

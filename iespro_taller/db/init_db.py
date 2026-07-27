@@ -36,6 +36,7 @@ def init_database() -> tuple[bool, str]:
         ensure_inventario_table()
         ensure_inventario_isla_column()
         ensure_remove_legacy_admin()
+        ensure_roles_simplified()
         ensure_performance_indexes()
         ok, msg = test_connection()
         return ok, msg if ok else msg
@@ -181,11 +182,8 @@ def ensure_catalog_seeds() -> None:
     execute(
         """
         INSERT INTO roles (id, nombre, descripcion) VALUES
-        (1, 'ADMIN', 'Administrador del sistema'),
-        (2, 'MECANICO', 'Mecánico de taller'),
-        (3, 'PENDIENTE', 'Registro con código, pendiente de activación'),
-        (4, 'CLIENTE', 'Cliente con acceso a la app'),
-        (5, 'SUPER_ADMIN', 'Alias legacy de administrador')
+        (1, 'MECANICO', 'Dueño o mecánico del taller'),
+        (2, 'CLIENTE', 'Cliente con acceso a la app')
         ON DUPLICATE KEY UPDATE
           nombre = VALUES(nombre),
           descripcion = VALUES(descripcion)
@@ -194,8 +192,7 @@ def ensure_catalog_seeds() -> None:
     execute(
         """
         INSERT INTO puestos (id, nombre) VALUES
-        (1, 'Admin'),
-        (2, 'Mecánico')
+        (1, 'Mecánico')
         ON DUPLICATE KEY UPDATE nombre = VALUES(nombre)
         """
     )
@@ -233,6 +230,49 @@ def ensure_catalog_seeds() -> None:
 def ensure_remove_legacy_admin() -> None:
     """Elimina la cuenta global de administrador (modelo multi-taller por registro)."""
     execute("DELETE FROM usuarios WHERE LOWER(email) = %s", ("admin@iespro.mx",))
+
+
+def ensure_roles_simplified() -> None:
+    """Migra roles legacy (ADMIN, PENDIENTE…) a MECANICO y deja solo Mecánico + Cliente."""
+    mec = fetch_one("SELECT id FROM roles WHERE nombre = 'MECANICO' LIMIT 1")
+    if not mec:
+        return
+    mec_id = int(mec["id"])
+
+    for legacy in ("ADMIN", "SUPER_ADMIN", "PENDIENTE"):
+        row = fetch_one("SELECT id FROM roles WHERE nombre = %s", (legacy,))
+        if not row:
+            continue
+        legacy_id = int(row["id"])
+        execute("UPDATE usuarios SET id_rol = %s WHERE id_rol = %s", (mec_id, legacy_id))
+        execute("DELETE FROM roles WHERE id = %s", (legacy_id,))
+
+    mecanico_roles = fetch_all("SELECT id FROM roles WHERE nombre = 'MECANICO' ORDER BY id")
+    if len(mecanico_roles) > 1:
+        keep_id = int(mecanico_roles[0]["id"])
+        for extra in mecanico_roles[1:]:
+            extra_id = int(extra["id"])
+            execute("UPDATE usuarios SET id_rol = %s WHERE id_rol = %s", (keep_id, extra_id))
+            execute("DELETE FROM roles WHERE id = %s", (extra_id,))
+
+    cliente_roles = fetch_all("SELECT id FROM roles WHERE nombre = 'CLIENTE' ORDER BY id")
+    if len(cliente_roles) > 1:
+        keep_id = int(cliente_roles[0]["id"])
+        for extra in cliente_roles[1:]:
+            extra_id = int(extra["id"])
+            execute("UPDATE usuarios SET id_rol = %s WHERE id_rol = %s", (keep_id, extra_id))
+            execute("DELETE FROM roles WHERE id = %s", (extra_id,))
+
+    puesto_mec = fetch_one("SELECT id FROM puestos WHERE nombre = 'Mecánico' LIMIT 1")
+    if puesto_mec:
+        pm_id = int(puesto_mec["id"])
+        admin_puesto = fetch_one("SELECT id FROM puestos WHERE nombre = 'Admin' LIMIT 1")
+        if admin_puesto:
+            execute(
+                "UPDATE usuarios SET id_puesto = %s WHERE id_puesto = %s",
+                (pm_id, int(admin_puesto["id"])),
+            )
+            execute("DELETE FROM puestos WHERE id = %s", (int(admin_puesto["id"]),))
 
 
 def ensure_minimal_data_only() -> None:
