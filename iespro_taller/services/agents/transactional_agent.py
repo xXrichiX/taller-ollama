@@ -8,7 +8,12 @@ from typing import Any, Callable
 import ollama
 
 from config import OLLAMA_CHAT_MODEL
-from services.chat_intents import allows_mutating_tool
+from services.chat_intents import (
+  allows_mutating_tool,
+  get_unclear_input_answer,
+  looks_like_gibberish,
+  looks_like_hallucinated_direct_answer,
+)
 from services.text_format import plain_chat_text
 from services.tool_resilience import (
   call_signature,
@@ -107,7 +112,13 @@ class TransactionalAgent:
     tool_calls = msg.get("tool_calls") or []
 
     if not tool_calls:
+      if looks_like_gibberish(question):
+        answer = get_unclear_input_answer(self.chat.rol_nombre)
+        return self._stream(answer, emit_token), [], "help"
       content = plain_chat_text(msg.get("content", "No pude procesar la solicitud."))
+      if looks_like_hallucinated_direct_answer(content):
+        answer = get_unclear_input_answer(self.chat.rol_nombre)
+        return self._stream(answer, emit_token), [], "help"
       return self._stream(content, emit_token), [], "llm_direct"
 
     messages.append(msg)

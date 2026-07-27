@@ -352,6 +352,31 @@ def get_friendly_fallback_answer(rol_nombre: str | None = None) -> str:
     return FRIENDLY_FALLBACK_ANSWER
 
 
+UNCLEAR_INPUT_ANSWER = """No entendí eso. Escríbelo en español claro.
+
+Por ejemplo: lista las citas, crea un cliente, o ¿cuántos vehículos hay?"""
+
+
+CLIENTE_UNCLEAR_ANSWER = """No entendí eso. Escríbelo en español claro.
+
+Puedo ayudarte con tus citas o vehículos registrados."""
+
+
+MECANICO_UNCLEAR_ANSWER = """No entendí eso. Escríbelo en español claro.
+
+Dime qué necesitas: citas de tu sucursal, cambiar estado, o buscar una falla parecida."""
+
+
+def get_unclear_input_answer(rol_nombre: str | None = None) -> str:
+    from services.user_roles import is_cliente, is_mecanico
+
+    if is_cliente(rol_nombre):
+        return CLIENTE_UNCLEAR_ANSWER
+    if is_mecanico(rol_nombre):
+        return MECANICO_UNCLEAR_ANSWER
+    return UNCLEAR_INPUT_ANSWER
+
+
 def normalize_workshop_question(question: str) -> str:
     """Corrige typos de voz y mapea 'eliminar cita' → cancelar."""
     text = (question or "").strip()
@@ -610,8 +635,89 @@ def is_greeting(question: str) -> bool:
     return False
 
 
+def looks_like_gibberish(question: str) -> bool:
+    """Teclado al azar o texto sin intención reconocible: no debe ir al LLM."""
+    raw = (question or "").strip()
+    if not raw:
+        return True
+    if _is_action_request(raw) or looks_like_workshop_request(raw):
+        return False
+    if is_capabilities_question(raw) or is_greeting(raw) or is_acknowledgment(raw):
+        return False
+    if is_memory_recall_question(raw) or is_similarity_question(raw):
+        return False
+    if extract_placa_from_text(raw):
+        return False
+
+    q = _norm(raw)
+    compact = re.sub(r"[^a-z]", "", q)
+    if len(compact) < 3:
+        return True
+
+    known_gibberish = (
+        "asdf", "asdfgh", "qwerty", "zxcv", "qweasdzxc", "quechqcea",
+        "lol", "xd", "xdd", "kk",
+    )
+    if compact in known_gibberish:
+        return True
+
+    if re.search(r"jaja|jeje|jiji|haha", compact):
+        return True
+    if re.fullmatch(r"(.)\1{4,}", compact):
+        return True
+
+    if re.search(r"(cq|qx|xq|zq|jq|chq|qch|schw|qce|qcea|hqc)", compact):
+        return True
+    if re.search(r"[bcdfghjklmnpqrstvwxyz]{5,}", compact):
+        return True
+
+    words = q.split()
+    if len(words) == 1 and len(compact) >= 7 and not looks_like_workshop_request(raw):
+        vowels = sum(1 for c in compact if c in "aeiou")
+        consonant_runs = re.findall(r"[bcdfghjklmnpqrstvwxyz]+", compact)
+        max_run = max((len(run) for run in consonant_runs), default=0)
+        if max_run >= 4:
+            return True
+        syllables = len(re.findall(r"[aeiou]+", compact))
+        if syllables <= 3 and len(compact) >= 8:
+            return True
+        if vowels / len(compact) < 0.22:
+            return True
+
+    if len(words) >= 4 and not looks_like_workshop_request(raw):
+        long_words = [w for w in words if len(w) >= 4 and re.search(r"[aeiou]", w)]
+        if not long_words:
+            return True
+
+    return False
+
+
+def looks_like_hallucinated_direct_answer(content: str) -> bool:
+    """Respuesta larga inventada sin datos de herramientas."""
+    text = (content or "").lower()
+    if len(text) < 100:
+        return False
+    signals = (
+        "cita 1",
+        "cita 2",
+        "cita 3",
+        "abc-123",
+        "mno-789",
+        "balatas delanteras",
+        "discos rayados",
+        "ruido metálico al frenar",
+        "ruido metalico al frenar",
+        "necesito más información para darte",
+        "necesito mas informacion para darte",
+    )
+    hits = sum(1 for signal in signals if signal in text)
+    return hits >= 2
+
+
 def is_casual_nonsense(question: str) -> bool:
     """Risa, texto random o charla sin tema del taller."""
+    if looks_like_gibberish(question):
+        return True
     if _is_action_request(question) or is_capabilities_question(question):
         return False
     if is_memory_recall_question(question) or looks_like_workshop_request(question):

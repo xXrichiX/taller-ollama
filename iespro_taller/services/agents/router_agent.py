@@ -11,6 +11,7 @@ import ollama
 
 from config import OLLAMA_CHAT_MODEL
 from services.chat_intents import (
+    looks_like_gibberish,
     looks_like_workshop_request,
     normalize_workshop_question,
 )
@@ -72,6 +73,9 @@ class RouterAgent:
         q_lower = question.lower()
         if any(p in q_lower for p in INJECTION_PATTERNS):
             return RouteIntent.BLOCKED
+
+        if looks_like_gibberish(question):
+            return RouteIntent.HELP
 
         if any(k in q_lower for k in RAG_KEYWORDS):
             return RouteIntent.RAG
