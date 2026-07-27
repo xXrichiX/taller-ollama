@@ -4,13 +4,22 @@ import re
 import unicodedata
 
 CAPABILITIES_PATTERNS = (
-    "qué puedes", "que puedes", "qué sabes", "que sabes",
-    "qué tanto", "que tanto", "cuánto puedes", "cuanto puedes",
-    "puedes crear", "puedes hacer", "qué haces", "que haces",
-    "qué hace", "que hace", "para qué sirves", "para que sirves",
-    "cómo funciona", "como funciona", "ayuda", "capacidades",
-    "en qué me ayudas", "en que me ayudas", "qué me puedes",
-    "que me puedes", "funciones", "opciones",
+    "qué puedes hacer", "que puedes hacer",
+    "qué sabes hacer", "que sabes hacer",
+    "qué tanto puedes", "que tanto puedes",
+    "cuánto puedes", "cuanto puedes",
+    "para qué sirves", "para que sirves",
+    "cómo funciona", "como funciona",
+    "en qué me ayudas", "en que me ayudas",
+    "qué me puedes", "que me puedes",
+    "capacidades", "funciones", "opciones",
+    "menú de ayuda", "menu de ayuda",
+)
+
+CASUAL_CHAT_PATTERNS = (
+    "qué haces", "que haces", "quien eres", "quién eres",
+    "que eres", "qué eres", "como estas", "cómo estás",
+    "como te llamas", "cómo te llamas",
 )
 
 WORKSHOP_HINTS = (
@@ -321,12 +330,42 @@ def is_capabilities_question(question: str) -> bool:
     q = _norm(question)
     if _is_action_request(question):
         return False
-    # "¿qué hace la empresa/taller?" no es menú de ayuda del asistente
     if any(p in q for p in ("que hace", "qué hace")) and any(
         w in q for w in ("empresa", "taller", "iespro", "sistema")
     ):
         return False
-    return any(p in q for p in CAPABILITIES_PATTERNS)
+    if not any(p in q for p in CAPABILITIES_PATTERNS):
+        return False
+    if q.strip() in ("ayuda", "help"):
+        return True
+    words = q.split()
+    return len(words) <= 8
+
+
+def is_casual_chat(question: str) -> bool:
+    """Charla corta (¿qué haces?, ¿quién eres?) sin pedir el menú completo."""
+    if _is_action_request(question) or looks_like_workshop_request(question):
+        return False
+    q = re.sub(r"[^a-z\s]", "", _norm(question)).strip()
+    if not q:
+        return False
+    if any(p in q for p in CASUAL_CHAT_PATTERNS):
+        return len(q.split()) <= 6
+    return False
+
+
+def get_casual_chat_answer(rol_nombre: str | None = None) -> str:
+    from services.user_roles import is_cliente
+
+    if is_cliente(rol_nombre):
+        return (
+            "Soy el asistente de IESPRO-Taller. Te ayudo con tus citas y vehículos. "
+            "¿Qué necesitas?"
+        )
+    return (
+        "Soy el asistente de IESPRO-Taller. Te ayudo con citas, clientes, vehículos e inventario. "
+        "¿Qué necesitas?"
+    )
 
 
 def is_greeting(question: str) -> bool:
@@ -384,7 +423,7 @@ def is_casual_nonsense(question: str) -> bool:
     if len(letters) <= 10 and vowels <= 1 and " " not in q:
         return True
 
-    return True
+    return False
 
 
 def is_invalid_input(question: str) -> bool:

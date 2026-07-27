@@ -29,10 +29,12 @@ from services.chat_intents import (
     allows_mutating_tool,
     extract_placa_from_text,
     get_capabilities_answer,
+    get_casual_chat_answer,
     get_friendly_fallback_answer,
     get_greeting_answer,
     is_acknowledgment,
     is_capabilities_question,
+    is_casual_chat,
     is_casual_nonsense,
     is_greeting,
     is_invalid_input,
@@ -272,12 +274,25 @@ class ChatService:
         return self.id_conversacion
 
     def start_new_conversation(self) -> int | None:
+        """Abre chat vacío: reutiliza uno sin mensajes o crea uno nuevo."""
         if not self.id_usuario:
             return None
+        if not self.id_sucursal:
+            raise ValueError("Selecciona una sucursal para usar el asistente.")
+
+        if self.id_conversacion:
+            if not self.repo.obtener_mensajes(self.id_conversacion):
+                return self.id_conversacion
+
+        vacia = self.repo.obtener_conversacion_vacia(self.id_usuario, self.id_sucursal)
+        if vacia:
+            self._pending_new_conversation = False
+            self.id_conversacion = int(vacia["id"])
+            return self.id_conversacion
 
         self.id_conversacion = None
         self._pending_new_conversation = True
-        return None
+        return self.ensure_conversation()
 
     def get_ui_messages(self) -> list[dict]:
         if not self.id_conversacion:
@@ -674,6 +689,10 @@ class ChatService:
         if is_greeting(question):
             answer = stream_answer(get_greeting_answer(self.rol_nombre))
             return finalize(answer, "help")
+
+        if is_casual_chat(question):
+            answer = stream_answer(get_casual_chat_answer(self.rol_nombre))
+            return finalize(answer, "chat")
 
         if is_acknowledgment(question):
             answer = stream_answer(ACKNOWLEDGMENT_ANSWER)

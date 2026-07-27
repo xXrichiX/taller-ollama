@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AppLoader } from "../components/AppLoader";
 import { useAuth } from "../context/AuthContext";
 
 export function LoginPage() {
-  const { login, register, auth } = useAuth();
+  const { login, register, auth, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -16,6 +17,10 @@ export function LoginPage() {
   useEffect(() => {
     if (auth) navigate("/", { replace: true });
   }, [auth, navigate]);
+
+  if (authLoading) {
+    return <AppLoader message="Restaurando sesión…" />;
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,8 +110,11 @@ export function LoginPage() {
             </div>
           </div>
           {error && <p className="error-text">{error}</p>}
-          <button className="btn" type="submit" disabled={loading}>
-            {loading ? "..." : mode === "login" ? "Entrar" : "Crear cuenta"}
+          <button className="btn btn-with-loader" type="submit" disabled={loading}>
+            {loading && <span className="btn-spinner" aria-hidden />}
+            {loading
+              ? (mode === "login" ? "Entrando…" : "Creando cuenta…")
+              : (mode === "login" ? "Entrar" : "Crear cuenta")}
           </button>
         </form>
         <p className="muted" style={{ marginTop: "1rem", textAlign: "center" }}>

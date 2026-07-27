@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { AppLoader } from "./components/AppLoader";
 import { AppLayout } from "./components/AppLayout";
 import { LoginPage } from "./pages/LoginPage";
 import { HomePage } from "./pages/HomePage";
@@ -14,7 +15,7 @@ import { SucursalesPage } from "./pages/SucursalesPage";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { auth, loading } = useAuth();
-  if (loading) return <p className="muted" style={{ padding: "2rem" }}>Cargando...</p>;
+  if (loading) return <AppLoader message="Restaurando sesión…" />;
   if (!auth) return <Navigate to="/login" replace />;
   return children;
 }

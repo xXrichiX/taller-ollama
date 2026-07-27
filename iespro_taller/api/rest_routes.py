@@ -1089,9 +1089,10 @@ def chat_conversations(session: AppSession = Depends(require_session)):
 @router.post("/chat/conversations")
 def chat_new_conversation(session: AppSession = Depends(require_session)):
   require_sucursal(session)
-  session.chat.start_new_conversation()
-  session.chat.ensure_conversation()
-  return {"ok": True}
+  conv_id = session.chat.start_new_conversation()
+  if not conv_id:
+    raise HTTPException(status_code=400, detail="No se pudo crear la conversación")
+  return {"ok": True, "id": conv_id}
 
 
 @router.post("/chat/conversations/{id_conv}/activate")

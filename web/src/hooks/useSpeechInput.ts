@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { transcribeSpeech } from "../api/client";
 
 const SILENCE_MS = 2000;
-const SILENCE_RMS = 0.012;
-const PARTIAL_TRANSCRIBE_MS = 2500;
+const SILENCE_RMS = 0.008;
+const PARTIAL_TRANSCRIBE_MS = 900;
 
 type SpeechRecognitionInstance = {
   lang: string;
@@ -149,16 +149,19 @@ export function useSpeechInput(options: {
         return;
       }
       setTranscribing(true);
-      if (!latestPartialTextRef.current) {
-        onTranscriptRef.current("Transcribiendo…");
-      }
       try {
         const text = await transcribeSpeech(blob, authToken);
-        onTranscriptRef.current(text);
-        if (autoSend && text) onAutoSendRef.current(text);
+        const finalText = text || latestPartialTextRef.current;
+        if (finalText) onTranscriptRef.current(finalText);
+        if (autoSend && finalText) onAutoSendRef.current(finalText);
       } catch (err) {
-        setVoiceError(err instanceof Error ? err.message : "No se pudo transcribir el audio.");
-        onTranscriptRef.current("");
+        const fallback = latestPartialTextRef.current;
+        if (fallback) {
+          onTranscriptRef.current(fallback);
+          if (autoSend) onAutoSendRef.current(fallback);
+        } else {
+          setVoiceError(err instanceof Error ? err.message : "No se pudo transcribir el audio.");
+        }
       } finally {
         setTranscribing(false);
       }
@@ -200,7 +203,13 @@ export function useSpeechInput(options: {
     latestPartialTextRef.current = "";
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       mediaStreamRef.current = stream;
 
       const mimeType = pickRecorderMimeType();
@@ -241,9 +250,6 @@ export function useSpeechInput(options: {
         }
         const rms = Math.sqrt(sum / data.length);
         if (rms > SILENCE_RMS) {
-          if (!hasSpeechRef.current) {
-            onTranscriptRef.current("…");
-          }
           hasSpeechRef.current = true;
           silenceStartedRef.current = null;
 
@@ -260,8 +266,12 @@ export function useSpeechInput(options: {
             void transcribeSpeech(blob, authToken)
               .then((text) => {
                 if (!wantListeningRef.current || !text) return;
-                latestPartialTextRef.current = text;
-                onTranscriptRef.current(text);
+                const prev = latestPartialTextRef.current;
+                latestPartialTextRef.current =
+                  text.length >= prev.length || !prev.startsWith(text.slice(0, 8))
+                    ? text
+                    : prev;
+                onTranscriptRef.current(latestPartialTextRef.current);
               })
               .catch(() => {
                 /* sigue escuchando */
@@ -404,9 +414,10 @@ export function useSpeechInput(options: {
 
   return {
     listening: listening || transcribing,
+    voiceActive: listening,
+    transcribing,
     voiceError,
     toggleListening,
-    silenceSeconds: SILENCE_MS / 1000,
     clearVoiceError: () => setVoiceError(""),
   };
 }

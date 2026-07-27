@@ -928,6 +928,103 @@ select:disabled, input:disabled {
   color: var(--muted);
 }
 
+.app-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  animation: app-loader-fade-in 0.35s ease;
+}
+
+.app-loader--fullscreen {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -10%, rgba(33, 133, 208, 0.12), transparent),
+    var(--bg);
+}
+
+.app-loader-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 2rem 2.5rem;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  min-width: min(92vw, 280px);
+}
+
+.app-loader-mark {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, var(--iespro-blue), var(--iespro-blue-dark));
+  display: grid;
+  place-items: center;
+  box-shadow: 0 8px 24px var(--accent-glow);
+}
+
+.app-loader-mark-inner {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  border-top-color: transparent;
+  animation: app-loader-spin 0.9s linear infinite;
+}
+
+.app-loader-brand {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.app-loader-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: app-loader-spin 0.75s linear infinite;
+}
+
+.app-loader-message {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.btn-with-loader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-width: 9.5rem;
+}
+
+.btn-spinner {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: app-loader-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes app-loader-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes app-loader-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Dashboard IESPRO */
 .page-dashboard {
   padding: 1.25rem 0 2rem;

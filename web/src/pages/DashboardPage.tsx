@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import { AppLoader } from "../components/AppLoader";
 import { api } from "../api/client";
 import { useAuth, usePermissions } from "../context/AuthContext";
 import { estadoPillClass } from "../utils/ordenStatus";
@@ -137,11 +138,7 @@ export function DashboardPage() {
 
   if (!data) {
     if (loading) {
-      return (
-        <div className="page page-dashboard">
-          <div className="loading-state">Cargando panel…</div>
-        </div>
-      );
+      return <AppLoader message="Cargando panel…" fullScreen={false} />;
     }
     return null;
   }

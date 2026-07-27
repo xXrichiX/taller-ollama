@@ -7,6 +7,7 @@ import { VoiceMicButton } from "./VoiceMicButton";
 interface Conversation {
   id: number;
   titulo?: string;
+  num_mensajes?: number;
 }
 
 interface Message {
@@ -23,10 +24,10 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const canStartNewConversation = messages.length > 0;
 
   const scrollBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,11 +72,19 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
 
   useEffect(() => {
     scrollBottom();
-  }, [messages, status]);
+  }, [messages]);
 
   const newConversation = async () => {
-    if (!auth) return;
-    await api("/api/chat/conversations", { method: "POST" }, auth.token);
+    if (!auth || !canStartNewConversation) return;
+    setError("");
+    const res = await api<{ ok: boolean; id: number }>(
+      "/api/chat/conversations",
+      { method: "POST" },
+      auth.token,
+    );
+    setActiveId(res.id);
+    setMessages([]);
+    setInput("");
     await loadConversations();
   };
 
@@ -102,7 +111,7 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
         text,
         auth.user.id_sucursal,
         {
-          onStatus: (label) => setStatus(label),
+          onStatus: () => {},
           onToken: (chunk) => {
             setMessages((prev) => {
               const copy = [...prev];
@@ -128,7 +137,6 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
               }
               return copy;
             });
-            setStatus("");
             loadConversations();
           },
           onError: (msg) => setError(msg),
@@ -141,7 +149,6 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
       setMessages((m) => m.filter((x) => !x.streaming));
     } finally {
       setSending(false);
-      setStatus("");
     }
   }, [auth, loadConversations, sending]);
 
@@ -174,7 +181,19 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
       {error && <p className="error-text">{error}</p>}
       <div className="chat-layout">
         <div className="chat-sidebar">
-          <button type="button" className="btn btn-block" onClick={newConversation}>+ Nueva conversación</button>
+          <button
+            type="button"
+            className="btn btn-block"
+            onClick={() => void newConversation()}
+            disabled={!canStartNewConversation}
+            title={
+              canStartNewConversation
+                ? "Iniciar otra conversación"
+                : "Escribe algo en esta conversación antes de abrir otra"
+            }
+          >
+            + Nueva conversación
+          </button>
           <div className="conv-list">
             {conversations.map((c) => (
               <button
@@ -190,66 +209,38 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
         </div>
         <div className="chat-main">
           <div className="chat-messages">
-            {messages.length === 0 && (
-              <div className="chat-empty">
-                <p>Hola, soy el asistente de IESPRO-Taller.</p>
-                <p className="muted">Pregunta sobre citas, vehículos o fallas comunes.</p>
-              </div>
-            )}
-            {messages.map((m, i) => (
+{messages.map((m, i) => (
               <div key={i} className={`msg-row ${m.role === "user" ? "user" : "bot"}`}>
                 <div className={`msg-bubble ${m.streaming ? "streaming" : ""}`}>
                   {m.content || (m.streaming ? "▍" : "")}
-                  {m.route && !m.streaming && (
-                    <div className="msg-route">{ROUTE_LABELS[m.route] || m.route}</div>
+                  {m.route && !m.streaming && ROUTE_LABELS[m.route] && (
+                    <div className="msg-route">{ROUTE_LABELS[m.route]}</div>
                   )}
                 </div>
               </div>
             ))}
             <div ref={bottomRef} />
           </div>
-          {status && (
-            <div className="chat-status">
-              <span className="pulse-dot" />
-              {status}
-            </div>
-          )}
           <form className="chat-compose" onSubmit={send}>
-            <div className={`chat-compose-field${speech.listening ? " voice-active" : ""}`}>
+            <div className={`chat-compose-field${speech.voiceActive ? " voice-active" : ""}`}>
               <VoiceMicButton
                 listening={speech.listening}
                 disabled={sending}
                 onClick={speech.toggleListening}
-                title={
-                  speech.listening
-                    ? "Detener y enviar"
-                    : "Hablar (envía tras 2 s de silencio)"
-                }
+                title={speech.listening ? "Detener y enviar" : "Hablar (envía al dejar de hablar)"}
               />
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  speech.listening
-                    ? input.trim()
-                      ? ""
-                      : "Habla ahora…"
-                    : "Escribe tu pregunta o usa el micrófono…"
-                }
+                placeholder="Escribe tu pregunta o usa el micrófono…"
                 disabled={sending}
-                className={speech.listening ? "voice-active-input" : undefined}
+                className={speech.voiceActive ? "voice-active-input" : undefined}
               />
             </div>
             <button className="btn btn-send" type="submit" disabled={sending || !input.trim()}>
               {sending ? "…" : "Enviar"}
             </button>
           </form>
-          {speech.listening && (
-            <p className="voice-hint">
-              <span className="pulse-dot" />
-              Escuchando — se enviará automáticamente tras {speech.silenceSeconds} s de silencio
-            </p>
-          )}
           {speech.voiceError && <p className="error-text voice-error">{speech.voiceError}</p>}
         </div>
       </div>

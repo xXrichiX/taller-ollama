@@ -118,6 +118,26 @@ class ConversationRepository:
             (id_usuario, id_sucursal, limite),
         )
 
+    def obtener_conversacion_vacia(
+        self,
+        id_usuario: int,
+        id_sucursal: int,
+    ) -> dict | None:
+        return fetch_one(
+            """
+            SELECT c.id, c.titulo
+            FROM conversaciones c
+            WHERE c.id_usuario = %s
+              AND c.id_sucursal = %s
+              AND NOT EXISTS (
+                SELECT 1 FROM mensajes_chat m WHERE m.id_conversacion = c.id
+              )
+            ORDER BY c.id DESC
+            LIMIT 1
+            """,
+            (id_usuario, id_sucursal),
+        )
+
     def obtener_memoria_otras_conversaciones(
         self,
         id_usuario: int,
