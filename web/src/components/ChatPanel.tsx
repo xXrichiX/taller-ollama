@@ -231,7 +231,9 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
                   speech.listening
-                    ? "Escuchando… deja de hablar 2 s para enviar"
+                    ? input.trim()
+                      ? ""
+                      : "Habla ahora…"
                     : "Escribe tu pregunta o usa el micrófono…"
                 }
                 disabled={sending}

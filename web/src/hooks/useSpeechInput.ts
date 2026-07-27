@@ -3,6 +3,7 @@ import { transcribeSpeech } from "../api/client";
 
 const SILENCE_MS = 2000;
 const SILENCE_RMS = 0.012;
+const PARTIAL_TRANSCRIBE_MS = 2500;
 
 type SpeechRecognitionInstance = {
   lang: string;
@@ -77,6 +78,9 @@ export function useSpeechInput(options: {
   const hasSpeechRef = useRef(false);
   const silenceStartedRef = useRef<number | null>(null);
   const usingServerRef = useRef(false);
+  const partialBusyRef = useRef(false);
+  const lastPartialAtRef = useRef(0);
+  const latestPartialTextRef = useRef("");
 
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
@@ -103,6 +107,9 @@ export function useSpeechInput(options: {
     audioContextRef.current = null;
     hasSpeechRef.current = false;
     silenceStartedRef.current = null;
+    partialBusyRef.current = false;
+    lastPartialAtRef.current = 0;
+    latestPartialTextRef.current = "";
   }, []);
 
   const buildTranscript = useCallback((interim = "") => {
@@ -142,7 +149,9 @@ export function useSpeechInput(options: {
         return;
       }
       setTranscribing(true);
-      onTranscriptRef.current("Transcribiendo…");
+      if (!latestPartialTextRef.current) {
+        onTranscriptRef.current("Transcribiendo…");
+      }
       try {
         const text = await transcribeSpeech(blob, authToken);
         onTranscriptRef.current(text);
@@ -166,6 +175,7 @@ export function useSpeechInput(options: {
       const mimeType = mediaChunksRef.current[0]?.type || "audio/webm";
       const blob = new Blob(mediaChunksRef.current, { type: mimeType });
       mediaChunksRef.current = [];
+      latestPartialTextRef.current = "";
       await transcribeBlob(blob, autoSend);
     },
     [stopMediaCapture, transcribeBlob],
@@ -185,6 +195,9 @@ export function useSpeechInput(options: {
     mediaChunksRef.current = [];
     onTranscriptRef.current("");
     usingServerRef.current = true;
+    partialBusyRef.current = false;
+    lastPartialAtRef.current = 0;
+    latestPartialTextRef.current = "";
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -228,8 +241,35 @@ export function useSpeechInput(options: {
         }
         const rms = Math.sqrt(sum / data.length);
         if (rms > SILENCE_RMS) {
+          if (!hasSpeechRef.current) {
+            onTranscriptRef.current("…");
+          }
           hasSpeechRef.current = true;
           silenceStartedRef.current = null;
+
+          const now = Date.now();
+          if (
+            mediaChunksRef.current.length > 0 &&
+            !partialBusyRef.current &&
+            now - lastPartialAtRef.current >= PARTIAL_TRANSCRIBE_MS
+          ) {
+            lastPartialAtRef.current = now;
+            partialBusyRef.current = true;
+            const mimeType = mediaChunksRef.current[0]?.type || "audio/webm";
+            const blob = new Blob(mediaChunksRef.current, { type: mimeType });
+            void transcribeSpeech(blob, authToken)
+              .then((text) => {
+                if (!wantListeningRef.current || !text) return;
+                latestPartialTextRef.current = text;
+                onTranscriptRef.current(text);
+              })
+              .catch(() => {
+                /* sigue escuchando */
+              })
+              .finally(() => {
+                partialBusyRef.current = false;
+              });
+          }
           return;
         }
         if (!hasSpeechRef.current) return;
@@ -252,7 +292,7 @@ export function useSpeechInput(options: {
           : "No se pudo usar el micrófono.",
       );
     }
-  }, [finishMediaRecording, stopMediaCapture]);
+  }, [authToken, finishMediaRecording, stopMediaCapture]);
 
   const startNativeListening = useCallback(() => {
     const Ctor = getSpeechRecognitionCtor();
