@@ -97,3 +97,22 @@ export const ROUTE_LABELS: Record<string, string> = {
   router: "Orquestador",
   guardrail: "Seguridad",
 };
+
+export async function transcribeSpeech(
+  audio: Blob,
+  token?: string | null,
+): Promise<string> {
+  const t = token ?? getStoredToken();
+  const form = new FormData();
+  const ext = audio.type.includes("mp4") ? "m4a" : "webm";
+  form.append("audio", audio, `recording.${ext}`);
+
+  const res = await fetch("/api/speech/transcribe", {
+    method: "POST",
+    headers: t ? { Authorization: `Bearer ${t}` } : {},
+    body: form,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  const data = (await res.json()) as { text?: string };
+  return (data.text || "").trim();
+}

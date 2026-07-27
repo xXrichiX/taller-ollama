@@ -147,6 +147,7 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
 
   const speech = useSpeechInput({
     disabled: sending,
+    authToken: auth?.token,
     onTranscript: setInput,
     onAutoSend: (text) => {
       void submitMessage(text);

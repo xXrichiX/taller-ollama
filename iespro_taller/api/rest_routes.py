@@ -7,7 +7,7 @@ import queue
 import threading
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -117,6 +117,20 @@ def auth_register(body: RegisterBody):
 def auth_logout(session: AppSession = Depends(require_session)):
   delete_session(session.token)
   return {"ok": True}
+
+
+@router.post("/speech/transcribe")
+async def speech_transcribe(
+  audio: UploadFile = File(...),
+  session: AppSession = Depends(require_session),
+):
+  from services import speech_service
+
+  data = await audio.read()
+  result = speech_service.transcribe_audio(data)
+  if not result.get("ok"):
+    raise HTTPException(status_code=400, detail=result.get("error", "No se pudo transcribir."))
+  return {"text": result["text"]}
 
 
 @router.get("/auth/me")

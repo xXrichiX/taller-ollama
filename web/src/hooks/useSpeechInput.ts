@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { transcribeSpeech } from "../api/client";
 
 const SILENCE_MS = 2000;
+const SILENCE_RMS = 0.012;
 
 type SpeechRecognitionInstance = {
   lang: string;
@@ -35,13 +37,29 @@ function getSpeechRecognitionCtor():
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+function pickRecorderMimeType(): string | undefined {
+  const types = [
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+  ];
+  return types.find((type) => MediaRecorder.isTypeSupported(type));
+}
+
+function secureContextError(): string {
+  return "El micrófono requiere HTTPS. Abre el sitio con https:// (por ejemplo el dominio sslip.io).";
+}
+
 export function useSpeechInput(options: {
   onTranscript: (text: string) => void;
   onAutoSend: (text: string) => void;
   disabled?: boolean;
+  authToken?: string | null;
 }) {
-  const { onTranscript, onAutoSend, disabled } = options;
+  const { onTranscript, onAutoSend, disabled, authToken } = options;
   const [listening, setListening] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState("");
 
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
@@ -50,6 +68,15 @@ export function useSpeechInput(options: {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onTranscriptRef = useRef(onTranscript);
   const onAutoSendRef = useRef(onAutoSend);
+
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const silenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasSpeechRef = useRef(false);
+  const silenceStartedRef = useRef<number | null>(null);
+  const usingServerRef = useRef(false);
 
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
@@ -63,10 +90,24 @@ export function useSpeechInput(options: {
     }
   }, []);
 
+  const stopMediaCapture = useCallback(() => {
+    if (silenceIntervalRef.current) {
+      clearInterval(silenceIntervalRef.current);
+      silenceIntervalRef.current = null;
+    }
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    void audioContextRef.current?.close();
+    audioContextRef.current = null;
+    hasSpeechRef.current = false;
+    silenceStartedRef.current = null;
+  }, []);
+
   const buildTranscript = useCallback((interim = "") => {
     const base = finalPartsRef.current.join(" ").trim();
-    const merged = `${base} ${interim}`.trim();
-    return merged;
+    return `${base} ${interim}`.trim();
   }, []);
 
   const finishListening = useCallback(
@@ -94,23 +135,134 @@ export function useSpeechInput(options: {
     }, SILENCE_MS);
   }, [buildTranscript, clearSilenceTimer, finishListening]);
 
-  const startListening = useCallback(() => {
-    const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor) {
-      if (typeof window !== "undefined" && !window.isSecureContext) {
-        setVoiceError(
-          "Abre el sitio con https:// (candado). Si el navegador advierte del certificado, elige Avanzado → Continuar.",
-        );
-      } else {
-        setVoiceError("Usa Google Chrome o Microsoft Edge para dictar por voz.");
+  const transcribeBlob = useCallback(
+    async (blob: Blob, autoSend: boolean) => {
+      if (!blob.size) {
+        setVoiceError("No se grabó audio. Intenta de nuevo.");
+        return;
       }
+      setTranscribing(true);
+      onTranscriptRef.current("Transcribiendo…");
+      try {
+        const text = await transcribeSpeech(blob, authToken);
+        onTranscriptRef.current(text);
+        if (autoSend && text) onAutoSendRef.current(text);
+      } catch (err) {
+        setVoiceError(err instanceof Error ? err.message : "No se pudo transcribir el audio.");
+        onTranscriptRef.current("");
+      } finally {
+        setTranscribing(false);
+      }
+    },
+    [authToken],
+  );
+
+  const finishMediaRecording = useCallback(
+    async (autoSend: boolean) => {
+      wantListeningRef.current = false;
+      setListening(false);
+      stopMediaCapture();
+
+      const mimeType = mediaChunksRef.current[0]?.type || "audio/webm";
+      const blob = new Blob(mediaChunksRef.current, { type: mimeType });
+      mediaChunksRef.current = [];
+      await transcribeBlob(blob, autoSend);
+    },
+    [stopMediaCapture, transcribeBlob],
+  );
+
+  const startServerListening = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("Tu navegador no permite acceso al micrófono.");
       return;
     }
-    if (disabled) return;
+    if (!window.isSecureContext) {
+      setVoiceError(secureContextError());
+      return;
+    }
+
+    setVoiceError("");
+    mediaChunksRef.current = [];
+    onTranscriptRef.current("");
+    usingServerRef.current = true;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      const mimeType = pickRecorderMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) mediaChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        setVoiceError("No se pudo grabar audio.");
+        wantListeningRef.current = false;
+        setListening(false);
+        stopMediaCapture();
+      };
+      recorder.start(250);
+
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+
+      hasSpeechRef.current = false;
+      silenceStartedRef.current = null;
+      wantListeningRef.current = true;
+      setListening(true);
+
+      silenceIntervalRef.current = setInterval(() => {
+        if (!wantListeningRef.current) return;
+        const data = new Uint8Array(analyser.fftSize);
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i += 1) {
+          const sample = (data[i] - 128) / 128;
+          sum += sample * sample;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        if (rms > SILENCE_RMS) {
+          hasSpeechRef.current = true;
+          silenceStartedRef.current = null;
+          return;
+        }
+        if (!hasSpeechRef.current) return;
+        if (!silenceStartedRef.current) {
+          silenceStartedRef.current = Date.now();
+          return;
+        }
+        if (Date.now() - silenceStartedRef.current >= SILENCE_MS) {
+          void finishMediaRecording(true);
+        }
+      }, 200);
+    } catch (err) {
+      usingServerRef.current = false;
+      const denied = err instanceof DOMException && err.name === "NotAllowedError";
+      setVoiceError(
+        denied
+          ? window.isSecureContext
+            ? "Permite el micrófono en el navegador."
+            : secureContextError()
+          : "No se pudo usar el micrófono.",
+      );
+    }
+  }, [finishMediaRecording, stopMediaCapture]);
+
+  const startNativeListening = useCallback(() => {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor) return false;
+    if (disabled) return true;
 
     setVoiceError("");
     finalPartsRef.current = [];
     onTranscriptRef.current("");
+    usingServerRef.current = false;
 
     const recognition = new Ctor();
     recognition.lang = "es-MX";
@@ -138,7 +290,7 @@ export function useSpeechInput(options: {
       if (event.error === "not-allowed") {
         setVoiceError(
           typeof window !== "undefined" && !window.isSecureContext
-            ? "Abre https:// en la barra de direcciones y acepta el certificado del servidor."
+            ? secureContextError()
             : "Permite el micrófono en el navegador.",
         );
       } else {
@@ -169,29 +321,49 @@ export function useSpeechInput(options: {
       setVoiceError("No se pudo iniciar el micrófono.");
       wantListeningRef.current = false;
       setListening(false);
+      return false;
     }
+    return true;
   }, [buildTranscript, disabled, finishListening, scheduleAutoSend]);
 
+  const startListening = useCallback(() => {
+    if (disabled || transcribing) return;
+    if (!window.isSecureContext) {
+      setVoiceError(secureContextError());
+      return;
+    }
+    const nativeStarted = startNativeListening();
+    if (!nativeStarted) {
+      void startServerListening();
+    }
+  }, [disabled, startNativeListening, startServerListening, transcribing]);
+
   const toggleListening = useCallback(() => {
+    if (transcribing) return;
     if (listening) {
+      if (usingServerRef.current) {
+        void finishMediaRecording(Boolean(mediaChunksRef.current.length));
+        return;
+      }
       const text = buildTranscript();
       finishListening(Boolean(text));
       return;
     }
     startListening();
-  }, [buildTranscript, finishListening, listening, startListening]);
+  }, [buildTranscript, finishListening, finishMediaRecording, listening, startListening, transcribing]);
 
   useEffect(
     () => () => {
       wantListeningRef.current = false;
       clearSilenceTimer();
       recognitionRef.current?.abort();
+      stopMediaCapture();
     },
-    [clearSilenceTimer],
+    [clearSilenceTimer, stopMediaCapture],
   );
 
   return {
-    listening,
+    listening: listening || transcribing,
     voiceError,
     toggleListening,
     silenceSeconds: SILENCE_MS / 1000,
