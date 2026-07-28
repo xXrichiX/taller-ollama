@@ -84,7 +84,7 @@ export function LoginPage() {
     setError("");
     setSuccess("");
     if (mode === "register" && turnstileSiteKey && !captchaToken) {
-      setError("Completa la verificación CAPTCHA.");
+      setError("No se pudo completar la verificación.");
       return;
     }
 

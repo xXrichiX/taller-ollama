@@ -27,7 +27,7 @@ from api.rate_limit import limiter  # noqa: E402
 from api.security_headers import SecurityHeadersMiddleware  # noqa: E402
 from api.audit_middleware import AuditAccessMiddleware  # noqa: E402
 from api.production_checks import validate_production_config  # noqa: E402
-from api.security_messages import bad_request, not_found  # noqa: E402
+from api.security_messages import bad_request, forbidden, not_found  # noqa: E402
 from api.metrics import PrometheusMiddleware, router as metrics_router  # noqa: E402
 
 
@@ -98,6 +98,8 @@ async def http_exception_handler(request: Request, exc: HTTPException):
   if IS_PRODUCTION:
     if exc.status_code == 400:
       detail = bad_request(str(detail) if isinstance(detail, str) else "invalid")
+    elif exc.status_code == 403:
+      detail = forbidden(str(detail) if isinstance(detail, str) else "denied")
     elif exc.status_code == 404:
       detail = not_found(str(detail) if isinstance(detail, str) else "missing")
     elif exc.status_code == 503:
