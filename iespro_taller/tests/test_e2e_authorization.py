@@ -102,6 +102,29 @@ class E2EAuthorizationTests(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertTrue(response.json()["ok"])
 
+  def test_register_rejects_unknown_fields(self, _init: MagicMock) -> None:
+    response = self.client.post(
+      "/api/auth/register",
+      json={
+        "nombre": "Test",
+        "email": "strict@test.com",
+        "password": "Test1234!",
+        "role": "ADMIN",
+      },
+    )
+    self.assertEqual(response.status_code, 422)
+
+  def test_login_rejects_unknown_fields(self, _init: MagicMock) -> None:
+    response = self.client.post(
+      "/api/auth/login",
+      json={
+        "email": "test@example.com",
+        "password": "secret",
+        "role": "ADMIN",
+      },
+    )
+    self.assertEqual(response.status_code, 422)
+
 
 if __name__ == "__main__":
   unittest.main()

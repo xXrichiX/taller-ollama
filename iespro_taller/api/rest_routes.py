@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.rate_limit import rate_limit
 from api.chat_scope import apply_chat_scope
@@ -80,11 +80,15 @@ router = APIRouter(prefix="/api")
 
 
 class LoginBody(BaseModel):
+  model_config = ConfigDict(extra="forbid")
+
   email: str
   password: str
 
 
 class RegisterBody(BaseModel):
+  model_config = ConfigDict(extra="forbid")
+
   nombre: str
   email: str
   password: str
