@@ -1,8 +1,10 @@
 """Constantes de acciones para audit_logs."""
 
 AUTH_LOGIN = "auth.login"
+AUTH_LOGIN_FAILED = "auth.login_failed"
 AUTH_LOGOUT = "auth.logout"
 AUTH_REGISTER = "auth.register"
+ACCESS_DENIED = "access.denied"
 
 CLIENTE_CREATE = "cliente.create"
 

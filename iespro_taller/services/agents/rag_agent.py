@@ -7,6 +7,7 @@ from typing import Any, Callable
 import ollama
 
 from config import OLLAMA_CHAT_MODEL
+from api.security_messages import stream_label
 from services.guardrails import sanitize_llm_context, wrap_untrusted_context
 from services.text_format import plain_chat_text
 from services.user_roles import is_cliente, is_mecanico
@@ -24,7 +25,7 @@ class RagAgent:
     emit_status: Callable[[str, str], None],
     emit_token: Callable[[str], None],
   ) -> tuple[str, list[dict], dict]:
-    emit_status("searching", "Buscando fallas similares (híbrido + rerank)...")
+    emit_status("searching", stream_label("Buscando fallas similares (híbrido + rerank)..."))
 
     if is_cliente(self.chat.rol_nombre):
       vehiculos = self.chat._get_cliente_vehiculos()

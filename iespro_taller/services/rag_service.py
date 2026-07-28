@@ -62,37 +62,51 @@ class RagService:
       corpus.append(_tokenize(doc))
     self._bm25 = BM25Okapi(corpus) if corpus else None
 
-  def sync_fallas_from_db(self) -> int:
-    fallas = list_fallas()
+  def sync_fallas_from_db(
+    self,
+    *,
+    id_sucursal: int | None = None,
+    id_sucursales: list[int] | None = None,
+  ) -> int:
+    if id_sucursales:
+      targets = list(dict.fromkeys(id_sucursales))
+    elif id_sucursal is not None:
+      targets = [id_sucursal]
+    else:
+      return 0
+
     existing = set(self.collection.get(include=[])["ids"])
     added = 0
 
-    for falla in fallas:
-      doc_id = f"falla_{falla['id']}"
-      if doc_id in existing:
-        continue
+    for sid in targets:
+      fallas = list_fallas(id_sucursal=sid)
+      for falla in fallas:
+        doc_id = f"falla_{falla['id']}"
+        if doc_id in existing:
+          continue
 
-      text = falla["descripcion"]
-      if falla.get("diagnostico"):
-        text += f" Diagnóstico: {falla['diagnostico']}"
-      if falla.get("solucion"):
-        text += f" Solución: {falla['solucion']}"
+        text = falla["descripcion"]
+        if falla.get("diagnostico"):
+          text += f" Diagnóstico: {falla['diagnostico']}"
+        if falla.get("solucion"):
+          text += f" Solución: {falla['solucion']}"
 
-      self.collection.add(
-        ids=[doc_id],
-        embeddings=[self._embed(text)],
-        documents=[text],
-        metadatas=[{
-          "falla_id": str(falla["id"]),
-          "placa": falla.get("placa") or "",
-          "id_cita": str(falla.get("id_cita") or ""),
-          "id_mecanico": str(falla.get("id_mecanico") or ""),
-          "id_sucursal": str(falla.get("id_sucursal") or ""),
-          "resuelto": str(falla.get("resuelto", 0)),
-          "origen": "mysql",
-        }],
-      )
-      added += 1
+        self.collection.add(
+          ids=[doc_id],
+          embeddings=[self._embed(text)],
+          documents=[text],
+          metadatas=[{
+            "falla_id": str(falla["id"]),
+            "placa": falla.get("placa") or "",
+            "id_cita": str(falla.get("id_cita") or ""),
+            "id_mecanico": str(falla.get("id_mecanico") or ""),
+            "id_sucursal": str(falla.get("id_sucursal") or ""),
+            "resuelto": str(falla.get("resuelto", 0)),
+            "origen": "mysql",
+          }],
+        )
+        existing.add(doc_id)
+        added += 1
 
     if added:
       self._rebuild_bm25_index()

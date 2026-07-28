@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 import ollama
 
+from api.security_messages import stream_label
 from config import (
     DEFAULT_SUCURSAL_ID,
     IS_PRODUCTION,
@@ -345,9 +346,17 @@ class ChatService:
             self._pending_new_conversation = False
         return ok
 
-    def bootstrap(self) -> tuple[bool, str]:
+    def bootstrap(
+        self,
+        *,
+        id_sucursal: int | None = None,
+        id_sucursales: list[int] | None = None,
+    ) -> tuple[bool, str]:
         try:
-            added = self.rag.sync_fallas_from_db()
+            added = self.rag.sync_fallas_from_db(
+                id_sucursal=id_sucursal,
+                id_sucursales=id_sucursales,
+            )
             return True, f"RAG sincronizado ({added} fallas nuevas indexadas)."
         except Exception as exc:
             return False, str(exc)
@@ -835,7 +844,7 @@ class ChatService:
                 tool_calls=[{"name": "cancelar_cita_natural", "arguments": tool_args, "result": result}],
             )
 
-        emit_status("searching", "Enrutando a agente especialista...")
+        emit_status("searching", stream_label("Enrutando a agente especialista..."))
         try:
             return self.orchestrator.route_and_run(
                 question,
@@ -1004,6 +1013,8 @@ class ChatService:
 
     @staticmethod
     def _tool_status_label(tool_name: str) -> str:
+        if IS_PRODUCTION:
+            return "Procesando..."
         labels = {
             "listar_citas": "Consultando citas del taller...",
             "contar_citas": "Contando citas...",

@@ -66,3 +66,13 @@ def tool_error(dev_message: str) -> str:
 
 def stream_error(dev_message: str = "Error interno del chat") -> str:
   return public_detail(dev_message, prod_message="No se pudo procesar el mensaje.")
+
+
+def stream_label(dev_message: str, *, prod_message: str = "Procesando...") -> str:
+  """Etiquetas de estado del stream: genéricas en producción."""
+  return prod_message if IS_PRODUCTION else dev_message
+
+
+def operation_message(dev_message: str) -> str:
+  """Mensajes de operación al cliente (p. ej. bootstrap RAG)."""
+  return public_detail(dev_message, prod_message="Operación completada.")

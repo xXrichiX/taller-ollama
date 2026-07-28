@@ -273,9 +273,11 @@ def main():
 
   if args.sync_rag:
     print("\nSincronizando RAG...")
+    from db.connection import fetch_all
     from services.rag_service import RagService
     rag = RagService()
-    added = rag.sync_fallas_from_db()
+    sucursales = [row["id"] for row in fetch_all("SELECT id FROM sucursales WHERE activo = 1")]
+    added = rag.sync_fallas_from_db(id_sucursales=sucursales)
     print(f"  Fallas indexadas nuevas: {added}")
     print(f"  Total vectorial: {rag.info()}")
 

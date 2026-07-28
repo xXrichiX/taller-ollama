@@ -9,6 +9,7 @@ from typing import Any, Callable
 import ollama
 
 from config import MAX_TOOL_CALLS_PER_TURN, OLLAMA_CHAT_MODEL
+from api.security_messages import stream_label
 from services.chat_intents import allows_mutating_tool, get_friendly_fallback_answer, is_gibberish_input
 from services.text_format import plain_chat_text
 from services.tool_resilience import (
@@ -66,7 +67,7 @@ class TransactionalAgent:
     emit_status: Callable[[str, str], None],
     emit_token: Callable[[str], None],
   ) -> tuple[str, list[dict], str]:
-    emit_status("searching", "Consultando base de datos...")
+    emit_status("searching", stream_label("Consultando base de datos..."))
 
     if is_gibberish_input(question):
       return self._stream(get_friendly_fallback_answer(self.chat.rol_nombre), emit_token), [], "help"

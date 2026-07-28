@@ -24,8 +24,11 @@ from api.access_checks import (
 )
 from api.security_messages import (
   REGISTER_GENERIC_MESSAGE,
+  bad_request,
   captcha_failed,
   forbidden,
+  not_found,
+  operation_message,
   resource_limit,
   setup_required,
   stream_error,
@@ -132,9 +135,16 @@ class IslaActivaBody(BaseModel):
 def auth_login(request: Request, body: LoginBody):
   user = catalog_service.login(body.email.strip(), body.password)
   if not user:
+    audit_from_request(
+      request,
+      accion=audit.AUTH_LOGIN_FAILED,
+      recurso="session",
+      detalle=body.email.strip().lower()[:120],
+      resultado="denied",
+    )
     raise HTTPException(status_code=401, detail=unauthorized())
   if is_pending(user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Cuenta pendiente de activación")
+    raise HTTPException(status_code=403, detail=forbidden("Cuenta pendiente de activación"))
 
   sucursales = user.get("sucursales_ids") or []
 
@@ -162,9 +172,9 @@ def auth_login(request: Request, body: LoginBody):
 @rate_limit("5/minute")
 def auth_register(request: Request, body: RegisterBody):
   if not REGISTRATION_ENABLED:
-    raise HTTPException(status_code=403, detail="El registro público está deshabilitado.")
+    raise HTTPException(status_code=403, detail=forbidden("El registro público está deshabilitado."))
   if REGISTRATION_INVITE_CODE and body.invite_code.strip() != REGISTRATION_INVITE_CODE:
-    raise HTTPException(status_code=403, detail="Código de invitación inválido.")
+    raise HTTPException(status_code=403, detail=forbidden("Código de invitación inválido."))
   if turnstile_enabled():
     client_ip = request.client.host if request.client else None
     if not verify_turnstile(body.captcha_token, client_ip):
@@ -888,7 +898,7 @@ def update_inventario(
 
   existing = inventory_service.get_item(id_item, id_isla)
   if not existing:
-    raise HTTPException(status_code=404, detail="Artículo no encontrado")
+    raise HTTPException(status_code=404, detail=not_found("Artículo no encontrado"))
 
   if _user_is_propietario(session):
     nombre = body.nombre.strip()
@@ -1008,6 +1018,7 @@ def create_vehiculo(body: VehiculoCreate, session: AppSession = Depends(require_
     if not body.id_cliente:
       raise HTTPException(status_code=400, detail="Cliente requerido")
     id_cliente = body.id_cliente
+    assert_cliente_in_sucursal(session, id_cliente)
     if is_mecanico(rol):
       id_mecanico = session.user["id"]
     else:
@@ -1031,7 +1042,7 @@ def create_vehiculo(body: VehiculoCreate, session: AppSession = Depends(require_
     "id_tipo_unidad": body.id_tipo_unidad,
   })
   try:
-    session.chat.rag.sync_fallas_from_db()
+    session.chat.rag.sync_fallas_from_db(id_sucursal=id_sucursal)
   except Exception:
     pass
   return {"ok": True, "id": vid}
@@ -1093,7 +1104,7 @@ def list_citas(session: AppSession = Depends(require_session)):
 def get_cita(request: Request, id_cita: int, session: AppSession = Depends(require_session)):
   cita = cita_service.get_cita_by_id(id_cita)
   if not cita:
-    raise HTTPException(status_code=404, detail="Cita no encontrada")
+    raise HTTPException(status_code=404, detail=not_found("Cita no encontrada"))
   assert_cita_access(session, cita)
   falla = cita_service.get_falla_por_cita(id_cita)
   cita["estado_label"] = estado_a_etiqueta(cita.get("estado"))
@@ -1140,6 +1151,8 @@ def create_cita(
     id_mecanico = body.id_mecanico
     id_isla = body.id_isla
 
+  assert_cliente_in_sucursal(session, id_cliente)
+
   cita_id = cita_service.create_cita({
     "id_cliente": id_cliente,
     "id_vehiculo": body.id_vehiculo,
@@ -1154,7 +1167,7 @@ def create_cita(
   }, body.servicio_ids)
 
   try:
-    session.chat.rag.sync_fallas_from_db()
+    session.chat.rag.sync_fallas_from_db(id_sucursal=id_sucursal)
   except Exception:
     pass
   audit_session_action(
@@ -1180,13 +1193,13 @@ def update_cita(
 
   cita = cita_service.get_cita_by_id(id_cita)
   if not cita:
-    raise HTTPException(status_code=404, detail="Cita no encontrada")
+    raise HTTPException(status_code=404, detail=not_found("Cita no encontrada"))
   assert_cita_access(session, cita)
 
   es_prop = _user_is_propietario(session)
   if is_mecanico(session.user.get("rol_nombre")) and not es_prop:
     if cita.get("id_mecanico") != session.user["id"]:
-      raise HTTPException(status_code=403, detail="Solo citas asignadas a ti")
+      raise HTTPException(status_code=403, detail=forbidden("Solo citas asignadas a ti"))
 
   estado_raw = etiqueta_a_estado(body.estado) if body.estado else None
   if body.estado and not estado_raw:
@@ -1226,7 +1239,7 @@ def update_cita(
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo actualizar"))
 
   try:
-    session.chat.rag.sync_fallas_from_db()
+    session.chat.rag.sync_fallas_from_db(id_sucursal=cita.get("id_sucursal") or session.id_sucursal)
   except Exception:
     pass
   audit_session_action(
@@ -1362,7 +1375,10 @@ class TokenBody(BaseModel):
 @rate_limit("5/minute")
 def rag_bootstrap(request: Request, session: AppSession = Depends(require_session)):
   _require_propietario(session)
-  ok, msg = session.chat.bootstrap()
+  sid = session.id_sucursal
+  sucursales = session.user.get("sucursales_ids") or []
+  targets = [sid] if sid else list(sucursales)
+  ok, msg = session.chat.bootstrap(id_sucursales=targets)
   audit_session_action(
     request,
     session,
@@ -1371,7 +1387,7 @@ def rag_bootstrap(request: Request, session: AppSession = Depends(require_sessio
     detalle=msg[:120] if msg else None,
     resultado="ok" if ok else "error",
   )
-  return {"ok": ok, "message": msg}
+  return {"ok": ok, "message": operation_message(msg) if ok else bad_request(msg)}
 
 
 @router.get("/health/detail")
@@ -1435,7 +1451,7 @@ def chat_activate(id_conv: int, session: AppSession = Depends(require_session)):
   require_sucursal(session)
   ok = session.chat.switch_conversation(id_conv)
   if not ok:
-    raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    raise HTTPException(status_code=404, detail=not_found("Conversación no encontrada"))
   return {"ok": True}
 
 
@@ -1444,7 +1460,7 @@ def chat_delete_conversation(id_conv: int, session: AppSession = Depends(require
   require_sucursal(session)
   ok = session.chat.delete_conversation(id_conv)
   if not ok:
-    raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    raise HTTPException(status_code=404, detail=not_found("Conversación no encontrada"))
   return {"ok": True}
 
 
@@ -1457,7 +1473,7 @@ def chat_messages(
 ):
   require_sucursal(session)
   if not session.chat.switch_conversation(id_conv):
-    raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    raise HTTPException(status_code=404, detail=not_found("Conversación no encontrada"))
   return {"messages": public_chat_messages(session.chat.get_ui_messages())}
 
 
