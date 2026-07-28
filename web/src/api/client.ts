@@ -54,37 +54,12 @@ export type PublicAuthConfig = {
   registration_enabled: boolean;
   turnstile_site_key: string;
   invite_required: boolean;
-  captcha_mode: "turnstile" | "simple" | "none";
+  captcha_mode: "turnstile" | "none";
   email_verification_enabled: boolean;
 };
 
-export type CaptchaChallenge = {
-  captcha_challenge: string;
-  question: string;
-};
-
-export async function fetchCaptchaChallenge(): Promise<CaptchaChallenge> {
-  return api<CaptchaChallenge>("/api/auth/captcha");
-}
-
 export async function fetchPublicAuthConfig(): Promise<PublicAuthConfig> {
   return api<PublicAuthConfig>("/api/auth/public-config");
-}
-
-export async function verifyEmail(email: string, code: string): Promise<string> {
-  const data = await api<{ ok?: boolean; message?: string }>("/api/auth/verify-email", {
-    method: "POST",
-    body: JSON.stringify({ email, code }),
-  });
-  return data.message ?? "Correo verificado. Ya puedes iniciar sesión.";
-}
-
-export async function resendVerificationEmail(email: string): Promise<string> {
-  const data = await api<{ ok?: boolean; message?: string }>("/api/auth/resend-verification", {
-    method: "POST",
-    body: JSON.stringify({ email }),
-  });
-  return data.message ?? "Si el correo está pendiente, enviamos un nuevo código.";
 }
 
 export type StreamHandlers = {

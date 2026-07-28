@@ -113,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return (
       data.message
-      ?? "Si el correo es válido, hemos procesado tu solicitud. Revisa tu bandeja o inicia sesión."
+      ?? "Si el correo es válido, hemos procesado tu solicitud. Ya puedes iniciar sesión."
     );
   };
 

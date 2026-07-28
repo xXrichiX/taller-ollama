@@ -27,12 +27,12 @@ from api.access_checks import (
   scoped_clientes_filters,
 )
 from api.security_messages import (
-  REGISTER_GENERIC_MESSAGE,
   bad_request,
   captcha_failed,
   email_verification_required,
   forbidden,
   not_found,
+  register_success_message,
   operation_message,
   resource_limit,
   setup_required,
@@ -245,7 +245,7 @@ def auth_register(request: Request, body: RegisterBody):
     normalize_password(body.password),
   )
   if result.get("duplicate"):
-    return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
+    return {"ok": True, "message": register_success_message()}
   if not result.get("ok"):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo registrar"))
 
@@ -263,14 +263,16 @@ def auth_register(request: Request, body: RegisterBody):
     detalle=body.email.strip().lower()[:120],
     resultado="ok",
   )
-  return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
+  return {"ok": True, "message": register_success_message()}
 
 
 @router.post("/auth/verify-email")
 @rate_limit("10/minute")
 def auth_verify_email(request: Request, body: VerifyEmailBody):
-  from services.email_verification import verify_email_code
+  from services.email_verification import email_verification_active, verify_email_code
 
+  if not email_verification_active():
+    raise HTTPException(status_code=404, detail=not_found())
   if verify_email_code(body.email.strip(), body.code.strip()):
     audit_from_request(
       request,
@@ -291,10 +293,11 @@ _RESEND_VERIFICATION_MESSAGE = (
 @router.post("/auth/resend-verification")
 @rate_limit("3/minute")
 def auth_resend_verification(request: Request, body: ResendVerificationBody):
-  from services.email_verification import resend_verification_email, smtp_configured
+  from services.email_verification import email_verification_active, resend_verification_email
 
-  if smtp_configured():
-    resend_verification_email(body.email.strip().lower())
+  if not email_verification_active():
+    raise HTTPException(status_code=404, detail=not_found())
+  resend_verification_email(body.email.strip().lower())
   return {"ok": True, "message": _RESEND_VERIFICATION_MESSAGE}
 
 

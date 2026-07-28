@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from config import IS_PRODUCTION
 
-REGISTER_GENERIC_MESSAGE = (
-  "Si el correo es válido, hemos procesado tu solicitud. "
-  "Revisa tu bandeja o inicia sesión."
-)
+_REGISTER_BASE = "Si el correo es válido, hemos procesado tu solicitud."
+
+
+def register_success_message() -> str:
+  from services.email_verification import email_verification_active
+
+  if email_verification_active():
+    return f"{_REGISTER_BASE} Revisa tu bandeja o inicia sesión."
+  return f"{_REGISTER_BASE} Ya puedes iniciar sesión."
 
 # Mensajes genéricos en producción (no revelan islas, sucursales, CAPTCHA, etc.)
 _GENERIC_FORBIDDEN = "Acceso denegado."

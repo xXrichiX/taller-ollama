@@ -13,7 +13,6 @@ from config import (
   RATE_LIMIT_ENABLED,
   REGISTRATION_ENABLED,
   REGISTRATION_INVITE_CODE,
-  EMAIL_VERIFICATION_ENABLED,
   SESSION_STORE,
   TURNSTILE_SECRET_KEY,
   TURNSTILE_SITE_KEY,
@@ -72,11 +71,14 @@ def _strict_api_models() -> bool:
 
 
 def collect_security_controls() -> dict[str, object]:
+  from services.email_verification import email_verification_active
+
   waf = verify_nginx_waf_config()
   llm = _llm_layers()
   registration_secure = (not REGISTRATION_ENABLED) or bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY)
 
   session_store_ok = SESSION_STORE == "mysql" or not IS_PRODUCTION
+  email_verification_on = email_verification_active()
 
   controls: dict[str, object] = {
     "environment": "production" if IS_PRODUCTION else "development",
@@ -107,7 +109,7 @@ def collect_security_controls() -> dict[str, object]:
       "public_enabled": REGISTRATION_ENABLED,
       "turnstile_configured": bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY),
       "invite_code_configured": bool(REGISTRATION_INVITE_CODE),
-      "email_verification_enabled": EMAIL_VERIFICATION_ENABLED,
+      "email_verification_enabled": email_verification_on,
       "secure_for_production": registration_secure,
     },
     "api_hardening": {
