@@ -30,6 +30,7 @@ from api.security_messages import (
   REGISTER_GENERIC_MESSAGE,
   bad_request,
   captcha_failed,
+  email_verification_required,
   forbidden,
   not_found,
   operation_message,
@@ -102,15 +103,23 @@ class VerifyEmailBody(StrictModel):
   code: str
 
 
+class ResendVerificationBody(StrictModel):
+  email: str
+
+
 @router.get("/auth/public-config")
 @rate_limit("30/minute")
 def auth_public_config(request: Request):
+  from services.email_verification import smtp_configured
+
   use_turnstile = bool(TURNSTILE_SECRET_KEY)
+  email_verify = REGISTRATION_ENABLED and smtp_configured()
   return {
     "registration_enabled": REGISTRATION_ENABLED,
     "turnstile_site_key": TURNSTILE_SITE_KEY if use_turnstile else "",
     "invite_required": bool(REGISTRATION_INVITE_CODE),
     "captcha_mode": "turnstile" if use_turnstile else "none",
+    "email_verification_enabled": email_verify,
   }
 
 
@@ -192,7 +201,7 @@ def auth_login(request: Request, body: LoginBody):
   if user.get("email_unverified"):
     raise HTTPException(
       status_code=403,
-      detail=forbidden("Verifica tu correo antes de iniciar sesión."),
+      detail=email_verification_required(),
     )
   if is_pending(user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Cuenta pendiente de activación"))
@@ -279,6 +288,21 @@ def auth_verify_email(request: Request, body: VerifyEmailBody):
     )
     return {"ok": True, "message": "Correo verificado. Ya puedes iniciar sesión."}
   raise HTTPException(status_code=400, detail=bad_request("Código inválido o expirado"))
+
+
+_RESEND_VERIFICATION_MESSAGE = (
+  "Si el correo está pendiente de verificación, enviamos un nuevo código."
+)
+
+
+@router.post("/auth/resend-verification")
+@rate_limit("3/minute")
+def auth_resend_verification(request: Request, body: ResendVerificationBody):
+  from services.email_verification import resend_verification_email, smtp_configured
+
+  if smtp_configured():
+    resend_verification_email(body.email.strip().lower())
+  return {"ok": True, "message": _RESEND_VERIFICATION_MESSAGE}
 
 
 @router.post("/auth/logout")

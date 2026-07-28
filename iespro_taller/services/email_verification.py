@@ -124,3 +124,18 @@ def is_email_verified(id_usuario: int) -> bool:
   if not row:
     return False
   return int(row.get("email_verificado") or 0) == 1
+
+
+def resend_verification_email(email: str) -> bool:
+  row = fetch_one(
+    """
+    SELECT id, email_verificado
+    FROM usuarios
+    WHERE LOWER(email) = %s AND activo = 1
+    """,
+    (email.strip().lower(),),
+  )
+  if not row or int(row.get("email_verificado") or 0) == 1:
+    return False
+  code = issue_verification_code(int(row["id"]), email)
+  return send_verification_email(email, code)

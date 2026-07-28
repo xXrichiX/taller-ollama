@@ -2,20 +2,30 @@ import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppLoader } from "../components/AppLoader";
-import { ApiError, fetchPublicAuthConfig, type PublicAuthConfig } from "../api/client";
+import {
+  ApiError,
+  fetchPublicAuthConfig,
+  resendVerificationEmail,
+  verifyEmail,
+  type PublicAuthConfig,
+} from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
 const LOGIN_COOLDOWN_SEC = 30;
 const REGISTER_COOLDOWN_SEC = 30;
+const VERIFY_COOLDOWN_SEC = 30;
+
+type AuthMode = "login" | "register" | "verify";
 
 export function LoginPage() {
   const { login, register, auth, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [nombre, setNombre] = useState("");
   const [inviteCode, setInviteCode] = useState("");
+  const [verifyCode, setVerifyCode] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -34,6 +44,7 @@ export function LoginPage() {
           turnstile_site_key: "",
           invite_required: false,
           captcha_mode: "none",
+          email_verification_enabled: false,
         }),
       );
   }, []);
@@ -43,6 +54,7 @@ export function LoginPage() {
   }, [auth, navigate]);
 
   useEffect(() => {
+    if (mode === "verify") return;
     setCaptchaToken("");
     turnstileRef.current?.reset();
     setSuccess("");
@@ -67,6 +79,7 @@ export function LoginPage() {
   }
 
   const registrationEnabled = publicConfig?.registration_enabled ?? false;
+  const emailVerificationEnabled = publicConfig?.email_verification_enabled ?? false;
   const turnstileSiteKey = publicConfig?.turnstile_site_key ?? "";
   const inviteRequired = publicConfig?.invite_required ?? false;
   const blocked = cooldown > 0;
@@ -74,6 +87,58 @@ export function LoginPage() {
   const startCooldown = (seconds: number, message?: string) => {
     setCooldown(seconds);
     setError(message ?? "Demasiadas peticiones. Espera a que termine el contador.");
+  };
+
+  const goToVerify = (message: string) => {
+    setMode("verify");
+    setVerifyCode("");
+    setPassword("");
+    setError("");
+    setSuccess(message);
+  };
+
+  const submitVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (blocked) return;
+    if (!verifyCode.trim() || verifyCode.trim().length < 6) {
+      setError("Ingresa el código de 6 dígitos que recibiste por correo.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    try {
+      const message = await verifyEmail(email.trim(), verifyCode.trim());
+      setSuccess(message);
+      setVerifyCode("");
+      setMode("login");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 429) {
+        startCooldown(err.retryAfterSec ?? VERIFY_COOLDOWN_SEC);
+      } else {
+        setError(err instanceof Error ? err.message : "No se pudo verificar el correo");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitResend = async () => {
+    if (blocked || !email.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const message = await resendVerificationEmail(email.trim());
+      setSuccess(message);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 429) {
+        startCooldown(err.retryAfterSec ?? VERIFY_COOLDOWN_SEC);
+      } else {
+        setError(err instanceof Error ? err.message : "No se pudo reenviar el código");
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
@@ -93,21 +158,34 @@ export function LoginPage() {
         await login(email, password);
         navigate("/", { replace: true });
       } else {
-        const message = await register(nombre, email, password, {
+        await register(nombre, email, password, {
           inviteCode,
           captchaToken,
         });
         setPassword("");
         setNombre("");
         setInviteCode("");
-        setMode("login");
-        setSuccess(message);
+        if (emailVerificationEnabled) {
+          goToVerify(
+            "Te enviamos un código de 6 dígitos a tu correo. Ingrésalo abajo para activar tu cuenta.",
+          );
+        } else {
+          setMode("login");
+          setSuccess("Cuenta creada. Ya puedes iniciar sesión.");
+        }
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         const seconds = err.retryAfterSec
           ?? (mode === "login" ? LOGIN_COOLDOWN_SEC : REGISTER_COOLDOWN_SEC);
         startCooldown(seconds);
+      } else if (
+        err instanceof ApiError
+        && err.status === 403
+        && emailVerificationEnabled
+        && mode === "login"
+      ) {
+        goToVerify(err.message);
       } else {
         setError(err instanceof Error ? err.message : "Error");
       }
@@ -121,8 +199,66 @@ export function LoginPage() {
   const buttonLabel = blocked
     ? `Espera ${cooldown}s para reintentar`
     : loading
-      ? (mode === "login" ? "Entrando…" : "Creando cuenta…")
-      : (mode === "login" ? "Entrar" : "Crear cuenta");
+      ? (mode === "login" ? "Entrando…" : mode === "register" ? "Creando cuenta…" : "Verificando…")
+      : (mode === "login" ? "Entrar" : mode === "register" ? "Crear cuenta" : "Verificar correo");
+
+  if (mode === "verify") {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <h1 className="login-brand">Verifica tu correo</h1>
+          <p className="muted" style={{ marginTop: 0, textAlign: "center" }}>
+            Enviamos un código a <strong>{email}</strong>
+          </p>
+          <form onSubmit={submitVerify} className="form-grid">
+            <div className="form-row">
+              <label htmlFor="verify-code">Código de 6 dígitos</label>
+              <input
+                id="verify-code"
+                className="login-input"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                placeholder="123456"
+                value={verifyCode}
+                onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+                disabled={blocked}
+              />
+            </div>
+            {success && <p className="success-text">{success}</p>}
+            {error && <p className="error-text">{error}</p>}
+            <button className="btn btn-with-loader" type="submit" disabled={loading || blocked}>
+              {loading && <span className="btn-spinner" aria-hidden />}
+              {buttonLabel}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              style={{ background: "transparent", border: "1px solid var(--border)" }}
+              onClick={submitResend}
+              disabled={loading || blocked}
+            >
+              Reenviar código
+            </button>
+          </form>
+          <p className="muted" style={{ marginTop: "1rem", textAlign: "center" }}>
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                if (blocked) return;
+                setMode("login");
+                setError("");
+                setSuccess("");
+              }}
+            >
+              Volver a iniciar sesión
+            </a>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-page">
@@ -234,22 +370,43 @@ export function LoginPage() {
             {buttonLabel}
           </button>
         </form>
-        {(mode === "login" ? registrationEnabled : true) && (
-          <p className="muted" style={{ marginTop: "1rem", textAlign: "center" }}>
-            {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                if (blocked) return;
-                if (mode === "login" && !registrationEnabled) return;
-                setMode(mode === "login" ? "register" : "login");
-              }}
-            >
-              {mode === "login" ? "Regístrate" : "Inicia sesión"}
-            </a>
-          </p>
-        )}
+        <p className="muted" style={{ marginTop: "1rem", textAlign: "center" }}>
+          {mode === "login" && emailVerificationEnabled && (
+            <>
+              ¿Tienes código pendiente?{" "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (blocked || !email.trim()) {
+                    setError("Escribe tu correo arriba para verificar la cuenta.");
+                    return;
+                  }
+                  goToVerify("Ingresa el código de 6 dígitos que recibiste por correo.");
+                }}
+              >
+                Verificar correo
+              </a>
+              {registrationEnabled ? " · " : ""}
+            </>
+          )}
+          {(mode === "login" ? registrationEnabled : true) && (
+            <>
+              {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (blocked) return;
+                  if (mode === "login" && !registrationEnabled) return;
+                  setMode(mode === "login" ? "register" : "login");
+                }}
+              >
+                {mode === "login" ? "Regístrate" : "Inicia sesión"}
+              </a>
+            </>
+          )}
+        </p>
       </div>
     </div>
   );

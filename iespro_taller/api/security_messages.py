@@ -28,6 +28,13 @@ def public_detail(dev_message: str, *, prod_message: str | None = None) -> str:
   return dev_message
 
 
+def email_verification_required() -> str:
+  return (
+    "Debes verificar tu correo antes de iniciar sesión. "
+    "Revisa tu bandeja e ingresa el código de 6 dígitos."
+  )
+
+
 def forbidden(dev_message: str = "Sin permiso") -> str:
   return public_detail(dev_message, prod_message=_GENERIC_FORBIDDEN)
 
