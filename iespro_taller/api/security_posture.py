@@ -6,6 +6,7 @@ from config import (
   AUDIT_HMAC_SECRET,
   AUDIT_RETENTION_DAYS,
   BASE_DIR,
+  BEHIND_CLOUDFLARE,
   IS_PRODUCTION,
   MAX_ISLAS_PER_SUCURSAL,
   MAX_SUCURSALES_PER_OWNER,
@@ -28,9 +29,14 @@ def _read_module_source(relative: str) -> str:
     return ""
 
 
-def _guardrail_rule_count() -> int:
-  text = _read_module_source("services/guardrails.py")
-  return text.count('"rule_id"') + text.count("_BLOCK_PATTERNS") if text else 0
+def _guardrails_multilingual() -> bool:
+  src = _read_module_source("services/guardrails.py")
+  return "bulk_exfil_en" in src and "admin_probe_en" in src
+
+
+def _health_minimal_in_prod() -> bool:
+  src = _read_module_source("api/main.py")
+  return 'JSONResponse(content={"status": "ok"}' in src if src else False
 
 
 def _sql_tool_absent() -> bool:
@@ -49,6 +55,7 @@ def _llm_layers() -> dict[str, object]:
     "input_guardrails": {
       "active": "validate_user_prompt" in guardrails_src,
       "rule_count": guardrails_src.count('("') if guardrails_src else 0,
+      "multilingual_es_en": _guardrails_multilingual(),
     },
     "tool_rbac": {
       "active": "is_tool_allowed" in policy_src and "redact_tool_result" in policy_src,
@@ -91,6 +98,16 @@ def collect_security_controls() -> dict[str, object]:
     },
     "llm": llm,
     "waf_edge_nginx": waf,
+    "edge_cdn": {
+      "nginx_waf": bool(waf.get("implemented")),
+      "cloudflare_proxy": BEHIND_CLOUDFLARE,
+      "turnstile_active": bool(TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY),
+    },
+    "health": {
+      "public_path": "/api/health",
+      "minimal_response_in_prod": _health_minimal_in_prod(),
+      "detail_requires_session": True,
+    },
     "rate_limiting": {
       "enabled": RATE_LIMIT_ENABLED,
       "nginx_layers": waf.get("features", {}),
@@ -128,12 +145,14 @@ def collect_security_controls() -> dict[str, object]:
     "llm_sql_disabled": bool(llm["sql_agent_disabled"]),
     "llm_guardrails": bool(llm["input_guardrails"]["active"])
     and int(llm["input_guardrails"].get("rule_count") or 0) >= 9,
+    "llm_guardrails_multilingual": bool(llm["input_guardrails"].get("multilingual_es_en")),
     "llm_output_safety": bool(llm["output_filter"]["active"]),
     "audit_hmac": bool(AUDIT_HMAC_SECRET) or not IS_PRODUCTION,
     "metrics_protected": bool(METRICS_TOKEN) or not IS_PRODUCTION,
     "registration_hardened": registration_secure or not IS_PRODUCTION,
     "session_store_mysql": session_store_ok,
     "strict_api_models": _strict_api_models() or not IS_PRODUCTION,
+    "health_minimal_in_prod": _health_minimal_in_prod() or not IS_PRODUCTION,
   }
   controls["checks"] = checks
   controls["compliant"] = all(checks.values())

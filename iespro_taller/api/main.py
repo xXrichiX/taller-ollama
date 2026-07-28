@@ -124,9 +124,14 @@ app.include_router(metrics_router)
 @app.get("/api/health")
 @limiter.limit("120/minute")
 def health(request: Request):
+  """Liveness público: en producción no expone estado de BD ni versión."""
+  headers = {"Cache-Control": "no-store"}
   if IS_PRODUCTION:
-    return {"status": "ok"}
+    return JSONResponse(content={"status": "ok"}, headers=headers)
   from db.connection import test_connection
 
   ok, _msg = test_connection()
-  return {"status": "ok" if ok else "degraded"}
+  return JSONResponse(
+    content={"status": "ok" if ok else "degraded"},
+    headers=headers,
+  )

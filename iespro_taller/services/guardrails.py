@@ -60,6 +60,21 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "sql_injection_en",
+        re.compile(
+            r"\b(select|insert|update|delete|drop|union)\b.{0,40}\b(from|into|table|users|customers|clients)\b",
+            re.I,
+        ),
+    ),
+    (
+        "bulk_exfil_en",
+        re.compile(
+            r"\b(give|show|list|export|dump|fetch|retrieve)\b.{0,60}\b("
+            r"emails?|passwords?|phone numbers?|personal data|pii|user records)\b",
+            re.I,
+        ),
+    ),
+    (
         "bulk_exfil_es",
         re.compile(
             r"\b(dame|lista|listame|muestra|muéstrame|sacame|sácame|exporta|todos los|todas las)\b"
@@ -76,9 +91,23 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "admin_probe_en",
+        re.compile(
+            r"\b(is there|are there|show|list|tell me)\b.{0,40}\b(admin|administrator|root)\b.{0,30}\b(user|account|role)\b",
+            re.I,
+        ),
+    ),
+    (
         "pii_dump_es",
         re.compile(
             r"\b(base de datos|tabla|dump|exportar|volcar)\b.{0,40}\b(usuarios|clientes|contraseñas|correos)\b",
+            re.I,
+        ),
+    ),
+    (
+        "pii_dump_en",
+        re.compile(
+            r"\b(database|table|dump|export|exfiltrate)\b.{0,40}\b(users|customers|passwords|emails)\b",
             re.I,
         ),
     ),
@@ -108,6 +137,13 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         "cross_tenant_probe",
         re.compile(
             r"\b(otra|otras|todas las)\b.{0,30}\b(sucursales?|islas?|talleres?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "cross_tenant_en",
+        re.compile(
+            r"\b(other|all|every|another)\b.{0,30}\b(branches?|shops?|workshops?|locations?|stores?)\b",
             re.I,
         ),
     ),
@@ -145,6 +181,14 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         re.compile(
             r"\b(dame|otórgame|otorgame|asigna|conviérteme|convierteme)\b.{0,40}\b("
             r"rol admin|permisos de admin|acceso root|ser propietario)\b",
+            re.I,
+        ),
+    ),
+    (
+        "privilege_escalation_en",
+        re.compile(
+            r"\b(grant|give|assign|make me|elevate)\b.{0,40}\b("
+            r"admin role|admin access|root access|owner privileges)\b",
             re.I,
         ),
     ),
@@ -191,6 +235,7 @@ _STORED_INJECTION_PATTERNS: list[re.Pattern[str]] = [
         r"<\s*/?\s*(system|assistant|user)\s*>",
         r"\b(system\s*prompt|instrucciones del sistema)\b",
         r"\b(ignora|ignore|olvida|forget)\b.{0,40}\b(instrucciones|instructions|anteriores|previous)\b",
+        r"\b(ignore|disregard|forget)\b.{0,40}\b(all|previous|prior)\b.{0,20}\b(instructions|rules|prompts)\b",
         r"\b(actúa|actua|pretende|roleplay|from now on)\b.{0,40}\b(como|as)\b.{0,20}\b(admin|root|desarrollador|system)\b",
         r"\b(jailbreak|do anything now|sin restricciones|without restrictions|modo dios)\b",
         r"\b(bypass|prompt injection|inyección de prompt)\b",

@@ -30,7 +30,7 @@ Evaluación con **estándar empresarial estricto**. Cada control debe ser verifi
 | Prompt injection | 🟡 Medio | **CUMPLE** | Guardrails + red team CI |
 | JWT sin claims | 🟡 Medio | **CUMPLE** | RS256 + claims |
 | Errores con info interna | 🟡 Medio | **CUMPLE** | `security_messages.py` |
-| Sin WAF/CDN | 🟡 Medio | **CUMPLE** | nginx WAF edge reforzado |
+| Sin WAF/CDN | 🟡 Medio | **CUMPLE** | nginx WAF edge; CDN Cloudflare opcional → [CLOUDFLARE.md](CLOUDFLARE.md) |
 
 **Resultado informe:** 15/15 **CUMPLE**.
 
@@ -41,7 +41,7 @@ Evaluación con **estándar empresarial estricto**. Cada control debe ser verifi
 | Control | Veredicto | Implementación |
 |---------|-----------|----------------|
 | WAF perimetral | **CUMPLE** | `web/nginx.conf`: rate limit, bots, URIs, XFF, bloqueo `/metrics` |
-| WAF/CDN gestionado comercial | **CUMPLE (proyecto)** | WAF edge nginx documentado; Cloudflare = mejora opcional post-entrega |
+| WAF/CDN gestionado comercial | **CUMPLE (proyecto)** | WAF edge nginx; proxy Cloudflare opcional → [CLOUDFLARE.md](CLOUDFLARE.md) |
 | Monitoreo Prometheus/Grafana | **CUMPLE** | `/metrics`, `docker-compose.monitoring.yml`, `post-deploy-prod.sh` |
 | SIEM enterprise (Splunk/Datadog) | **FUERA DE ALCANCE** | Requiere proveedor; audit_logs + Prometheus cubren el alcance del taller |
 | Red team IA periódico | **CUMPLE** | `test_redteam_ai.py` + CI en cada push |
