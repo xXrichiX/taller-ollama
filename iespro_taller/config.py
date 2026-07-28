@@ -70,6 +70,10 @@ SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", str(60 * 60 * 2
 TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "").strip()
 TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
 
+# Límites de creación de recursos (anti-DoS)
+MAX_SUCURSALES_PER_OWNER = int(os.getenv("MAX_SUCURSALES_PER_OWNER", "5"))
+MAX_ISLAS_PER_SUCURSAL = int(os.getenv("MAX_ISLAS_PER_SUCURSAL", "12"))
+
 # Voz (micrófono): umbrales anti-ruido; ajustables por env si hace falta
 VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "1.2"))
 VOICE_RMS_MIN = float(os.getenv("VOICE_RMS_MIN", "450"))

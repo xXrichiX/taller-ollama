@@ -83,7 +83,15 @@ def user_can_create_sucursal(id_usuario: int) -> bool:
     branches = list_sucursales_usuario(id_usuario)
     if not branches:
         return True
-    return user_is_propietario(id_usuario)
+    if not user_is_propietario(id_usuario):
+        return False
+    from config import MAX_SUCURSALES_PER_OWNER
+
+    owned = fetch_one(
+        "SELECT COUNT(*) AS n FROM sucursales WHERE id_propietario = %s AND activo = 1",
+        (id_usuario,),
+    )
+    return int(owned.get("n") or 0) < MAX_SUCURSALES_PER_OWNER
 
 
 def user_needs_taller_setup(id_usuario: int, rol_nombre: str | None) -> bool:

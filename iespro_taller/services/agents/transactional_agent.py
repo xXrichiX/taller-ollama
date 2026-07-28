@@ -17,7 +17,7 @@ from services.tool_resilience import (
   tool_message_content,
 )
 from services.tool_response_format import format_tool_calls_log
-from services.tools_service import TOOL_DEFINITIONS, run_sql_query
+from services.tools_service import TOOL_DEFINITIONS
 from services.user_roles import is_cliente, is_mecanico, is_staff_manager, is_workshop_staff
 
 PLAIN_TEXT_RULE = """
@@ -38,7 +38,7 @@ ISLA_TOOLS = frozenset({
 TX_SYSTEM = """Eres el agente transaccional del taller.
 Tu único trabajo es consultar o modificar la base de datos del taller mediante tools.
 - Usa function calling para listar, crear, editar o cancelar citas, clientes, vehículos, servicios e inventario.
-- Para conteos exactos puedes usar SQL implícito vía tools o contar_inventario / contar_citas.
+- Para conteos exactos usa contar_inventario, contar_citas o las tools de listado.
 - No inventes datos. No pidas IDs numéricos al usuario.
 - Si el mensaje no tiene sentido o no entiendes qué pide, di que no entendiste y pide que lo reformule. NUNCA inventes citas, placas ni diagnósticos.
 - Si piden crear algo y faltan datos, NO llames la tool: pregunta qué falta.
@@ -64,18 +64,6 @@ class TransactionalAgent:
 
     if is_gibberish_input(question):
       return self._stream(get_friendly_fallback_answer(self.chat.rol_nombre), emit_token), [], "help"
-
-    if not is_cliente(self.chat.rol_nombre) and (
-      not is_mecanico(self.chat.rol_nombre) or getattr(self.chat, "es_propietario", False)
-    ):
-      sql_answer = run_sql_query(
-        question,
-        self.chat.id_sucursal,
-        getattr(self.chat, "id_isla", None),
-      )
-      if sql_answer:
-        emit_status("thinking", "Preparando respuesta...")
-        return self._stream(sql_answer, emit_token), [], "sql"
 
     return self._with_tools(question, handoff, emit_status, emit_token)
 

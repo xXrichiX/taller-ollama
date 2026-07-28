@@ -259,6 +259,17 @@ def list_islas(id_sucursal: int) -> list[dict]:
     )
 
 
+def count_islas(id_sucursal: int) -> int:
+    taller = get_mi_taller(id_sucursal)
+    if not taller:
+        return 0
+    row = fetch_one(
+        "SELECT COUNT(*) AS n FROM islas WHERE id_mi_taller = %s",
+        (taller["id"],),
+    )
+    return int(row.get("n") or 0)
+
+
 def create_isla(nombre: str, id_sucursal: int) -> int:
     taller = get_mi_taller(id_sucursal)
     return execute(

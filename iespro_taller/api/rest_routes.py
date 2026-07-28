@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.rate_limit import rate_limit
+from api.chat_response import public_chat_messages, public_chat_result
 from api.security_messages import REGISTER_GENERIC_MESSAGE
 from api.session_cookies import clear_session_cookie, json_with_session
 from api.session import (
@@ -28,6 +29,7 @@ from api.session import (
 from services import catalog_service, cita_service, inventory_service
 from config import (
   IS_PRODUCTION,
+  MAX_ISLAS_PER_SUCURSAL,
   REGISTRATION_ENABLED,
   REGISTRATION_INVITE_CODE,
   TURNSTILE_SECRET_KEY,
@@ -484,10 +486,15 @@ def list_sucursales(session: AppSession = Depends(require_session)):
 
 
 @router.post("/sucursales")
-def create_sucursal(body: SucursalCreate, session: AppSession = Depends(require_session)):
+@rate_limit("10/minute")
+def create_sucursal(
+  request: Request,
+  body: SucursalCreate,
+  session: AppSession = Depends(require_session),
+):
   uid = session.user["id"]
   if not catalog_service.user_can_create_sucursal(uid):
-    raise HTTPException(status_code=403, detail="No puedes crear sucursales")
+    raise HTTPException(status_code=403, detail="No puedes crear más sucursales")
   nombre = body.nombre.strip()
   if not nombre:
     raise HTTPException(status_code=400, detail="Nombre requerido")
@@ -524,7 +531,9 @@ def list_islas(id_sucursal: int, session: AppSession = Depends(require_session))
 
 
 @router.post("/sucursales/{id_sucursal}/islas")
+@rate_limit("15/minute")
 def create_isla(
+  request: Request,
   id_sucursal: int,
   body: IslaCreate,
   session: AppSession = Depends(require_session),
@@ -532,6 +541,8 @@ def create_isla(
   _require_sucursal_access(session, id_sucursal)
   if not catalog_service.user_owns_sucursal(session.user["id"], id_sucursal):
     raise HTTPException(status_code=403, detail="Solo el dueño puede crear islas")
+  if cita_service.count_islas(id_sucursal) >= MAX_ISLAS_PER_SUCURSAL:
+    raise HTTPException(status_code=403, detail="Límite de islas alcanzado para esta sucursal")
   nombre = body.nombre.strip()
   if not nombre:
     raise HTTPException(status_code=400, detail="Nombre de isla requerido")
@@ -598,7 +609,12 @@ def list_servicios(session: AppSession = Depends(require_session)):
 
 
 @router.post("/servicios")
-def create_servicio(body: ServicioCreate, session: AppSession = Depends(require_session)):
+@rate_limit("20/minute")
+def create_servicio(
+  request: Request,
+  body: ServicioCreate,
+  session: AppSession = Depends(require_session),
+):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail="Sin permiso")
   id_sucursal = require_sucursal(session)
@@ -678,7 +694,12 @@ def list_clientes(session: AppSession = Depends(require_session)):
 
 
 @router.post("/clientes")
-def create_cliente(body: ClienteCreate, session: AppSession = Depends(require_session)):
+@rate_limit("30/minute")
+def create_cliente(
+  request: Request,
+  body: ClienteCreate,
+  session: AppSession = Depends(require_session),
+):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail="Sin permiso")
   nombre = body.nombre.strip()
@@ -744,7 +765,12 @@ def list_inventario(session: AppSession = Depends(require_session)):
 
 
 @router.post("/inventario")
-def create_inventario(body: InventarioCreate, session: AppSession = Depends(require_session)):
+@rate_limit("30/minute")
+def create_inventario(
+  request: Request,
+  body: InventarioCreate,
+  session: AppSession = Depends(require_session),
+):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail="Sin permiso")
   id_sucursal = require_sucursal(session)
@@ -1182,7 +1208,9 @@ class TokenBody(BaseModel):
 
 
 @router.post("/rag/bootstrap")
-def rag_bootstrap(session: AppSession = Depends(require_session)):
+@rate_limit("5/minute")
+def rag_bootstrap(request: Request, session: AppSession = Depends(require_session)):
+  _require_propietario(session)
   ok, msg = session.chat.bootstrap()
   return {"ok": ok, "message": msg}
 
@@ -1219,7 +1247,8 @@ def chat_conversations(session: AppSession = Depends(require_session)):
 
 
 @router.post("/chat/conversations")
-def chat_new_conversation(session: AppSession = Depends(require_session)):
+@rate_limit("20/minute")
+def chat_new_conversation(request: Request, session: AppSession = Depends(require_session)):
   require_sucursal(session)
   conv_id = session.chat.start_new_conversation()
   if not conv_id:
@@ -1249,7 +1278,7 @@ def chat_delete_conversation(id_conv: int, session: AppSession = Depends(require
 def chat_messages(id_conv: int, session: AppSession = Depends(require_session)):
   require_sucursal(session)
   session.chat.switch_conversation(id_conv)
-  return {"messages": session.chat.get_ui_messages()}
+  return {"messages": public_chat_messages(session.chat.get_ui_messages())}
 
 
 @router.post("/chat")
@@ -1270,12 +1299,7 @@ def chat_send(request: Request, body: ChatMessageBody, session: AppSession = Dep
   if not session.chat.ensure_conversation():
     raise HTTPException(status_code=400, detail="Crea o selecciona una conversación primero.")
   result = session.chat.ask(body.message.strip())
-  return {
-    "answer": result.get("answer"),
-    "route": result.get("route"),
-    "tool_calls": result.get("tool_calls", []),
-    "metrics": result.get("metrics", {}),
-  }
+  return public_chat_result(result)
 
 
 @router.post("/chat/stream")
@@ -1305,12 +1329,12 @@ def chat_stream(request: Request, body: ChatMessageBody, session: AppSession = D
         on_status=lambda phase, label: event_q.put(("status", {"phase": phase, "label": label})),
         on_token=lambda text: event_q.put(("token", {"text": text})),
       )
-      event_q.put(("done", {
+      event_q.put(("done", public_chat_result({
         "answer": result.get("answer"),
         "route": result.get("route"),
         "tool_calls": result.get("tool_calls", []),
         "metrics": result.get("metrics", {}),
-      }))
+      })))
     except Exception as exc:
       event_q.put(("error", {"message": str(exc)}))
 

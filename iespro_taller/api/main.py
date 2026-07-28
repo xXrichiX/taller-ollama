@@ -58,10 +58,14 @@ async def validation_exception_handler(_request: Request, _exc: RequestValidatio
   return JSONResponse(status_code=422, content={"detail": _exc.errors()})
 
 
+_cors_origins = list(CORS_ORIGINS)
+if os.getenv("CORS_ALLOW_ALL") == "1" and not IS_PRODUCTION:
+  _cors_origins.append("*")
+
 app.add_middleware(
   CORSMiddleware,
-  allow_origins=CORS_ORIGINS + ["*"] if os.getenv("CORS_ALLOW_ALL") == "1" else CORS_ORIGINS,
-  allow_credentials=True,
+  allow_origins=_cors_origins,
+  allow_credentials=not IS_PRODUCTION,
   allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allow_headers=["*"],
 )
@@ -71,6 +75,8 @@ app.include_router(router)
 
 @app.get("/api/health")
 def health():
+  if IS_PRODUCTION:
+    return {"status": "ok"}
   from db.connection import test_connection
 
   ok, _msg = test_connection()
