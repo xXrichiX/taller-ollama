@@ -371,25 +371,6 @@ export function LoginPage() {
           </button>
         </form>
         <p className="muted" style={{ marginTop: "1rem", textAlign: "center" }}>
-          {mode === "login" && emailVerificationEnabled && (
-            <>
-              ¿Tienes código pendiente?{" "}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault();
-                  if (blocked || !email.trim()) {
-                    setError("Escribe tu correo arriba para verificar la cuenta.");
-                    return;
-                  }
-                  goToVerify("Ingresa el código de 6 dígitos que recibiste por correo.");
-                }}
-              >
-                Verificar correo
-              </a>
-              {registrationEnabled ? " · " : ""}
-            </>
-          )}
           {(mode === "login" ? registrationEnabled : true) && (
             <>
               {mode === "login" ? "¿No tienes cuenta? " : "¿Ya tienes cuenta? "}
