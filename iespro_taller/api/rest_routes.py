@@ -181,7 +181,8 @@ def auth_register(request: Request, body: RegisterBody):
   if turnstile_enabled():
     client_ip = request.client.host if request.client else None
     if not verify_turnstile(body.captcha_token, client_ip):
-      raise HTTPException(status_code=400, detail=captcha_failed())
+      # 403 (no 400): en prod el handler genérico de 400 oculta el fallo de verificación.
+      raise HTTPException(status_code=403, detail=captcha_failed())
 
   result = catalog_service.register_usuario(
     body.nombre.strip(),

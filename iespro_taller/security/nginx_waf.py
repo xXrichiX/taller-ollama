@@ -21,6 +21,7 @@ REQUIRED_WAF_MARKERS: tuple[str, ...] = (
   "location = /.env",
   "limit_req zone=api_auth",
   "limit_req zone=api_chat",
+  "limit_req_status 429",
 )
 
 
