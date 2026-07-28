@@ -30,8 +30,9 @@ Usuario → Chat API → LLM → Tools (RBAC) → Servicios → MySQL
 3. `REGISTRATION_ENABLED=0` o invite + Turnstile
 4. `TRUST_PROXY_HEADERS=1` detrás de Caddy
 5. Pentest verde: `./scripts/pentest-master.sh`
-6. Backup diario: `./scripts/backup-mysql.sh`
-7. WAF externo (Cloudflare recomendado) delante del VPS
+6. Respuesta al informe 35/100: `docs/AUDIT_RESPONSE.md`
+7. Backup diario: `./scripts/backup-mysql.sh`
+8. WAF externo (Cloudflare recomendado) delante del VPS
 8. Secretos en Vault/Key Vault para equipos enterprise
 
 ## Respuesta a incidentes (Prioridad 16)
