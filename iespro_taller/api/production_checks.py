@@ -7,6 +7,7 @@ import os
 from config import (
   APP_ENV,
   AUDIT_HMAC_SECRET,
+  EMAIL_VERIFICATION_ENABLED,
   EMAIL_VERIFICATION_SECRET,
   IS_PRODUCTION,
   MAX_TOOL_CALLS_PER_TURN,
@@ -16,8 +17,6 @@ from config import (
   REGISTRATION_ENABLED,
   SESSION_IDLE_SECONDS,
   SESSION_STORE,
-  SMTP_FROM,
-  SMTP_HOST,
   TRUST_PROXY_HEADERS,
   TURNSTILE_SECRET_KEY,
   TURNSTILE_SITE_KEY,
@@ -70,12 +69,16 @@ def validate_production_config() -> None:
   if IS_PRODUCTION and SESSION_STORE != "mysql":
     errors.append("SESSION_STORE debe ser 'mysql' en producción")
 
-  if REGISTRATION_ENABLED:
+  if EMAIL_VERIFICATION_ENABLED:
+    from config import SMTP_FROM, SMTP_HOST
+
     if not SMTP_HOST or not SMTP_FROM:
-      errors.append("REGISTRATION_ENABLED=1 exige SMTP_HOST y SMTP_FROM en producción")
+      errors.append(
+        "EMAIL_VERIFICATION_ENABLED=1 exige SMTP_HOST y SMTP_FROM en producción"
+      )
     if not EMAIL_VERIFICATION_SECRET or len(EMAIL_VERIFICATION_SECRET) < 32:
       errors.append(
-        "EMAIL_VERIFICATION_SECRET debe tener al menos 32 caracteres cuando el registro está habilitado"
+        "EMAIL_VERIFICATION_SECRET debe tener al menos 32 caracteres con verificación activa"
       )
 
   if errors:

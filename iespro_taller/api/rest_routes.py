@@ -110,16 +110,15 @@ class ResendVerificationBody(StrictModel):
 @router.get("/auth/public-config")
 @rate_limit("30/minute")
 def auth_public_config(request: Request):
-  from services.email_verification import smtp_configured
+  from services.email_verification import email_verification_active
 
   use_turnstile = bool(TURNSTILE_SECRET_KEY)
-  email_verify = REGISTRATION_ENABLED and smtp_configured()
   return {
     "registration_enabled": REGISTRATION_ENABLED,
     "turnstile_site_key": TURNSTILE_SITE_KEY if use_turnstile else "",
     "invite_required": bool(REGISTRATION_INVITE_CODE),
     "captcha_mode": "turnstile" if use_turnstile else "none",
-    "email_verification_enabled": email_verify,
+    "email_verification_enabled": email_verification_active(),
   }
 
 
@@ -251,15 +250,9 @@ def auth_register(request: Request, body: RegisterBody):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo registrar"))
 
   if IS_PRODUCTION:
-    from services.email_verification import (
-      ensure_email_verification_columns,
-      issue_verification_code,
-      send_verification_email,
-      smtp_configured,
-    )
+    from services.email_verification import email_verification_active, issue_verification_code, send_verification_email
 
-    ensure_email_verification_columns()
-    if smtp_configured():
+    if email_verification_active():
       code = issue_verification_code(int(result["id_usuario"]), body.email.strip().lower())
       send_verification_email(body.email.strip().lower(), code)
 

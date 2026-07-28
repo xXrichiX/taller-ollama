@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
 from config import (
+  EMAIL_VERIFICATION_ENABLED,
   EMAIL_VERIFICATION_SECRET,
   IS_PRODUCTION,
   SMTP_FROM,
@@ -26,7 +27,11 @@ logger = logging.getLogger(__name__)
 
 
 def smtp_configured() -> bool:
-  return bool(SMTP_HOST and SMTP_FROM)
+  return EMAIL_VERIFICATION_ENABLED and bool(SMTP_HOST and SMTP_FROM)
+
+
+def email_verification_active() -> bool:
+  return EMAIL_VERIFICATION_ENABLED and smtp_configured()
 
 
 def ensure_email_verification_columns() -> None:
@@ -117,7 +122,23 @@ def verify_email_code(email: str, code: str) -> bool:
   return True
 
 
+def clear_pending_email_verification() -> None:
+  """Marca todos los usuarios como verificados (cuando la verificación está desactivada)."""
+  if EMAIL_VERIFICATION_ENABLED:
+    return
+  ensure_email_verification_columns()
+  execute(
+    """
+    UPDATE usuarios
+    SET email_verificado = 1, email_verify_hash = NULL, email_verify_expires = NULL
+    WHERE email_verificado = 0
+    """
+  )
+
+
 def is_email_verified(id_usuario: int) -> bool:
+  if not EMAIL_VERIFICATION_ENABLED:
+    return True
   if not IS_PRODUCTION:
     return True
   if not smtp_configured():

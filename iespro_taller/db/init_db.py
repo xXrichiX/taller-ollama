@@ -417,9 +417,13 @@ def ensure_data_dir() -> None:
 
 
 def ensure_email_verification_schema() -> None:
-    from services.email_verification import ensure_email_verification_columns
+    from services.email_verification import (
+        clear_pending_email_verification,
+        ensure_email_verification_columns,
+    )
 
     ensure_email_verification_columns()
+    clear_pending_email_verification()
 
 
 def ensure_api_sessions_table() -> None:

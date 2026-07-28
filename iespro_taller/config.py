@@ -91,7 +91,10 @@ SESSION_STORE = os.getenv(
   "mysql" if IS_PRODUCTION else "memory",
 ).strip().lower()
 
-# SMTP / verificación de correo (obligatorio si REGISTRATION_ENABLED en producción)
+# Verificación de correo (desactivada por defecto; Clouding y otros VPS suelen bloquear SMTP saliente)
+EMAIL_VERIFICATION_ENABLED = os.getenv("EMAIL_VERIFICATION_ENABLED", "0") == "1"
+
+# SMTP / verificación de correo (solo si EMAIL_VERIFICATION_ENABLED=1)
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "").strip()

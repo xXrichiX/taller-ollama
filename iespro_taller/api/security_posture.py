@@ -13,9 +13,8 @@ from config import (
   RATE_LIMIT_ENABLED,
   REGISTRATION_ENABLED,
   REGISTRATION_INVITE_CODE,
+  EMAIL_VERIFICATION_ENABLED,
   SESSION_STORE,
-  SMTP_FROM,
-  SMTP_HOST,
   TURNSTILE_SECRET_KEY,
   TURNSTILE_SITE_KEY,
 )
@@ -72,16 +71,11 @@ def _strict_api_models() -> bool:
   return "class StrictModel" not in src and "StrictModel)" in src and "BaseModel)" not in src
 
 
-def _smtp_configured() -> bool:
-  return bool(SMTP_HOST and SMTP_FROM)
-
-
 def collect_security_controls() -> dict[str, object]:
   waf = verify_nginx_waf_config()
   llm = _llm_layers()
   registration_secure = (not REGISTRATION_ENABLED) or bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY)
 
-  email_verification_ready = (not REGISTRATION_ENABLED) or _smtp_configured() or not IS_PRODUCTION
   session_store_ok = SESSION_STORE == "mysql" or not IS_PRODUCTION
 
   controls: dict[str, object] = {
@@ -113,8 +107,8 @@ def collect_security_controls() -> dict[str, object]:
       "public_enabled": REGISTRATION_ENABLED,
       "turnstile_configured": bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY),
       "invite_code_configured": bool(REGISTRATION_INVITE_CODE),
-      "email_verification_configured": _smtp_configured(),
-      "secure_for_production": registration_secure and email_verification_ready,
+      "email_verification_enabled": EMAIL_VERIFICATION_ENABLED,
+      "secure_for_production": registration_secure,
     },
     "api_hardening": {
       "strict_request_models": _strict_api_models(),
@@ -135,7 +129,7 @@ def collect_security_controls() -> dict[str, object]:
     "llm_output_safety": bool(llm["output_filter"]["active"]),
     "audit_hmac": bool(AUDIT_HMAC_SECRET) or not IS_PRODUCTION,
     "metrics_protected": bool(METRICS_TOKEN) or not IS_PRODUCTION,
-    "registration_hardened": registration_secure and email_verification_ready or not IS_PRODUCTION,
+    "registration_hardened": registration_secure or not IS_PRODUCTION,
     "session_store_mysql": session_store_ok,
     "strict_api_models": _strict_api_models() or not IS_PRODUCTION,
   }
