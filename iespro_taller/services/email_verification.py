@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 import smtplib
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,8 @@ from config import (
   SMTP_USER,
 )
 from db.connection import execute, fetch_one
+
+logger = logging.getLogger(__name__)
 
 
 def smtp_configured() -> bool:
@@ -79,8 +82,10 @@ def send_verification_email(to_email: str, code: str) -> bool:
       if SMTP_USER:
         smtp.login(SMTP_USER, SMTP_PASSWORD)
       smtp.send_message(msg)
+    logger.info("Correo de verificación enviado a %s", to_email[:3] + "***")
     return True
-  except OSError:
+  except (OSError, smtplib.SMTPException) as exc:
+    logger.warning("No se pudo enviar correo de verificación a %s: %s", to_email, exc)
     return False
 
 
