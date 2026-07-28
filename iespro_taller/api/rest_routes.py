@@ -10,10 +10,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
 from api.rate_limit import rate_limit
 from api.client_ip import get_client_ip
+from api.strict_models import StrictModel
 from api.chat_scope import apply_chat_scope
 from api.chat_response import public_chat_messages, public_chat_result
 from api.access_checks import (
@@ -44,6 +45,7 @@ from api.session import (
   create_session,
   delete_session,
   isla_belongs_to_sucursal,
+  persist_session,
   require_isla,
   require_session,
   require_sucursal,
@@ -80,16 +82,12 @@ router = APIRouter(prefix="/api")
 # --- Auth ---
 
 
-class LoginBody(BaseModel):
-  model_config = ConfigDict(extra="forbid")
-
+class LoginBody(StrictModel):
   email: str
   password: str
 
 
-class RegisterBody(BaseModel):
-  model_config = ConfigDict(extra="forbid")
-
+class RegisterBody(StrictModel):
   nombre: str
   email: str
   password: str
@@ -97,6 +95,11 @@ class RegisterBody(BaseModel):
   captcha_token: str = ""
   captcha_challenge: str = ""
   captcha_answer: str = ""
+
+
+class VerifyEmailBody(StrictModel):
+  email: str
+  code: str
 
 
 @router.get("/auth/public-config")
@@ -165,11 +168,11 @@ def _require_mecanico_en_sucursal(id_mecanico: int, id_sucursal: int) -> None:
     raise HTTPException(status_code=400, detail=bad_request("Mecánico no pertenece a la sucursal"))
 
 
-class SucursalActivaBody(BaseModel):
+class SucursalActivaBody(StrictModel):
   id_sucursal: int
 
 
-class IslaActivaBody(BaseModel):
+class IslaActivaBody(StrictModel):
   id_isla: int
 
 
@@ -186,6 +189,11 @@ def auth_login(request: Request, body: LoginBody):
       resultado="denied",
     )
     raise HTTPException(status_code=401, detail=unauthorized())
+  if user.get("email_unverified"):
+    raise HTTPException(
+      status_code=403,
+      detail=forbidden("Verifica tu correo antes de iniciar sesión."),
+    )
   if is_pending(user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Cuenta pendiente de activación"))
 
@@ -233,6 +241,19 @@ def auth_register(request: Request, body: RegisterBody):
   if not result.get("ok"):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo registrar"))
 
+  if IS_PRODUCTION:
+    from services.email_verification import (
+      ensure_email_verification_columns,
+      issue_verification_code,
+      send_verification_email,
+      smtp_configured,
+    )
+
+    ensure_email_verification_columns()
+    if smtp_configured():
+      code = issue_verification_code(int(result["id_usuario"]), body.email.strip().lower())
+      send_verification_email(body.email.strip().lower(), code)
+
   audit_from_request(
     request,
     accion=audit.AUTH_REGISTER,
@@ -241,6 +262,23 @@ def auth_register(request: Request, body: RegisterBody):
     resultado="ok",
   )
   return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
+
+
+@router.post("/auth/verify-email")
+@rate_limit("10/minute")
+def auth_verify_email(request: Request, body: VerifyEmailBody):
+  from services.email_verification import verify_email_code
+
+  if verify_email_code(body.email.strip(), body.code.strip()):
+    audit_from_request(
+      request,
+      accion=audit.AUTH_REGISTER,
+      recurso="email_verification",
+      detalle=body.email.strip().lower()[:120],
+      resultado="ok",
+    )
+    return {"ok": True, "message": "Correo verificado. Ya puedes iniciar sesión."}
+  raise HTTPException(status_code=400, detail=bad_request("Código inválido o expirado"))
 
 
 @router.post("/auth/logout")
@@ -322,7 +360,7 @@ def auth_me(request: Request, session: AppSession = Depends(require_session)):
   }
 
 
-class PerfilUpdateBody(BaseModel):
+class PerfilUpdateBody(StrictModel):
   nombre: str
   email: str
   password: str = ""
@@ -378,6 +416,7 @@ def set_sucursal(
     recurso=f"sucursal:{body.id_sucursal}",
   )
   jwt_token = refresh_session_jwt(session)
+  persist_session(session)
   return json_with_session(
     {"ok": True, "id_sucursal": body.id_sucursal, "id_isla": session.id_isla},
     jwt_token,
@@ -405,6 +444,7 @@ def set_isla(
     recurso=f"isla:{body.id_isla}",
   )
   jwt_token = refresh_session_jwt(session)
+  persist_session(session)
   return json_with_session({"ok": True, "id_isla": body.id_isla}, jwt_token)
 
 
@@ -607,12 +647,12 @@ def _clientes_filters(session: AppSession) -> dict[str, Any]:
 # --- Sucursales ---
 
 
-class SucursalCreate(BaseModel):
+class SucursalCreate(StrictModel):
   nombre: str
   direccion: str = ""
 
 
-class IslaCreate(BaseModel):
+class IslaCreate(StrictModel):
   nombre: str
   id_mecanico: int | None = None
 
@@ -752,13 +792,13 @@ def catalog_mantenimiento(request: Request, session: AppSession = Depends(requir
 # --- Servicios (tipos de mantenimiento) ---
 
 
-class ServicioCreate(BaseModel):
+class ServicioCreate(StrictModel):
   nombre: str
   descripcion: str = ""
   precio: float = 0
 
 
-class ServicioUpdate(BaseModel):
+class ServicioUpdate(StrictModel):
   nombre: str
   descripcion: str = ""
   precio: float = 0
@@ -865,7 +905,7 @@ def catalog_mecanicos(
 # --- Clientes ---
 
 
-class ClienteCreate(BaseModel):
+class ClienteCreate(StrictModel):
   nombre: str
   telefono: str = ""
   email: str = ""
@@ -917,7 +957,7 @@ def create_cliente(
 # --- Inventario ---
 
 
-class InventarioCreate(BaseModel):
+class InventarioCreate(StrictModel):
   codigo: str = ""
   nombre: str
   descripcion: str = ""
@@ -927,7 +967,7 @@ class InventarioCreate(BaseModel):
   unidad: str = "pza"
 
 
-class InventarioUpdate(BaseModel):
+class InventarioUpdate(StrictModel):
   codigo: str = ""
   nombre: str
   descripcion: str = ""
@@ -937,13 +977,13 @@ class InventarioUpdate(BaseModel):
   unidad: str = "pza"
 
 
-class InventarioUpdateMecanico(BaseModel):
+class InventarioUpdateMecanico(StrictModel):
   nombre: str
   descripcion: str = ""
   unidad: str = "pza"
 
 
-class InventarioAjuste(BaseModel):
+class InventarioAjuste(StrictModel):
   delta: float
 
 
@@ -1073,7 +1113,7 @@ def ajustar_inventario(
 # --- Vehículos ---
 
 
-class VehiculoCreate(BaseModel):
+class VehiculoCreate(StrictModel):
   numero_economico: str = ""
   placa: str
   serie: str = ""
@@ -1170,7 +1210,7 @@ def create_vehiculo(
 # --- Citas ---
 
 
-class CitaCreate(BaseModel):
+class CitaCreate(StrictModel):
   id_cliente: int | None = None
   id_vehiculo: int
   fecha_cita: str
@@ -1183,7 +1223,7 @@ class CitaCreate(BaseModel):
   servicio_ids: list[int] = Field(default_factory=list)
 
 
-class CitaUpdate(BaseModel):
+class CitaUpdate(StrictModel):
   estado: str | None = None
   id_mecanico: int | None = None
   id_isla: int | None = None
@@ -1273,6 +1313,12 @@ def create_cita(
 
   assert_cliente_in_sucursal(session, id_cliente)
 
+  try:
+    cita_service.validate_servicios_for_sucursal(id_sucursal, body.servicio_ids)
+    cita_service.validate_mecanico_isla_sucursal(id_sucursal, id_mecanico, id_isla)
+  except ValueError as exc:
+    raise HTTPException(status_code=400, detail=bad_request(str(exc))) from exc
+
   cita_id = cita_service.create_cita({
     "id_cliente": id_cliente,
     "id_vehiculo": body.id_vehiculo,
@@ -1337,6 +1383,15 @@ def update_cita(
       updates["id_mecanico"] = body.id_mecanico
     if body.id_isla is not None:
       updates["id_isla"] = body.id_isla
+    id_sucursal_cita = int(cita.get("id_sucursal") or session.id_sucursal or 0)
+    try:
+      cita_service.validate_mecanico_isla_sucursal(
+        id_sucursal_cita,
+        updates.get("id_mecanico"),
+        updates.get("id_isla"),
+      )
+    except ValueError as exc:
+      raise HTTPException(status_code=400, detail=bad_request(str(exc))) from exc
     result = cita_service.update_cita(id_cita, updates) if updates else {"ok": True}
   elif is_mecanico(session.user.get("rol_nombre")):
     if not estado_raw:
@@ -1382,7 +1437,7 @@ def cita_defaults(request: Request, session: AppSession = Depends(require_sessio
 # --- Usuarios ---
 
 
-class UsuarioCreate(BaseModel):
+class UsuarioCreate(StrictModel):
   nombre: str
   email: str
   password: str
@@ -1391,7 +1446,7 @@ class UsuarioCreate(BaseModel):
   sucursales_ids: list[int] = Field(default_factory=list)
 
 
-class UsuarioStaffUpdate(BaseModel):
+class UsuarioStaffUpdate(StrictModel):
   id_puesto: int
   puesto_nombre: str
   sucursales_ids: list[int] = Field(default_factory=list)
@@ -1493,13 +1548,13 @@ def update_usuario_staff(
 # --- Chat ---
 
 
-class ChatMessageBody(BaseModel):
+class ChatMessageBody(StrictModel):
   message: str = Field(..., min_length=1)
   id_sucursal: int | None = None
   id_isla: int | None = None
 
 
-class TokenBody(BaseModel):
+class TokenBody(StrictModel):
   token: str
 
 
@@ -1558,6 +1613,10 @@ def observability_recent(
   repo = ObservabilityRepository()
   repo.ensure_table()
   rows = repo.list_recent(limit=min(limit, 100))
+  if IS_PRODUCTION:
+    from api.observability_public import public_observability_logs
+
+    rows = public_observability_logs(rows)
   return {"logs": rows}
 
 

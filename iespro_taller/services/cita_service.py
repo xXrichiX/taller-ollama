@@ -385,6 +385,42 @@ def list_citas(
     return fetch_all(query, tuple(params))
 
 
+def validate_servicios_for_sucursal(id_sucursal: int, servicio_ids: list[int]) -> None:
+    if not servicio_ids:
+        raise ValueError("Selecciona al menos un servicio del catálogo.")
+    seen: set[int] = set()
+    for sid in servicio_ids:
+        if not isinstance(sid, int) or sid < 1:
+            raise ValueError("ID de servicio inválido.")
+        if sid in seen:
+            raise ValueError("Servicios duplicados en la solicitud.")
+        seen.add(sid)
+        row = fetch_one(
+            """
+            SELECT id FROM tipos_mantenimiento
+            WHERE id = %s AND id_sucursal = %s AND activo = 1
+            """,
+            (sid, id_sucursal),
+        )
+        if not row:
+            raise ValueError(f"El servicio {sid} no pertenece a esta sucursal.")
+
+
+def validate_mecanico_isla_sucursal(
+    id_sucursal: int,
+    id_mecanico: int | None,
+    id_isla: int | None,
+) -> None:
+    if id_mecanico is not None:
+        valid_mecanicos = {m["id"] for m in list_mecanicos(id_sucursal)}
+        if id_mecanico not in valid_mecanicos:
+            raise ValueError("El mecánico no pertenece a esta sucursal.")
+    if id_isla is not None:
+        valid_islas = {i["id"] for i in list_islas(id_sucursal)}
+        if id_isla not in valid_islas:
+            raise ValueError("La isla no pertenece a esta sucursal.")
+
+
 def create_cita(data: dict, servicio_ids: list[int]) -> int:
     cliente = fetch_one("SELECT id FROM clientes WHERE id = %s", (data["id_cliente"],))
     if not cliente:

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 
 class ProductionChecksTests(unittest.TestCase):
+  @patch("api.production_checks.SESSION_STORE", "mysql")
   @patch.dict(os.environ, {"APP_ENV": "production"}, clear=False)
   @patch("api.production_checks.MYSQL_PASSWORD", "a" * 20)
   @patch("api.production_checks.MYSQL_USER", "iespro_app")

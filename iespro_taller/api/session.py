@@ -12,7 +12,7 @@ import jwt
 
 from api.jwt_tokens import decode_session_token, issue_session_token
 from api.security_messages import session_error, setup_required
-from config import SESSION_COOKIE_NAME, SESSION_IDLE_SECONDS
+from config import SESSION_COOKIE_NAME, SESSION_IDLE_SECONDS, SESSION_STORE
 from services import catalog_service, cita_service
 from services.chat_service import ChatService
 from services.user_roles import is_cliente, is_mecanico, is_workshop_staff
@@ -95,11 +95,31 @@ def purge_expired_sessions() -> None:
     if now - session.last_activity > SESSION_IDLE_SECONDS
   ]
   for token in expired:
-    _sessions.pop(token, None)
+    delete_session(token)
+  if SESSION_STORE == "mysql":
+    from api.session_store import purge_expired_sessions as purge_stored
+
+    purge_stored(SESSION_IDLE_SECONDS)
+
+
+def persist_session(session: AppSession) -> None:
+  if SESSION_STORE != "mysql":
+    return
+  from api.session_store import save_session
+
+  save_session(
+    jti=session.token,
+    id_usuario=int(session.user["id"]),
+    id_sucursal=session.id_sucursal,
+    id_isla=session.id_isla,
+    id_cliente=session.id_cliente,
+    created_at=session.created_at,
+    last_activity=session.last_activity,
+  )
 
 
 def create_session(user: dict[str, Any]) -> tuple[AppSession, str]:
-  """Crea sesión en memoria y devuelve (session, jwt)."""
+  """Crea sesión y devuelve (session, jwt)."""
   purge_expired_sessions()
   jti = str(uuid.uuid4())
   session = AppSession(token=jti, user=user, chat=ChatService())
@@ -111,6 +131,18 @@ def create_session(user: dict[str, Any]) -> tuple[AppSession, str]:
     session_id=jti,
   )
   _sessions[jti] = session
+  if SESSION_STORE == "mysql":
+    from api.session_store import save_session
+
+    save_session(
+      jti=jti,
+      id_usuario=int(user["id"]),
+      id_sucursal=session.id_sucursal,
+      id_isla=session.id_isla,
+      id_cliente=session.id_cliente,
+      created_at=session.created_at,
+      last_activity=session.last_activity,
+    )
   return session, jwt_str
 
 
@@ -118,17 +150,51 @@ def get_session(token: str | None) -> AppSession | None:
   if not token:
     return None
   session = _sessions.get(token)
+  if not session and SESSION_STORE == "mysql":
+    session = _restore_session_from_store(token)
   if not session:
     return None
   if time.time() - session.last_activity > SESSION_IDLE_SECONDS:
-    _sessions.pop(token, None)
+    delete_session(token)
     return None
   session.touch()
+  if SESSION_STORE == "mysql":
+    from api.session_store import touch_session
+
+    touch_session(token, session.last_activity)
+  return session
+
+
+def _restore_session_from_store(jti: str) -> AppSession | None:
+  from api.session_store import load_session
+
+  row = load_session(jti)
+  if not row:
+    return None
+  user = catalog_service.get_user_by_id(int(row["id_usuario"]))
+  if not user:
+    return None
+  session = AppSession(token=jti, user=user, chat=ChatService())
+  session.id_sucursal = row.get("id_sucursal")
+  session.id_isla = row.get("id_isla")
+  session.id_cliente = row.get("id_cliente")
+  session.created_at = float(row.get("created_at") or time.time())
+  session.last_activity = float(row.get("last_activity") or time.time())
+  apply_user_to_session(session, user)
+  session.id_sucursal = row.get("id_sucursal")
+  session.id_isla = row.get("id_isla")
+  session.id_cliente = row.get("id_cliente")
+  _sync_chat_scope(session)
+  _sessions[jti] = session
   return session
 
 
 def delete_session(token: str) -> None:
   _sessions.pop(token, None)
+  if SESSION_STORE == "mysql":
+    from api.session_store import delete_session as delete_stored_session
+
+    delete_stored_session(token)
 
 
 def clear_sessions() -> None:

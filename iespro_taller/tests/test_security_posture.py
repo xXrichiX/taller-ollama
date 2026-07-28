@@ -13,6 +13,7 @@ class SecurityPostureTests(unittest.TestCase):
   @patch("api.security_posture.AUDIT_HMAC_SECRET", "test-secret")
   @patch("api.security_posture.METRICS_TOKEN", "metrics-token")
   @patch("api.security_posture.REGISTRATION_ENABLED", False)
+  @patch("api.security_posture.SESSION_STORE", "mysql")
   def test_production_posture_compliant(self) -> None:
     data = collect_security_controls()
     self.assertEqual(data["environment"], "production")

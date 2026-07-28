@@ -85,6 +85,21 @@ AUDIT_HMAC_SECRET = os.getenv("AUDIT_HMAC_SECRET", "").strip()
 # Métricas Prometheus (red interna o METRICS_TOKEN)
 METRICS_TOKEN = os.getenv("METRICS_TOKEN", "").strip()
 
+# Sesiones API (memory en dev, mysql en producción)
+SESSION_STORE = os.getenv(
+  "SESSION_STORE",
+  "mysql" if IS_PRODUCTION else "memory",
+).strip().lower()
+
+# SMTP / verificación de correo (obligatorio si REGISTRATION_ENABLED en producción)
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM = os.getenv("SMTP_FROM", "").strip()
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "1") == "1"
+EMAIL_VERIFICATION_SECRET = os.getenv("EMAIL_VERIFICATION_SECRET", AUDIT_HMAC_SECRET).strip()
+
 # Voz (micrófono): umbrales anti-ruido; ajustables por env si hace falta
 VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "1.2"))
 VOICE_RMS_MIN = float(os.getenv("VOICE_RMS_MIN", "450"))

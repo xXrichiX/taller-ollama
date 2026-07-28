@@ -26,7 +26,12 @@ def login(email: str, password: str) -> dict[str, Any] | None:
             "UPDATE usuarios SET password = %s WHERE id = %s",
             (hash_password(plain), user["id"]),
         )
-    return enrich_user_session(user)
+    from services.email_verification import is_email_verified
+
+    enriched = enrich_user_session(user)
+    if not is_email_verified(int(user["id"])):
+        enriched["email_unverified"] = True
+    return enriched
 
 
 def get_user_by_id(id_usuario: int) -> dict | None:

@@ -51,6 +51,8 @@ def init_database() -> tuple[bool, str]:
         ensure_roles_simplified()
         ensure_deactivate_compromised_sucursales()
         ensure_performance_indexes()
+        ensure_email_verification_schema()
+        ensure_api_sessions_table()
         ok, msg = test_connection()
         return ok, msg if ok else msg
     except Exception as exc:
@@ -412,3 +414,15 @@ def ensure_data_dir() -> None:
     Path(CHROMA_PATH).mkdir(parents=True, exist_ok=True)
     DOCUMENTS_PATH.mkdir(parents=True, exist_ok=True)
     (BASE_DIR / "data").mkdir(parents=True, exist_ok=True)
+
+
+def ensure_email_verification_schema() -> None:
+    from services.email_verification import ensure_email_verification_columns
+
+    ensure_email_verification_columns()
+
+
+def ensure_api_sessions_table() -> None:
+    from api.session_store import ensure_session_table
+
+    ensure_session_table()

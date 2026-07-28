@@ -6,6 +6,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from config import IS_PRODUCTION
+
 _CSP = (
   "default-src 'self'; "
   "script-src 'self' https://challenges.cloudflare.com; "
@@ -29,4 +31,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
     response.headers["Content-Security-Policy"] = _CSP
+    if IS_PRODUCTION:
+      response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
