@@ -904,6 +904,7 @@ class VehiculoCreate(BaseModel):
 @router.get("/vehiculos")
 @rate_limit("60/minute")
 def list_vehiculos(
+  request: Request,
   id_cliente: int | None = None,
   session: AppSession = Depends(require_session),
 ):
@@ -1019,7 +1020,7 @@ def list_citas(session: AppSession = Depends(require_session)):
 
 @router.get("/citas/{id_cita}")
 @rate_limit("60/minute")
-def get_cita(id_cita: int, session: AppSession = Depends(require_session)):
+def get_cita(request: Request, id_cita: int, session: AppSession = Depends(require_session)):
   cita = cita_service.get_cita_by_id(id_cita)
   if not cita:
     raise HTTPException(status_code=404, detail="Cita no encontrada")
@@ -1328,7 +1329,11 @@ def chat_delete_conversation(id_conv: int, session: AppSession = Depends(require
 
 @router.get("/chat/conversations/{id_conv}/messages")
 @rate_limit("60/minute")
-def chat_messages(id_conv: int, session: AppSession = Depends(require_session)):
+def chat_messages(
+  request: Request,
+  id_conv: int,
+  session: AppSession = Depends(require_session),
+):
   require_sucursal(session)
   if not session.chat.switch_conversation(id_conv):
     raise HTTPException(status_code=404, detail="Conversación no encontrada")
