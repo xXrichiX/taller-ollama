@@ -30,8 +30,6 @@ web/dist/
 !.env.example
 *.local
 
-# Informes de pentest (pueden contener URLs o credenciales de prueba)
-pentest-reports/
 backups/
 
 # Sistema / IDE

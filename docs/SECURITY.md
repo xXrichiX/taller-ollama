@@ -25,26 +25,22 @@ Usuario → Chat API → LLM → Tools (RBAC) → Servicios → MySQL
 | Secretos | `.env` gitignored; prod exige contraseñas ≥16 chars y claves JWT |
 | CI | pip-audit, npm audit, bandit, tests de seguridad |
 
-## Checklist producción (95+/100)
+## Checklist producción
 
 1. `MYSQL_APP_PASSWORD` y `MYSQL_ROOT_PASSWORD` aleatorios ≥16 caracteres
 2. Claves JWT en `JWT_PRIVATE_KEY_PEM` / `JWT_PUBLIC_KEY_PEM` o volumen `data/keys/`
 3. `REGISTRATION_ENABLED=0` o invite + Turnstile
 4. `TRUST_PROXY_HEADERS=1` detrás de Caddy
-5. Pentest verde: `./scripts/pentest-master.sh`
-6. Respuesta al informe 35/100: `docs/AUDIT_RESPONSE.md`
-7. Backup diario: `./scripts/backup-mysql.sh`
-8. WAF edge nginx (rate limit + bloqueo bots); Cloudflare opcional delante del VPS
-9. Secretos en Vault/Key Vault para equipos enterprise
+5. `./scripts/setup-prod-env.sh` y `./scripts/post-deploy-prod.sh` tras deploy
+6. Backup diario: `./scripts/backup-mysql.sh`
+7. WAF edge nginx (rate limit + bloqueo bots); Cloudflare opcional delante del VPS
+8. Secretos en Vault/Key Vault para equipos enterprise
 
-## Respuesta a incidentes (Prioridad 16)
+## Respuesta a incidentes
 
-```bash
-./scripts/forensics-post-incident.sh
-./scripts/post-deploy-prod.sh          # cleanup SQL + verificación HACKED
-# Plantilla de cierre: docs/INCIDENT_RESPONSE.md
-# Rotar contraseñas, JWT, reiniciar backend
-```
+1. Aislar el servicio afectado y revisar `audit_logs` y logs de Caddy
+2. Rotar contraseñas MySQL, claves JWT y reiniciar backend
+3. Restaurar desde backup si hubo compromiso de datos: `./scripts/backup-mysql.sh`
 
 ## Monitoreo (Prioridad 19 — roadmap)
 

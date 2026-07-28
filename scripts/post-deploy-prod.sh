@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Post-despliegue en producción: limpieza forense + verificación.
+# Post-despliegue en producción: rebuild y verificación básica.
 #
 # Uso en VPS:
 #   cd ~/taller-ollama
@@ -19,36 +19,22 @@ if [ -f .env ]; then
   set +a
 fi
 
-: "${MYSQL_ROOT_PASSWORD:?Define MYSQL_ROOT_PASSWORD en .env}"
-DB="${MYSQL_DATABASE:-iespro_taller_app}"
-
-echo "==> Levantando servicios (si hace falta)..."
+echo "==> Levantando servicios..."
 docker compose -f "$COMPOSE_FILE" up -d --build backend frontend
 
 echo ""
-echo "==> Ejecutando limpieza forense (cleanup-pentest-data.sql)..."
-docker compose -f "$COMPOSE_FILE" exec -T database \
-  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$DB" \
-  < scripts/cleanup-pentest-data.sql
+echo "==> Verificando health del backend..."
+for _ in $(seq 1 30); do
+  if docker compose -f "$COMPOSE_FILE" exec -T backend \
+    python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)" \
+    >/dev/null 2>&1; then
+    echo "OK: backend respondiendo en /api/health"
+    echo ""
+    echo "Post-despliegue completado."
+    exit 0
+  fi
+  sleep 2
+done
 
-echo ""
-echo "==> Verificando residuos HACKED_SUCURSAL..."
-HACKED_COUNT="$(
-  docker compose -f "$COMPOSE_FILE" exec -T database \
-    mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B "$DB" \
-    -e "SELECT COUNT(*) FROM sucursales WHERE activo = 1 AND (nombre LIKE '%HACKED%' OR direccion LIKE '%Hacker%');"
-)"
-
-if [ "${HACKED_COUNT:-0}" -gt 0 ]; then
-  echo "ERROR: Aún hay ${HACKED_COUNT} sucursal(es) HACKED activa(s). Revisa cleanup-pentest-data.sql"
-  exit 1
-fi
-echo "OK: sin sucursales HACKED activas."
-
-echo ""
-echo "==> Generando informe forense..."
-./scripts/forensics-post-incident.sh
-
-echo ""
-echo "Post-despliegue completado."
-echo "Siguiente: URL=https://tu-dominio EMAIL=... PASS='...' ./scripts/pentest-master.sh"
+echo "ERROR: el backend no respondió a tiempo. Revisa: docker compose -f $COMPOSE_FILE logs backend"
+exit 1

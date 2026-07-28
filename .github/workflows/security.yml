@@ -11,12 +11,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Shell syntax (security scripts)
+      - name: Shell syntax (deploy scripts)
         run: |
-          bash -n scripts/pentest-selfcheck.sh
-          bash -n scripts/pentest-master.sh
           bash -n scripts/backup-mysql.sh
-          bash -n scripts/forensics-post-incident.sh
+          bash -n scripts/post-deploy-prod.sh
+          bash -n scripts/setup-prod-env.sh
 
       - name: Python dependency audit
         working-directory: iespro_taller

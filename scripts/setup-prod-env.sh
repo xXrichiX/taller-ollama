@@ -57,5 +57,4 @@ FLUSH PRIVILEGES;
 echo ""
 echo "Listo. Siguiente:"
 echo "  docker compose -f docker-compose.prod.yml up -d --build backend frontend"
-echo "  ./scripts/post-deploy-prod.sh   # cleanup + verificación forense"
-echo "  URL=https://... EMAIL=... PASS='...' ./scripts/pentest-master.sh"
+echo "  ./scripts/post-deploy-prod.sh"

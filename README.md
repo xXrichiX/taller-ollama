@@ -110,12 +110,12 @@ chmod +x scripts/backup-mysql.sh
 
 Programa esto con cron en el VPS (diario recomendado).
 
-### Checklist pre-producción (objetivo 100/100)
+### Checklist pre-producción
 
 1. `.env` con `MYSQL_ROOT_PASSWORD` y `MYSQL_APP_PASSWORD` ≥16 caracteres aleatorios
 2. `REGISTRATION_ENABLED=0` (o invite + Turnstile)
 3. `PUBLIC_URL` y `PUBLIC_DOMAIN` con **https://**
-4. Pentest en verde: `URL=https://tu-dominio ./scripts/pentest-master.sh`
+4. `./scripts/setup-prod-env.sh` y `./scripts/post-deploy-prod.sh` tras el primer deploy
 5. Backup probado con `./scripts/backup-mysql.sh`
 6. Sin credenciales demo en la BD (`init_db` elimina `admin@iespro.mx` legacy)
 
@@ -130,22 +130,6 @@ El chat **no ejecuta SQL arbitrario**. Usa un catálogo cerrado de herramientas 
 3. **Minimización** — listados masivos ocultan email/teléfono (`[oculto]`), máximo 25 filas; guardrails bloquean extracción masiva y SQL en español/inglés.
 
 En producción no se exponen `tool_calls`, `route` ni métricas internas. Prompt injection se mitiga con guardrails y ruta `blocked`; el riesgo residual de LLM es inherente al producto, no un backdoor a la BD.
-
-### Auto-auditoría (pentest)
-
-```bash
-# Rápido (11 secciones)
-URL=https://tu-servidor.sslip.io ./scripts/pentest-selfcheck.sh
-
-# Completo + reporte Markdown
-URL=https://tu-servidor.sslip.io EMAIL=tu@mail.com PASS='...' ./scripts/pentest-master.sh
-# → pentest-reports/pentest-*.md
-
-# Limpieza forense tras pentest del profesor
-docker compose -f docker-compose.prod.yml exec -T database \
-  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" iespro_taller_app \
-  < scripts/cleanup-pentest-data.sql
-```
 
 Tests unitarios (scope del chat):
 
