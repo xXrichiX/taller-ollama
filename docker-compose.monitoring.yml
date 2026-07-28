@@ -1,16 +1,27 @@
 # Monitoreo centralizado — Prometheus + Grafana
 # Uso: docker compose -f docker-compose.prod.yml -f docker-compose.monitoring.yml up -d
+#
+# Acceso (solo localhost en el VPS — usar túnel SSH desde tu Mac):
+#   ssh -L 9090:127.0.0.1:9090 -L 3001:127.0.0.1:3001 root@TU_VPS
+#   Prometheus: http://127.0.0.1:9090
+#   Grafana:    http://127.0.0.1:3001  (admin + GRAFANA_ADMIN_PASSWORD del .env)
 
 services:
   prometheus:
     image: prom/prometheus:v2.55.1
     restart: unless-stopped
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN in .env}
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
+    entrypoint: ["/bin/sh", "-c"]
     command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.retention.time=30d"
+      - |
+        printf '%s' "$$METRICS_TOKEN" > /tmp/metrics_token
+        exec /bin/prometheus \
+          --config.file=/etc/prometheus/prometheus.yml \
+          --storage.tsdb.retention.time=30d
     ports:
       - "127.0.0.1:9090:9090"
 
