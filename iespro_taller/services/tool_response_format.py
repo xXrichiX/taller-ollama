@@ -2,6 +2,9 @@
 
 from typing import Any
 
+from config import IS_PRODUCTION
+from services.llm_safety import enforce_llm_output
+
 
 def _lines(items: list[str]) -> str:
     if not items:
@@ -19,6 +22,13 @@ def _error(result: Any) -> str | None:
 
 
 def format_tool_result(name: str, result: Any) -> str:
+    text = _render_tool_result(name, result)
+    if IS_PRODUCTION and text:
+        return enforce_llm_output(text).text
+    return text
+
+
+def _render_tool_result(name: str, result: Any) -> str:
     err = _error(result)
     if err:
         return err
@@ -117,6 +127,8 @@ def format_tool_result(name: str, result: Any) -> str:
     if name == "buscar_cliente" and isinstance(result, dict):
         if result.get("ok") and result.get("cliente"):
             c = result["cliente"]
+            if IS_PRODUCTION:
+                return f"Cliente encontrado: {c.get('nombre', '?')}"
             return f"Cliente encontrado: {c.get('nombre', '?')} (tel. {c.get('telefono', 'N/A')})"
         if result.get("coincidencias"):
             names = [c.get("nombre", "?") for c in result["coincidencias"]]
@@ -131,6 +143,8 @@ def format_tool_result(name: str, result: Any) -> str:
 
     if name == "crear_cliente_natural" and isinstance(result, dict):
         if result.get("ok"):
+            if IS_PRODUCTION:
+                return f"Cliente registrado: {result.get('nombre', '?')}."
             tel = result.get("telefono") or "sin teléfono"
             return f"Cliente registrado: {result.get('nombre', '?')} (tel. {tel})."
         return result.get("error", "No se pudo registrar el cliente.")
@@ -217,7 +231,10 @@ def format_tool_result(name: str, result: Any) -> str:
 def format_tool_calls_log(tool_calls: list[dict]) -> str:
     parts = []
     for tc in tool_calls:
-        text = format_tool_result(tc.get("name", ""), tc.get("result"))
+        text = _render_tool_result(tc.get("name", ""), tc.get("result"))
         if text:
             parts.append(text)
-    return "\n\n".join(parts).strip()
+    combined = "\n\n".join(parts).strip()
+    if IS_PRODUCTION and combined:
+        return enforce_llm_output(combined).text
+    return combined

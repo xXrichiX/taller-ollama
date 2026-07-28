@@ -28,7 +28,7 @@ URL=https://tu-dominio EMAIL=tu@mail.com PASS='...' ./scripts/pentest-master.sh
 | 10 | Token UUID sin claims | Info | **Mejorado** | JWT RS256 con claims rol/sucursal/jti (`api/jwt_tokens.py`). Cookie HttpOnly; sin token en JSON en prod. |
 | 11 | Mensajes informativos (isla/sucursal/CAPTCHA) | Info | **Sí** | `api/security_messages.py`: en prod todos los 403/400 sensibles devuelven textos genéricos (`Acceso denegado`, etc.). |
 | 12 | Sin WAF | Info | **Parcial** | Capa edge en `web/nginx.conf`: rate limit por IP, bloqueo de bots/URIs maliciosas, CSP. Cloudflare opcional en VPS. |
-| 13 | Riesgo residual LLM | Info | **Mitigado** | Tools cerradas + RBAC + guardrails ES ampliados + `output_filter` (PII, fugas de scope). Ver `docs/SECURITY.md`. |
+| 13 | Riesgo residual LLM | Info | **Controlado** | Capas: tools cerradas + RBAC + guardrails + `llm_safety.enforce_llm_output` bloquea PII/SQL/JWT en prod; stream bufferizado hasta validar. |
 | — | OpenAPI `/docs` expuesto | — | **Sí** | Deshabilitado en prod (`main.py`). nginx devuelve 404; `/openapi.json` es HTML de SPA. |
 | — | `rag/bootstrap` sin control | — | **Sí** | Solo dueño del taller (`_require_propietario`) + rate limit. |
 | — | Auditoría de accesos | — | **Sí** | `audit_logs` + `GET /api/audit/recent` (solo propietario). |

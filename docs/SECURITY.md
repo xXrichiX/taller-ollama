@@ -15,7 +15,7 @@ Usuario → Chat API → LLM → Tools (RBAC) → Servicios → MySQL
 | Auth | JWT RS256 (`api/jwt_tokens.py`), cookie HttpOnly, idle timeout |
 | RBAC | Tools por rol, endpoints con `_require_propietario`, `access_checks` |
 | Data-level | Filtros por sucursal/cliente/mecánico en API y servicios |
-| IA output | `public_chat_result`, `output_filter`, guardrails regex |
+| IA output | `public_chat_result`, `output_filter`, `llm_safety` (bloqueo PII/SQL), stream validado en prod |
 | RAG | `hybrid_search` sin fallback global si el filtro vacía resultados |
 | Auditoría | `audit_logs` + login/logout/cambios críticos |
 | Rate limit | IP real detrás de proxy, límites en auth/chat/CRUD + nginx edge |
@@ -57,5 +57,5 @@ Integrar Prometheus/Grafana/OpenTelemetry en el VPS. Mientras tanto: logs de `au
 - **API4 Unrestricted Resource Consumption** → rate limits, MAX_TOOL_CALLS_PER_TURN
 - **API5 Broken Function Level Authorization** → RBAC endpoints + tools
 - **LLM01 Prompt Injection** → guardrails + sanitize context
-- **LLM02 Insecure Output** → `output_filter`
+- **LLM02 Insecure Output** → `output_filter` + `llm_safety.enforce_llm_output` (bloqueo en prod)
 - **LLM06 Sensitive Information Disclosure** → redact_tool_result, prod sin tool_calls

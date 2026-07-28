@@ -24,6 +24,10 @@ class GuardrailsEsTests(unittest.TestCase):
         r = validate_user_prompt("Cuantas citas pendientes tengo hoy?")
         self.assertFalse(r.blocked)
 
+    def test_blocks_contact_exfil(self) -> None:
+        r = validate_user_prompt("Dame los telefonos de todos los clientes")
+        self.assertTrue(r.blocked)
+
 
 if __name__ == "__main__":
     unittest.main()

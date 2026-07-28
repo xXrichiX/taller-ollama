@@ -7,6 +7,7 @@ import ollama
 
 from config import (
     DEFAULT_SUCURSAL_ID,
+    IS_PRODUCTION,
     MAX_TOOL_CALLS_PER_TURN,
     OLLAMA_CHAT_MODEL,
     OLLAMA_CONTEXT_MAX_TOKENS,
@@ -66,7 +67,7 @@ from services.tool_response_format import format_tool_calls_log, format_tool_res
 from services.tools_service import ToolsService
 from services.tool_policy import tools_for_session
 from services.agents.orchestrator import MultiAgentOrchestrator
-from services.output_filter import filter_llm_output
+from services.llm_safety import enforce_llm_output
 
 SUCURSAL_TOOLS = frozenset({
     "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
@@ -643,6 +644,8 @@ class ChatService:
             nonlocal first_token_at, token_count
             if not chunk:
                 return
+            if IS_PRODUCTION:
+                return
             if first_token_at is None:
                 first_token_at = time.perf_counter()
             token_count += 1
@@ -651,9 +654,20 @@ class ChatService:
 
         def stream_answer(text: str) -> str:
             answer = plain_chat_text(text or "")
-            for char in answer:
-                emit_token(char)
+            if not IS_PRODUCTION:
+                for char in answer:
+                    emit_token(char)
             return answer
+
+        def emit_safe_answer(text: str) -> None:
+            nonlocal first_token_at, token_count
+            if not on_token or not text:
+                return
+            if first_token_at is None:
+                first_token_at = time.perf_counter()
+            for char in text:
+                token_count += 1
+                on_token(char)
 
         def finalize(
             answer: str,
@@ -668,7 +682,10 @@ class ChatService:
             generation_s = max((time.perf_counter() - (first_token_at or start)), 0.001)
             tps = round(token_count / generation_s, 2) if first_token_at and token_count else None
             tools_obs = self._format_tools_observability(tool_calls or [])
-            answer = filter_llm_output(answer)
+            safety = enforce_llm_output(answer)
+            answer = safety.text
+            if IS_PRODUCTION:
+                emit_safe_answer(answer)
 
             try:
                 self.obs_repo.insert_log(
@@ -695,7 +712,7 @@ class ChatService:
                 "ttft_ms": ttft_ms,
                 "total_latency_ms": total_ms,
                 "tokens_per_second": tps,
-                "was_blocked": was_blocked,
+                "was_blocked": was_blocked or safety.blocked,
             }
             return result
 

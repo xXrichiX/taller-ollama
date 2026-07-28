@@ -7,6 +7,8 @@ from typing import Any
 
 from services.tools_service import TOOL_DEFINITIONS
 
+from config import IS_PRODUCTION
+
 # Tools que solo el dueño del taller puede invocar (datos sensibles / catálogo amplio).
 PROPIETARIO_ONLY_TOOLS = frozenset({
     "listar_clientes",
@@ -26,7 +28,7 @@ LIST_TOOLS = frozenset({
     "vehiculos_de_cliente",
 })
 
-MAX_TOOL_LIST_ROWS = 25
+MAX_TOOL_LIST_ROWS = 10 if IS_PRODUCTION else 25
 
 PII_FIELDS = frozenset({
     "email",
@@ -41,6 +43,8 @@ BULK_REDACT_TOOLS = frozenset({
     "listar_clientes",
     "listar_citas",
     "listar_vehiculos",
+    "buscar_cliente",
+    "vehiculos_de_cliente",
 })
 
 
@@ -87,9 +91,10 @@ def tools_for_session(
 
 def _redact_row(row: dict, *, bulk: bool) -> dict:
     out = dict(row)
+    force_pii = IS_PRODUCTION or bulk
     for key in PII_FIELDS:
         if key in out:
-            if bulk:
+            if force_pii:
                 out[key] = "[oculto]"
             elif key in ("usuario_email", "password", "password_hash"):
                 out.pop(key, None)
@@ -121,8 +126,8 @@ def redact_tool_result(tool_name: str, result: Any) -> Any:
             cloned = copy.deepcopy(result)
             cloned["items"] = redact_tool_result(tool_name, cloned["items"])
             return cloned
-        if bulk or tool_name in BULK_REDACT_TOOLS:
-            return _redact_row(result, bulk=bulk)
+        if bulk or tool_name in BULK_REDACT_TOOLS or IS_PRODUCTION:
+            return _redact_row(result, bulk=True)
         return {k: v for k, v in result.items() if k not in ("password", "password_hash", "usuario_email")}
 
     return result

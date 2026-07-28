@@ -96,6 +96,36 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.I,
         ),
     ),
+    (
+        "pii_contact_request",
+        re.compile(
+            r"\b(dame|muestra|muéstrame|lista|sacame|sácame|necesito)\b.{0,50}\b("
+            r"correos?|emails?|tel[eé]fonos?|celulares?|whatsapp|contacto)\b",
+            re.I,
+        ),
+    ),
+    (
+        "cross_tenant_probe",
+        re.compile(
+            r"\b(otra|otras|todas las)\b.{0,30}\b(sucursales?|islas?|talleres?)\b",
+            re.I,
+        ),
+    ),
+    (
+        "encoding_bypass",
+        re.compile(
+            r"\b(base64|rot13|hexadecimal|unicode escape|decodifica)\b",
+            re.I,
+        ),
+    ),
+    (
+        "system_internals",
+        re.compile(
+            r"\b(arquitectura|stack|variables de entorno|\.env|docker|nginx)\b.{0,40}\b("
+            r"sistema|servidor|producción|backend)\b",
+            re.I,
+        ),
+    ),
 ]
 
 
