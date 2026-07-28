@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /install /usr/local
 COPY iespro_taller /app/iespro_taller
+COPY web/nginx.conf /app/web/nginx.conf
 
 WORKDIR /app/iespro_taller
 EXPOSE 8000
