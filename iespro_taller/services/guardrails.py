@@ -170,6 +170,12 @@ def validate_user_prompt(prompt: str) -> GuardrailResult:
     for rule_id, pattern in _BLOCK_PATTERNS:
         if pattern.search(text):
             logger.warning("Guardrail blocked prompt rule=%s len=%d", rule_id, len(text))
+            try:
+                from api.metrics import record_guardrail_block
+
+                record_guardrail_block(rule_id)
+            except Exception:
+                pass
             return GuardrailResult(True, BLOCKED_MESSAGE, rule_id)
 
     if re.search(r"(\b\w+\b)(?:\s+\1){5,}", text.lower()):

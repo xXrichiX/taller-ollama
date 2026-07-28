@@ -78,6 +78,13 @@ TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "").strip()
 MAX_SUCURSALES_PER_OWNER = int(os.getenv("MAX_SUCURSALES_PER_OWNER", "5"))
 MAX_ISLAS_PER_SUCURSAL = int(os.getenv("MAX_ISLAS_PER_SUCURSAL", "12"))
 
+# Auditoría forense
+AUDIT_RETENTION_DAYS = int(os.getenv("AUDIT_RETENTION_DAYS", "365"))
+AUDIT_HMAC_SECRET = os.getenv("AUDIT_HMAC_SECRET", "").strip()
+
+# Métricas Prometheus (red interna o METRICS_TOKEN)
+METRICS_TOKEN = os.getenv("METRICS_TOKEN", "").strip()
+
 # Voz (micrófono): umbrales anti-ruido; ajustables por env si hace falta
 VOICE_SILENCE_SECONDS = float(os.getenv("VOICE_SILENCE_SECONDS", "1.2"))
 VOICE_RMS_MIN = float(os.getenv("VOICE_RMS_MIN", "450"))

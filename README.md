@@ -121,7 +121,15 @@ Programa esto con cron en el VPS (diario recomendado).
 5. Backup probado con `./scripts/backup-mysql.sh`
 6. Sin credenciales demo en la BD (`init_db` elimina `admin@iespro.mx` legacy)
 
-Documentación completa: [docs/SECURITY.md](docs/SECURITY.md)
+Documentación completa: [docs/SECURITY.md](docs/SECURITY.md) · [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md)
+
+### Monitoreo (Prometheus + Grafana)
+
+```bash
+# En el VPS, junto al stack principal (puertos solo localhost)
+docker compose -f docker-compose.prod.yml -f docker-compose.monitoring.yml up -d
+# Prometheus → http://127.0.0.1:9090  Grafana → http://127.0.0.1:3001
+```
 
 ### Modelo de amenazas (asistente IA)
 

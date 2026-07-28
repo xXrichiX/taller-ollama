@@ -16,8 +16,8 @@ vosk>=0.3.44
 # Advanced RAG
 rank-bm25>=0.2.2
 
+prometheus-client>=0.21.0
+
 # Evaluador automatizado
 fpdf2>=2.8.0
-
-# Reranker opcional (más preciso; requiere torch)
 # sentence-transformers>=3.0.0

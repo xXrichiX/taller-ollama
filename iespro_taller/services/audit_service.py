@@ -44,6 +44,12 @@ def audit(
       user_agent=user_agent,
       resultado=resultado,
     )
+    try:
+      from api.metrics import record_audit_metric
+
+      record_audit_metric(accion, resultado)
+    except Exception:
+      pass
   except Exception:
     logger.exception("Fallo al registrar auditoría accion=%s", accion)
 

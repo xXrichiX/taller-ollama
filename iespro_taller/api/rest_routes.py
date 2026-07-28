@@ -1521,6 +1521,31 @@ def audit_recent(
   return {"logs": repo.list_recent(limit=min(limit, 200))}
 
 
+@router.get("/audit/verify")
+@rate_limit("10/minute")
+def audit_verify(
+  request: Request,
+  limit: int = 200,
+  session: AppSession = Depends(require_session),
+):
+  """Verifica integridad HMAC de registros recientes (forense)."""
+  _require_propietario(session)
+  from db.audit_repository import AuditRepository
+
+  repo = AuditRepository()
+  repo.ensure_table()
+  report = repo.verify_recent(limit=min(limit, 500))
+  audit_session_action(
+    request,
+    session,
+    accion=audit.AUDIT_VERIFY,
+    recurso="audit_logs",
+    detalle=f"checked={report['checked']} invalid={report['invalid_count']}",
+    resultado="ok" if report["ok"] else "tampered",
+  )
+  return report
+
+
 @router.get("/chat/conversations")
 @rate_limit("60/minute")
 def chat_conversations(request: Request, session: AppSession = Depends(require_session)):

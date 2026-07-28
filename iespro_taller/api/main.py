@@ -28,6 +28,7 @@ from api.security_headers import SecurityHeadersMiddleware  # noqa: E402
 from api.audit_middleware import AuditAccessMiddleware  # noqa: E402
 from api.production_checks import validate_production_config  # noqa: E402
 from api.security_messages import bad_request, not_found  # noqa: E402
+from api.metrics import PrometheusMiddleware, router as metrics_router  # noqa: E402
 
 
 @asynccontextmanager
@@ -36,6 +37,16 @@ async def lifespan(_app: FastAPI):
   ok, msg = init_database()
   if not ok:
     print(f"[WARN] BD: {msg}")
+  try:
+    from db.audit_repository import AuditRepository
+
+    repo = AuditRepository()
+    repo.ensure_table()
+    purged = repo.purge_older_than_retention()
+    if purged:
+      print(f"[INFO] Auditoría: {purged} registros purgados (retención)")
+  except Exception:
+    pass
   yield
   clear_sessions()
 
@@ -50,6 +61,8 @@ app = FastAPI(
   lifespan=lifespan,
   **_docs_kwargs,
 )
+
+app.add_middleware(PrometheusMiddleware)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -105,6 +118,7 @@ app.add_middleware(
 )
 
 app.include_router(router)
+app.include_router(metrics_router)
 
 
 @app.get("/api/health")
