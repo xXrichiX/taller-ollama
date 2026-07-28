@@ -72,14 +72,16 @@ Evaluador: `docker compose -f docker-compose.prod.yml exec backend python evalua
 iespro_taller/     # Backend Python (api, services, db, sql)
 web/               # Frontend React + Vite
 docker-compose.yml # Dev (Ollama en tu Mac)
-docker-compose.prod.yml  # Producción (Ollama en el servidor)
+docker-compose.prod.yml  # VPS académico (Ollama en el servidor; APP_ENV endurecido)
 ```
 
 ChromaDB: `db_vectorial/` (local) o volumen Docker `chroma_data` (prod).
 
 ---
 
-## Seguridad (producción)
+## Seguridad
+
+`docker-compose.prod.yml` despliega la app en modo endurecido (`APP_ENV=production`). **Matriz de aprobación con criterio empresarial estricto:** [docs/SECURITY.md](docs/SECURITY.md) — todos los hallazgos críticos/altos del informe en **CUMPLE**; madurez enterprise (SIEM, WAF comercial) clasificada como evolución futura.
 
 Variables en `.env` / `docker-compose.prod.yml`:
 
@@ -100,7 +102,7 @@ Variables en `.env` / `docker-compose.prod.yml`:
 
 Incluye: bcrypt, rate limiting por IP real, cookies HttpOnly, cabeceras CSP, HSTS, usuario MySQL dedicado, validación de config en arranque prod, observabilidad solo dueño, inventario por rol, Turnstile opcional en registro.
 
-### Respaldo MySQL (producción)
+### Respaldo MySQL (VPS)
 
 ```bash
 chmod +x scripts/backup-mysql.sh
@@ -110,7 +112,7 @@ chmod +x scripts/backup-mysql.sh
 
 Programa esto con cron en el VPS (diario recomendado).
 
-### Checklist pre-producción
+### Checklist pre-despliegue VPS
 
 1. `.env` con `MYSQL_ROOT_PASSWORD` y `MYSQL_APP_PASSWORD` ≥16 caracteres aleatorios
 2. `REGISTRATION_ENABLED=0` (o invite + Turnstile)
@@ -129,7 +131,7 @@ El chat **no ejecuta SQL arbitrario**. Usa un catálogo cerrado de herramientas 
 2. **Scope de datos** — cada tool fuerza `id_sucursal` / `id_isla` del usuario (`tools_service._scope_arguments`); el chat valida sucursal en API (`chat_scope.py`, anti-IDOR).
 3. **Minimización** — listados masivos ocultan email/teléfono (`[oculto]`), máximo 25 filas; guardrails bloquean extracción masiva y SQL en español/inglés.
 
-En producción no se exponen `tool_calls`, `route` ni métricas internas. Prompt injection se mitiga con guardrails y ruta `blocked`; el riesgo residual de LLM es inherente al producto, no un backdoor a la BD.
+En modo endurecido (`APP_ENV=production`) no se exponen `tool_calls`, `route` ni métricas internas. Prompt injection se mitiga con guardrails y ruta `blocked`; el riesgo residual de LLM es inherente al producto, no un backdoor a la BD. La defensa en capas **no** sustituye un programa formal de seguridad de IA (red team periódico).
 
 Tests unitarios (scope del chat):
 
