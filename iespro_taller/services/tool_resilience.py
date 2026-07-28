@@ -44,7 +44,9 @@ def sanitize_tool_result(name: str, result: Any, *, exc: Exception | None = None
             "recoverable": True,
         }
 
-    return {"ok": True, "tool": name, "result": result}
+    from services.guardrails import sanitize_tool_payload
+
+    return {"ok": True, "tool": name, "result": sanitize_tool_payload(result)}
 
 
 def tool_message_content(name: str, result: Any) -> str:

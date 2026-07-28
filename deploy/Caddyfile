@@ -11,6 +11,10 @@
 
 # HTTP por IP (sin micrófono) — sigue funcionando como respaldo
 :80 {
+	header {
+		-Server
+		-Via
+	}
 	reverse_proxy frontend:80 {
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-Host {host}
@@ -20,6 +24,8 @@
 # HTTPS con certificado real — usar esta URL para el asistente de voz
 {$PUBLIC_DOMAIN} {
 	header {
+		-Server
+		-Via
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 	reverse_proxy frontend:80 {

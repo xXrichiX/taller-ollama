@@ -10,6 +10,7 @@ from typing import Any
 import ollama
 
 from config import OLLAMA_CHAT_MODEL
+from services.guardrails import sanitize_llm_context
 from services.chat_intents import (
     is_gibberish_input,
     looks_like_workshop_request,
@@ -98,7 +99,10 @@ class RouterAgent:
         context_lines = []
         for msg in history[-4:]:
             role = msg.get("role", "user")
-            content = (msg.get("content") or msg.get("contenido") or "")[:200]
+            content = sanitize_llm_context(
+                msg.get("content") or msg.get("contenido") or "",
+                max_len=200,
+            )
             if content:
                 context_lines.append(f"{role}: {content}")
 
@@ -146,7 +150,10 @@ def _summarize_history(history: list[dict[str, str]]) -> str:
     lines = []
     for msg in history[-6:]:
         role = "Usuario" if msg.get("role") == "user" else "Asistente"
-        text = (msg.get("content") or msg.get("contenido") or "").strip()[:160]
+        text = sanitize_llm_context(
+            msg.get("content") or msg.get("contenido") or "",
+            max_len=160,
+        )
         if text:
             lines.append(f"{role}: {text}")
     return "\n".join(lines)

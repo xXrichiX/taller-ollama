@@ -21,7 +21,7 @@ from services.tool_resilience import (
 )
 from db.conversation_repository import ConversationRepository
 from db.observability_repository import ObservabilityRepository
-from services.guardrails import BLOCKED_MESSAGE, validate_user_prompt
+from services.guardrails import BLOCKED_MESSAGE, sanitize_llm_context, validate_user_prompt
 from services.chat_intents import (
     ACKNOWLEDGMENT_ANSWER,
     CLIENTE_SIN_VEHICULOS_ANSWER,
@@ -389,9 +389,12 @@ class ChatService:
 
         lines: list[str] = []
         for row in reversed(rows):
-            titulo = (row.get("titulo") or "Conversación").strip()[:40]
+            titulo = sanitize_llm_context((row.get("titulo") or "Conversación").strip(), max_len=40)
             role = "Usuario" if row["role"] == "user" else "Asistente"
-            texto = (row.get("contenido") or "").strip().replace("\n", " ")[:200]
+            texto = sanitize_llm_context(
+                (row.get("contenido") or "").strip().replace("\n", " "),
+                max_len=200,
+            )
             if texto:
                 lines.append(f"- [{titulo}] {role}: {texto}")
 
