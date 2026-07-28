@@ -115,7 +115,7 @@ Programa esto con cron en el VPS (diario recomendado).
 1. `.env` con `MYSQL_ROOT_PASSWORD` y `MYSQL_APP_PASSWORD` ≥16 caracteres aleatorios
 2. `REGISTRATION_ENABLED=0` (o invite + Turnstile)
 3. `PUBLIC_URL` y `PUBLIC_DOMAIN` con **https://**
-4. `./scripts/setup-prod-env.sh` y `./scripts/post-deploy-prod.sh` tras el primer deploy
+4. `./scripts/setup-prod-env.sh` y `./scripts/post-deploy-prod.sh` tras el primer deploy (incluye sanitización de BD)
 5. Backup probado con `./scripts/backup-mysql.sh`
 6. Sin credenciales demo en la BD (`init_db` elimina `admin@iespro.mx` legacy)
 

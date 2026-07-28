@@ -22,6 +22,15 @@ fi
 echo "==> Levantando servicios..."
 docker compose -f "$COMPOSE_FILE" up -d --build backend frontend
 
+if [ -f scripts/sanitize-production-db.sql ] && [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
+  DB="${MYSQL_DATABASE:-iespro_taller_app}"
+  echo ""
+  echo "==> Sanitizando datos basura en BD..."
+  docker compose -f "$COMPOSE_FILE" exec -T database \
+    mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$DB" \
+    < scripts/sanitize-production-db.sql
+fi
+
 echo ""
 echo "==> Verificando health del backend..."
 for _ in $(seq 1 30); do
