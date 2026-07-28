@@ -12,7 +12,7 @@ _CURP_RE = re.compile(r"\b[A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d\b", re.I)
 _RFC_RE = re.compile(r"\b[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}\b", re.I)
 _INTERNAL_RE = re.compile(
   r"\b(tool_calls?|pipeline|fetch_k|rerank|ttft_ms|route|jti|jwt|mysql|chromadb|"
-  r"run_sql|id_sucursal|id_isla|HACKED|pentest|ollama|function_calling)\b",
+  r"run_sql|id_sucursal|id_isla|ollama|function_calling)\b",
   re.I,
 )
 _SCOPE_LEAK_RE = re.compile(
