@@ -122,7 +122,8 @@ app.include_router(metrics_router)
 
 
 @app.get("/api/health")
-def health():
+@limiter.limit("120/minute")
+def health(request: Request):
   if IS_PRODUCTION:
     return {"status": "ok"}
   from db.connection import test_connection

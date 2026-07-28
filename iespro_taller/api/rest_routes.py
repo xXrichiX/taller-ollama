@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.rate_limit import rate_limit
+from api.client_ip import get_client_ip
 from api.chat_scope import apply_chat_scope
 from api.chat_response import public_chat_messages, public_chat_result
 from api.access_checks import (
@@ -99,7 +100,8 @@ class RegisterBody(BaseModel):
 
 
 @router.get("/auth/public-config")
-def auth_public_config():
+@rate_limit("30/minute")
+def auth_public_config(request: Request):
   use_turnstile = bool(TURNSTILE_SECRET_KEY)
   return {
     "registration_enabled": REGISTRATION_ENABLED,
@@ -148,6 +150,19 @@ def _require_rag_bootstrap(session: AppSession) -> None:
 def _require_sucursal_access(session: AppSession, id_sucursal: int) -> None:
   if not catalog_service.user_can_access_sucursal(session.user["id"], id_sucursal):
     raise HTTPException(status_code=403, detail=forbidden("Sucursal no permitida"))
+
+
+def _require_owned_sucursales(session: AppSession, id_sucursales: list[int]) -> None:
+  uid = int(session.user["id"])
+  for sid in id_sucursales:
+    if not catalog_service.user_owns_sucursal(uid, int(sid)):
+      raise HTTPException(status_code=403, detail=forbidden("Sucursal no permitida"))
+
+
+def _require_mecanico_en_sucursal(id_mecanico: int, id_sucursal: int) -> None:
+  mecanicos = {int(m["id"]) for m in cita_service.list_mecanicos(id_sucursal)}
+  if id_mecanico not in mecanicos:
+    raise HTTPException(status_code=400, detail=bad_request("Mecánico no pertenece a la sucursal"))
 
 
 class SucursalActivaBody(BaseModel):
@@ -204,8 +219,7 @@ def auth_register(request: Request, body: RegisterBody):
   if REGISTRATION_INVITE_CODE and body.invite_code.strip() != REGISTRATION_INVITE_CODE:
     raise HTTPException(status_code=403, detail=forbidden("Código de invitación inválido."))
   if turnstile_enabled():
-    client_ip = request.client.host if request.client else None
-    if not verify_turnstile(body.captcha_token, client_ip):
+    if not verify_turnstile(body.captcha_token, get_client_ip(request)):
       # 403 (no 400): en prod el handler genérico de 400 oculta el fallo de verificación.
       raise HTTPException(status_code=403, detail=captcha_failed())
 
@@ -352,8 +366,7 @@ def set_sucursal(
   body: SucursalActivaBody,
   session: AppSession = Depends(require_session),
 ):
-  allowed = session.user.get("sucursales_ids") or []
-  if body.id_sucursal not in allowed:
+  if not catalog_service.user_can_access_sucursal(session.user["id"], body.id_sucursal):
     raise HTTPException(status_code=403, detail=forbidden("Sucursal no permitida"))
   session.id_sucursal = body.id_sucursal
   session.id_isla = None
@@ -685,6 +698,7 @@ def create_isla(
     raise HTTPException(status_code=400, detail="Nombre de isla requerido")
   id_isla = cita_service.create_isla(nombre, id_sucursal)
   if body.id_mecanico:
+    _require_mecanico_en_sucursal(int(body.id_mecanico), id_sucursal)
     cita_service.assign_mecanico_isla(id_isla, body.id_mecanico)
   audit_session_action(
     request,
@@ -1430,6 +1444,7 @@ def create_usuario(
     "id_puesto": body.id_puesto,
   })
   if body.sucursales_ids and puesto == "mecánico":
+    _require_owned_sucursales(session, body.sucursales_ids)
     catalog_service.set_usuario_sucursales(id_usuario, body.sucursales_ids)
   audit_session_action(
     request,
@@ -1455,6 +1470,9 @@ def update_usuario_staff(
   puesto = body.puesto_nombre.strip().lower()
   if puesto == "mecánico" and not body.sucursales_ids:
     raise HTTPException(status_code=400, detail="Selecciona sucursales para mecánico")
+
+  if puesto == "mecánico" and body.sucursales_ids:
+    _require_owned_sucursales(session, body.sucursales_ids)
 
   catalog_service.assign_usuario_staff(
     id_usuario,
@@ -1507,9 +1525,11 @@ def rag_bootstrap(request: Request, session: AppSession = Depends(require_sessio
 @router.get("/security/controls")
 @rate_limit("60/minute")
 def security_controls(request: Request):
-  """Postura de seguridad verificable desde código (auditoría / pentest)."""
-  from api.security_posture import collect_security_controls
+  """Postura de seguridad verificable (resumen público en producción)."""
+  from api.security_posture import collect_security_controls, collect_security_controls_public
 
+  if IS_PRODUCTION:
+    return collect_security_controls_public()
   return collect_security_controls()
 
 
@@ -1663,12 +1683,7 @@ def chat_stream(request: Request, body: ChatMessageBody, session: AppSession = D
         on_status=lambda phase, label: event_q.put(("status", {"phase": phase, "label": label})),
         on_token=lambda text: event_q.put(("token", {"text": text})),
       )
-      event_q.put(("done", public_chat_result({
-        "answer": result.get("answer"),
-        "route": result.get("route"),
-        "tool_calls": result.get("tool_calls", []),
-        "metrics": result.get("metrics", {}),
-      })))
+      event_q.put(("done", public_chat_result(result)))
     except Exception:
       logger.exception("chat stream error user_id=%s", session.user.get("id"))
       event_q.put(("error", {"message": stream_error()}))

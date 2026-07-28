@@ -114,3 +114,21 @@ def collect_security_controls() -> dict[str, object]:
   controls["checks"] = checks
   controls["compliant"] = all(checks.values())
   return controls
+
+
+def collect_security_controls_public() -> dict[str, object]:
+  """Resumen para auditoría externa sin rutas internas ni manifiesto WAF detallado."""
+  data = collect_security_controls()
+  waf = data.get("waf_edge_nginx")
+  if isinstance(waf, dict):
+    data["waf_edge_nginx"] = {
+      "implemented": waf.get("implemented"),
+      "features": waf.get("features", {}),
+    }
+  audit = data.get("audit")
+  if isinstance(audit, dict):
+    data["audit"] = {
+      "hmac_secret_configured": audit.get("hmac_secret_configured"),
+      "retention_days": audit.get("retention_days"),
+    }
+  return data

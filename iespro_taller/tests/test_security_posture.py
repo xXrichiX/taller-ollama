@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from api.security_posture import collect_security_controls
+from api.security_posture import collect_security_controls, collect_security_controls_public
 
 
 class SecurityPostureTests(unittest.TestCase):
@@ -28,6 +28,14 @@ class SecurityPostureTests(unittest.TestCase):
     data = collect_security_controls()
     self.assertFalse(data["registration"]["secure_for_production"])
     self.assertFalse(data["checks"]["registration_hardened"])
+
+  @patch("api.security_posture.IS_PRODUCTION", True)
+  def test_public_posture_hides_internal_paths(self) -> None:
+    data = collect_security_controls_public()
+    waf = data["waf_edge_nginx"]
+    self.assertNotIn("config_path", waf)
+    self.assertNotIn("missing_markers", waf)
+    self.assertIn("implemented", waf)
 
 
 if __name__ == "__main__":
