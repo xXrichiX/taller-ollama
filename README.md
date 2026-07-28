@@ -7,7 +7,7 @@ Taller mecánico con **IA local (Ollama)**: web React, API FastAPI, MySQL, RAG m
 - Python **3.12**, MySQL 8, Ollama (`llama3.2:3b`, `nomic-embed-text`)
 - Docker (opcional, recomendado)
 
-Login demo: `admin@iespro.mx` / `admin1234`
+**No hay credenciales por defecto en producción.** Crea usuarios con el seeder o registro controlado.
 
 ---
 
@@ -49,7 +49,7 @@ Mínimo: **8 GB RAM**, Ubuntu 22.04, puertos **22** y **80**.
 git clone https://github.com/xXrichiX/taller-ollama.git
 cd taller-ollama
 cp .env.example .env
-# Edita: MYSQL_ROOT_PASSWORD, PUBLIC_URL=http://TU_IP
+# Edita obligatorio: MYSQL_ROOT_PASSWORD, MYSQL_APP_PASSWORD, PUBLIC_URL, PUBLIC_DOMAIN, ACME_EMAIL
 
 docker compose -f docker-compose.prod.yml up -d --build
 ```
@@ -85,14 +85,41 @@ Variables en `.env` / `docker-compose.prod.yml`:
 
 | Variable | Prod recomendado | Descripción |
 |----------|------------------|-------------|
+| `MYSQL_APP_PASSWORD` | ≥16 chars aleatorios | Usuario dedicado `iespro_app` (no root) |
+| `MYSQL_ROOT_PASSWORD` | ≥16 chars aleatorios | Solo admin/backup MySQL |
 | `APP_ENV` | `production` | Errores Pydantic genéricos |
+| `TRUST_PROXY_HEADERS` | `1` | Rate limit por IP real detrás de Caddy |
 | `REGISTRATION_ENABLED` | `0` | Cierra registro público |
 | `REGISTRATION_INVITE_CODE` | opcional | Código para registrar si está habilitado |
 | `RATE_LIMIT_ENABLED` | `1` | Límite de peticiones por IP |
 | `SESSION_COOKIE_SECURE` | `1` | Cookie de sesión solo por HTTPS |
+| `SESSION_IDLE_SECONDS` | `86400` | Expira sesión inactiva en servidor |
+| `MAX_TOOL_CALLS_PER_TURN` | `8` | Tope de tools IA por turno |
+| `JWT_PRIVATE_KEY_PEM` / `JWT_PUBLIC_KEY_PEM` | prod | Firma RS256 (o volumen `data/keys/`) |
 | `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | opcional | CAPTCHA en registro |
 
-Incluye: bcrypt, rate limiting, cookies HttpOnly, cabeceras CSP, observabilidad solo dueño, inventario por rol, Turnstile opcional en registro.
+Incluye: bcrypt, rate limiting por IP real, cookies HttpOnly, cabeceras CSP, HSTS, usuario MySQL dedicado, validación de config en arranque prod, observabilidad solo dueño, inventario por rol, Turnstile opcional en registro.
+
+### Respaldo MySQL (producción)
+
+```bash
+chmod +x scripts/backup-mysql.sh
+./scripts/backup-mysql.sh
+# → backups/iespro-mysql-YYYYMMDD-HHMMSS.sql.gz
+```
+
+Programa esto con cron en el VPS (diario recomendado).
+
+### Checklist pre-producción (objetivo 100/100)
+
+1. `.env` con `MYSQL_ROOT_PASSWORD` y `MYSQL_APP_PASSWORD` ≥16 caracteres aleatorios
+2. `REGISTRATION_ENABLED=0` (o invite + Turnstile)
+3. `PUBLIC_URL` y `PUBLIC_DOMAIN` con **https://**
+4. Pentest en verde: `URL=https://tu-dominio ./scripts/pentest-master.sh`
+5. Backup probado con `./scripts/backup-mysql.sh`
+6. Sin credenciales demo en la BD (`init_db` elimina `admin@iespro.mx` legacy)
+
+Documentación completa: [docs/SECURITY.md](docs/SECURITY.md)
 
 ### Modelo de amenazas (asistente IA)
 

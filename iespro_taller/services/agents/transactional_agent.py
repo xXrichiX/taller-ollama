@@ -1,13 +1,14 @@
-"""Agente especialista transaccional: function calling y consultas SQL."""
+"""Agente especialista transaccional: function calling sobre servicios internos (sin SQL)."""
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Callable
 
 import ollama
 
-from config import OLLAMA_CHAT_MODEL
+from config import MAX_TOOL_CALLS_PER_TURN, OLLAMA_CHAT_MODEL
 from services.chat_intents import allows_mutating_tool, get_friendly_fallback_answer, is_gibberish_input
 from services.text_format import plain_chat_text
 from services.tool_resilience import (
@@ -20,6 +21,8 @@ from services.tool_response_format import format_tool_calls_log
 from services.tools_service import ToolsService
 from services.tool_policy import tools_for_session
 from services.user_roles import is_cliente, is_mecanico, is_staff_manager, is_workshop_staff
+
+logger = logging.getLogger(__name__)
 
 PLAIN_TEXT_RULE = """
 FORMATO: texto plano en español, sin markdown ni asteriscos.
@@ -109,6 +112,14 @@ class TransactionalAgent:
     if not tool_calls:
       content = plain_chat_text(msg.get("content", "No pude procesar la solicitud."))
       return self._stream(content, emit_token), [], "llm_direct"
+
+    if len(tool_calls) > MAX_TOOL_CALLS_PER_TURN:
+      logger.warning(
+        "Truncando tool_calls de %d a %d",
+        len(tool_calls),
+        MAX_TOOL_CALLS_PER_TURN,
+      )
+      tool_calls = tool_calls[:MAX_TOOL_CALLS_PER_TURN]
 
     messages.append(msg)
     for call in tool_calls:

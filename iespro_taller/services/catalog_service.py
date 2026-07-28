@@ -428,14 +428,22 @@ def list_clientes(id_sucursal: int | None = None, id_mecanico: int | None = None
             """,
             (id_mecanico, id_mecanico),
         )
-    return fetch_all(
+    return []
+
+
+def cliente_belongs_to_sucursal(id_cliente: int, id_sucursal: int) -> bool:
+    row = fetch_one(
         """
-        SELECT c.id, c.nombre, c.telefono, c.email, c.id_usuario, u.email AS usuario_email
-        FROM clientes c
-        LEFT JOIN usuarios u ON u.id = c.id_usuario
-        ORDER BY c.nombre
-        """
+        SELECT 1 AS ok FROM clientes
+        WHERE id = %s AND id_sucursal = %s
+        UNION
+        SELECT 1 FROM vehiculos
+        WHERE id_cliente = %s AND id_sucursal = %s
+        LIMIT 1
+        """,
+        (id_cliente, id_sucursal, id_cliente, id_sucursal),
     )
+    return bool(row)
 
 
 def get_cliente_by_usuario(id_usuario: int) -> dict | None:

@@ -10,10 +10,10 @@ from config import SESSION_COOKIE_MAX_AGE, SESSION_COOKIE_NAME, SESSION_COOKIE_S
 COOKIE_PATH = "/"
 
 
-def attach_session_cookie(response: Response, token: str) -> None:
+def attach_session_cookie(response: Response, jwt_token: str) -> None:
   response.set_cookie(
     key=SESSION_COOKIE_NAME,
-    value=token,
+    value=jwt_token,
     httponly=True,
     secure=SESSION_COOKIE_SECURE,
     samesite="strict",
@@ -32,7 +32,7 @@ def clear_session_cookie(response: Response) -> None:
   )
 
 
-def json_with_session(payload: dict, token: str, status_code: int = 200) -> JSONResponse:
+def json_with_session(payload: dict, jwt_token: str, status_code: int = 200) -> JSONResponse:
   response = JSONResponse(content=payload, status_code=status_code)
-  attach_session_cookie(response, token)
+  attach_session_cookie(response, jwt_token)
   return response

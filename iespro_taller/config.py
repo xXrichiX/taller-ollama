@@ -7,8 +7,8 @@ PROJECT_ROOT = BASE_DIR.parent
 # MySQL
 MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
 MYSQL_PORT = int(os.getenv("MYSQL_PORT", "3306"))
-MYSQL_USER = os.getenv("MYSQL_USER", "root")
-MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "root2919")
+MYSQL_USER = os.getenv("MYSQL_USER", "iespro_app")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD") or os.getenv("MYSQL_APP_PASSWORD", "iespro_dev_only")
 MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "iespro_taller_app")
 
 # Ollama
@@ -66,6 +66,10 @@ SESSION_COOKIE_SECURE = os.getenv(
   "1" if IS_PRODUCTION else "0",
 ) == "1"
 SESSION_COOKIE_MAX_AGE = int(os.getenv("SESSION_COOKIE_MAX_AGE", str(60 * 60 * 24 * 7)))
+SESSION_IDLE_SECONDS = int(os.getenv("SESSION_IDLE_SECONDS", str(60 * 60 * 24)))
+
+TRUST_PROXY_HEADERS = os.getenv("TRUST_PROXY_HEADERS", "1" if IS_PRODUCTION else "0") == "1"
+MAX_TOOL_CALLS_PER_TURN = int(os.getenv("MAX_TOOL_CALLS_PER_TURN", "8"))
 
 TURNSTILE_SITE_KEY = os.getenv("TURNSTILE_SITE_KEY", "").strip()
 TURNSTILE_SECRET_KEY = os.getenv("TURNSTILE_SECRET_KEY", "").strip()

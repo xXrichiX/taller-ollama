@@ -21,6 +21,10 @@ def verify_password(plain: str, stored: str | None) -> bool:
       return bcrypt.checkpw(plain.encode("utf-8"), stored.encode("utf-8"))
     except ValueError:
       return False
+  from config import IS_PRODUCTION
+
+  if IS_PRODUCTION:
+    return False
   return plain == stored
 
 

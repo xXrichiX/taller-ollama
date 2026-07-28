@@ -9,8 +9,13 @@
 	admin off
 }
 
-# HTTP por IP (sin micrófono) — sigue funcionando como respaldo
+# HTTP por IP (sin micrófono) — respaldo directo por IP
 :80 {
+	@domain host {$PUBLIC_DOMAIN}
+	handle @domain {
+		redir https://{host}{uri} permanent
+	}
+
 	reverse_proxy frontend:80 {
 		header_up X-Forwarded-Proto {scheme}
 		header_up X-Forwarded-Host {host}

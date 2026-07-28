@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from config import RATE_LIMIT_ENABLED
 from slowapi import Limiter
-from slowapi.util import get_remote_address
+
+from api.client_ip import get_client_ip
 
 limiter = Limiter(
-  key_func=get_remote_address,
+  key_func=get_client_ip,
   enabled=RATE_LIMIT_ENABLED,
   default_limits=["120/minute"],
 )

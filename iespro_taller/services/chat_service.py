@@ -7,6 +7,7 @@ import ollama
 
 from config import (
     DEFAULT_SUCURSAL_ID,
+    MAX_TOOL_CALLS_PER_TURN,
     OLLAMA_CHAT_MODEL,
     OLLAMA_CONTEXT_MAX_TOKENS,
     OLLAMA_CONTEXT_MESSAGE_CAP,
@@ -65,6 +66,7 @@ from services.tool_response_format import format_tool_calls_log, format_tool_res
 from services.tools_service import ToolsService
 from services.tool_policy import tools_for_session
 from services.agents.orchestrator import MultiAgentOrchestrator
+from services.output_filter import filter_llm_output
 
 SUCURSAL_TOOLS = frozenset({
     "listar_citas", "listar_islas", "contar_citas", "listar_mecanicos",
@@ -94,14 +96,14 @@ SYSTEM_PROMPT = """
 Eres el asistente IA del taller (citas automotrices). Preséntate como "tu asistente", sin mencionar marcas ni productos.
 
 Decide cómo responder:
-- Preguntas de conteo o datos estructurados (cuántas citas, clientes, vehículos, inventario/stock, mecánicos en isla) → usa tools o SQL.
+- Preguntas de conteo o datos estructurados (cuántas citas, clientes, vehículos, inventario/stock, mecánicos en isla) → usa las tools del catálogo (nunca SQL directo).
 - Comparar fallas, buscar casos parecidos, contexto de síntomas → usa buscar_fallas_similares (RAG).
 - Acciones (crear, editar o cancelar citas, clientes, vehículos, servicios, inventario; cambiar estado; listar) → usa function calling.
 
 Reglas:
 1. Responde en español, claro y profesional.
 2. Si comparas fallas, menciona placa, id de cita y qué tan parecido es el caso.
-3. No inventes datos: usa solo resultados de tools/SQL/RAG.
+3. No inventes datos: usa solo resultados de tools internas o RAG.
 4. Si no hay datos, dilo explícitamente.
 5. "Eliminar", "borrar" o "quitar" una cita significa CANCELARLA (estado CANCELADA, inactiva). Nunca borres registros.
 6. Para editar citas usa editar_cita_natural con placa y los campos a cambiar.
@@ -666,6 +668,7 @@ class ChatService:
             generation_s = max((time.perf_counter() - (first_token_at or start)), 0.001)
             tps = round(token_count / generation_s, 2) if first_token_at and token_count else None
             tools_obs = self._format_tools_observability(tool_calls or [])
+            answer = filter_llm_output(answer)
 
             try:
                 self.obs_repo.insert_log(
@@ -875,6 +878,13 @@ class ChatService:
         tool_calls = msg.get("tool_calls") or []
 
         if tool_calls:
+            if len(tool_calls) > MAX_TOOL_CALLS_PER_TURN:
+                logger.warning(
+                    "Truncando tool_calls de %d a %d",
+                    len(tool_calls),
+                    MAX_TOOL_CALLS_PER_TURN,
+                )
+                tool_calls = tool_calls[:MAX_TOOL_CALLS_PER_TURN]
             messages.append(msg)
             for call in tool_calls:
                 fn = call.get("function", {})

@@ -1,4 +1,4 @@
-# Producción VPS — cp .env.example .env  y edita PUBLIC_URL + MYSQL_ROOT_PASSWORD
+# Producción VPS — cp .env.example .env  y edita PUBLIC_URL + contraseñas MySQL
 
 services:
   database:
@@ -7,6 +7,8 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-iespro_taller_app}
+      MYSQL_USER: ${MYSQL_USER:-iespro_app}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?set MYSQL_APP_PASSWORD}
     volumes:
       - mysql_data:/var/lib/mysql
       - ./iespro_taller/sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -57,8 +59,8 @@ services:
     environment:
       MYSQL_HOST: database
       MYSQL_PORT: 3306
-      MYSQL_USER: root
-      MYSQL_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER:-iespro_app}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-iespro_taller_app}
       OLLAMA_HOST: http://ollama:11434
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.2:3b}
@@ -69,6 +71,9 @@ services:
       REGISTRATION_INVITE_CODE: ${REGISTRATION_INVITE_CODE:-}
       RATE_LIMIT_ENABLED: "1"
       SESSION_COOKIE_SECURE: "1"
+      TRUST_PROXY_HEADERS: "1"
+      MAX_TOOL_CALLS_PER_TURN: ${MAX_TOOL_CALLS_PER_TURN:-8}
+      SESSION_IDLE_SECONDS: ${SESSION_IDLE_SECONDS:-86400}
       TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
       TURNSTILE_SECRET_KEY: ${TURNSTILE_SECRET_KEY:-}
       CORS_ORIGINS: ${PUBLIC_URL:-https://localhost},http://${TLS_SAN_IP:-127.0.0.1}

@@ -1,14 +1,17 @@
-"""Sesión API: token en memoria + dependencia FastAPI."""
+"""Sesión API: estado en memoria indexado por jti del JWT RS256."""
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import Cookie, Header, HTTPException
+import jwt
 
-from config import SESSION_COOKIE_NAME
+from api.jwt_tokens import decode_session_token, issue_session_token
+from config import SESSION_COOKIE_NAME, SESSION_IDLE_SECONDS
 from services import catalog_service, cita_service
 from services.chat_service import ChatService
 from services.user_roles import is_cliente, is_mecanico, is_workshop_staff
@@ -24,6 +27,11 @@ class AppSession:
   id_isla: int | None = None
   id_cliente: int | None = None
   chat: ChatService = field(default_factory=ChatService)
+  created_at: float = field(default_factory=time.time)
+  last_activity: float = field(default_factory=time.time)
+
+  def touch(self) -> None:
+    self.last_activity = time.time()
 
 
 def _first_isla_id(id_sucursal: int | None) -> int | None:
@@ -78,18 +86,44 @@ def apply_user_to_session(session: AppSession, user: dict[str, Any]) -> None:
   session.chat.set_user(user)
 
 
-def create_session(user: dict[str, Any]) -> AppSession:
-  token = str(uuid.uuid4())
-  session = AppSession(token=token, user=user, chat=ChatService())
+def purge_expired_sessions() -> None:
+  now = time.time()
+  expired = [
+    token
+    for token, session in _sessions.items()
+    if now - session.last_activity > SESSION_IDLE_SECONDS
+  ]
+  for token in expired:
+    _sessions.pop(token, None)
+
+
+def create_session(user: dict[str, Any]) -> tuple[AppSession, str]:
+  """Crea sesión en memoria y devuelve (session, jwt)."""
+  purge_expired_sessions()
+  jti = str(uuid.uuid4())
+  session = AppSession(token=jti, user=user, chat=ChatService())
   apply_user_to_session(session, user)
-  _sessions[token] = session
-  return session
+  jwt_str, _ = issue_session_token(
+    user_id=int(user["id"]),
+    rol=str(user.get("rol_nombre") or ""),
+    sucursal_id=session.id_sucursal,
+    session_id=jti,
+  )
+  _sessions[jti] = session
+  return session, jwt_str
 
 
 def get_session(token: str | None) -> AppSession | None:
   if not token:
     return None
-  return _sessions.get(token)
+  session = _sessions.get(token)
+  if not session:
+    return None
+  if time.time() - session.last_activity > SESSION_IDLE_SECONDS:
+    _sessions.pop(token, None)
+    return None
+  session.touch()
+  return session
 
 
 def delete_session(token: str) -> None:
@@ -100,7 +134,7 @@ def clear_sessions() -> None:
   _sessions.clear()
 
 
-def _extract_token(
+def _extract_jwt(
   authorization: str | None,
   x_session_token: str | None,
   cookie_token: str | None = None,
@@ -114,12 +148,29 @@ def _extract_token(
   return None
 
 
+def _session_from_jwt(jwt_token: str | None) -> AppSession | None:
+  if not jwt_token:
+    return None
+  try:
+    claims = decode_session_token(jwt_token)
+  except jwt.PyJWTError:
+    return None
+  jti = str(claims.get("jti") or "")
+  session = get_session(jti)
+  if not session:
+    return None
+  if str(session.user.get("id")) != str(claims.get("sub")):
+    return None
+  return session
+
+
 def require_session(
   authorization: str | None = Header(default=None),
   x_session_token: str | None = Header(default=None, alias="X-Session-Token"),
   session_cookie: str | None = Cookie(default=None, alias=SESSION_COOKIE_NAME),
 ) -> AppSession:
-  session = get_session(_extract_token(authorization, x_session_token, session_cookie))
+  purge_expired_sessions()
+  session = _session_from_jwt(_extract_jwt(authorization, x_session_token, session_cookie))
   if not session:
     raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
   return session

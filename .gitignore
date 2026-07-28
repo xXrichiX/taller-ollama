@@ -17,6 +17,7 @@ __pycache__/
 # Datos locales generados en runtime (no versionar)
 db_vectorial/
 iespro_taller/data/
+iespro_taller/data/keys/
 iespro_taller/models/
 iespro_taller/.venv/
 web/node_modules/
@@ -31,6 +32,7 @@ web/dist/
 
 # Informes de pentest (pueden contener URLs o credenciales de prueba)
 pentest-reports/
+backups/
 
 # Sistema / IDE
 .DS_Store

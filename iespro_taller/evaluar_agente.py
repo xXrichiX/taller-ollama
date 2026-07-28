@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -228,10 +229,14 @@ def export_pdf(results: list[EvalResult], summary: dict, output: Path) -> None:
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("--api", default=EVAL_API_BASE)
-  parser.add_argument("--email", default="admin@iespro.mx")
-  parser.add_argument("--password", default="admin1234")
+  parser.add_argument("--email", default=os.getenv("EVAL_EMAIL", ""))
+  parser.add_argument("--password", default=os.getenv("EVAL_PASSWORD", ""))
   parser.add_argument("--output", default="reporte_evaluacion.pdf")
   args = parser.parse_args()
+
+  if not args.email or not args.password:
+    print("Indica credenciales: --email y --password (o EVAL_EMAIL / EVAL_PASSWORD).", file=sys.stderr)
+    sys.exit(1)
 
   print(f"Evaluando API {args.api} con {len(TEST_CASES)} preguntas...")
   results = run_evaluation(args.api, args.email, args.password)

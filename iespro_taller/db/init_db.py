@@ -29,7 +29,18 @@ def init_database() -> tuple[bool, str]:
     schema = BASE_DIR / "sql" / "schema.sql"
 
     try:
-        execute_script_file(str(schema), database=None)
+        if not _database_bootstrapped():
+            try:
+                execute_script_file(str(schema), database=None)
+            except Exception as exc:
+                msg = str(exc).lower()
+                if "access denied" in msg or "privilege" in msg:
+                    return (
+                        False,
+                        "BD sin inicializar: arranca MySQL con schema.sql (Docker) "
+                        "o ejecuta el esquema con usuario root.",
+                    )
+                raise
         ensure_catalog_seeds()
         ensure_minimal_data_only()
         ensure_schema_migrations()
@@ -43,6 +54,17 @@ def init_database() -> tuple[bool, str]:
         return ok, msg if ok else msg
     except Exception as exc:
         return False, f"Error inicializando BD: {exc}"
+
+
+def _database_bootstrapped() -> bool:
+    row = fetch_one(
+        """
+        SELECT COUNT(*) AS n FROM information_schema.tables
+        WHERE table_schema = %s AND table_name = 'usuarios'
+        """,
+        (MYSQL_DATABASE,),
+    )
+    return bool(row and row["n"])
 
 
 _INDEXES = (

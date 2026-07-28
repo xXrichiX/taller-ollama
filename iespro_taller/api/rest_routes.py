@@ -14,6 +14,12 @@ from pydantic import BaseModel, Field
 from api.rate_limit import rate_limit
 from api.chat_scope import apply_chat_scope
 from api.chat_response import public_chat_messages, public_chat_result
+from api.access_checks import (
+  assert_cita_access,
+  assert_cliente_in_sucursal,
+  require_list_clientes,
+  scoped_clientes_filters,
+)
 from api.security_messages import REGISTER_GENERIC_MESSAGE
 from api.session_cookies import clear_session_cookie, json_with_session
 from api.session import (
@@ -46,6 +52,7 @@ from services.user_roles import (
   is_workshop_staff,
   role_display_label,
 )
+from services.audit_service import audit_from_request
 
 router = APIRouter(prefix="/api")
 
@@ -118,7 +125,7 @@ def auth_login(request: Request, body: LoginBody):
 
   sucursales = user.get("sucursales_ids") or []
 
-  session = create_session(user)
+  session, jwt_token = create_session(user)
   payload: dict[str, Any] = {
     "user": user_payload(user, session),
     "role_label": role_display_label(
@@ -127,8 +134,15 @@ def auth_login(request: Request, body: LoginBody):
     ),
   }
   if not IS_PRODUCTION:
-    payload["token"] = session.token
-  return json_with_session(payload, session.token)
+    payload["token"] = jwt_token
+  audit_from_request(
+    request,
+    accion="auth.login",
+    id_usuario=user["id"],
+    recurso="session",
+    resultado="ok",
+  )
+  return json_with_session(payload, jwt_token)
 
 
 @router.post("/auth/register")
@@ -159,6 +173,12 @@ def auth_register(request: Request, body: RegisterBody):
 @router.post("/auth/logout")
 @rate_limit("30/minute")
 def auth_logout(request: Request, session: AppSession = Depends(require_session)):
+  audit_from_request(
+    request,
+    accion="auth.logout",
+    id_usuario=session.user["id"],
+    recurso="session",
+  )
   delete_session(session.token)
   response = JSONResponse(content={"ok": True})
   clear_session_cookie(response)
@@ -691,10 +711,9 @@ class ClienteCreate(BaseModel):
 
 
 @router.get("/clientes")
-def list_clientes(session: AppSession = Depends(require_session)):
-  if _requires_sucursal(session):
-    return {"clientes": []}
-  rows = catalog_service.list_clientes(**_clientes_filters(session))
+@rate_limit("60/minute")
+def list_clientes(request: Request, session: AppSession = Depends(require_session)):
+  rows = catalog_service.list_clientes(**scoped_clientes_filters(session))
   return {"clientes": rows}
 
 
@@ -707,6 +726,7 @@ def create_cliente(
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail="Sin permiso")
+  id_sucursal = require_sucursal(session)
   nombre = body.nombre.strip()
   telefono = body.telefono.strip()
   email = body.email.strip()
@@ -721,7 +741,14 @@ def create_cliente(
     telefono,
     email,
     None,
-    session.id_sucursal,
+    id_sucursal,
+  )
+  audit_from_request(
+    request,
+    accion="cliente.create",
+    id_usuario=session.user["id"],
+    recurso=f"cliente:{id_cliente}",
+    detalle=nombre[:120],
   )
   return {"ok": True, "id": id_cliente}
 
@@ -875,6 +902,7 @@ class VehiculoCreate(BaseModel):
 
 
 @router.get("/vehiculos")
+@rate_limit("60/minute")
 def list_vehiculos(
   id_cliente: int | None = None,
   session: AppSession = Depends(require_session),
@@ -884,7 +912,8 @@ def list_vehiculos(
 
   rol = session.user.get("rol_nombre")
   if id_cliente and is_workshop_staff(rol):
-    rows = cita_service.list_vehiculos(id_cliente=id_cliente)
+    assert_cliente_in_sucursal(session, id_cliente)
+    rows = cita_service.list_vehiculos(id_cliente=id_cliente, id_sucursal=require_sucursal(session))
   elif is_cliente(rol):
     rows = cita_service.list_vehiculos(id_cliente=session.id_cliente)
   elif is_mecanico(rol):
@@ -989,10 +1018,12 @@ def list_citas(session: AppSession = Depends(require_session)):
 
 
 @router.get("/citas/{id_cita}")
+@rate_limit("60/minute")
 def get_cita(id_cita: int, session: AppSession = Depends(require_session)):
   cita = cita_service.get_cita_by_id(id_cita)
   if not cita:
     raise HTTPException(status_code=404, detail="Cita no encontrada")
+  assert_cita_access(session, cita)
   falla = cita_service.get_falla_por_cita(id_cita)
   cita["estado_label"] = estado_a_etiqueta(cita.get("estado"))
   return {"cita": cita, "falla": falla}
@@ -1061,6 +1092,7 @@ def update_cita(id_cita: int, body: CitaUpdate, session: AppSession = Depends(re
   cita = cita_service.get_cita_by_id(id_cita)
   if not cita:
     raise HTTPException(status_code=404, detail="Cita no encontrada")
+  assert_cita_access(session, cita)
 
   es_prop = _user_is_propietario(session)
   if is_mecanico(session.user.get("rol_nombre")) and not es_prop:
@@ -1245,6 +1277,21 @@ def observability_recent(
   return {"logs": rows}
 
 
+@router.get("/audit/recent")
+@rate_limit("30/minute")
+def audit_recent(
+  request: Request,
+  limit: int = 50,
+  session: AppSession = Depends(require_session),
+):
+  _require_propietario(session)
+  from db.audit_repository import AuditRepository
+
+  repo = AuditRepository()
+  repo.ensure_table()
+  return {"logs": repo.list_recent(limit=min(limit, 200))}
+
+
 @router.get("/chat/conversations")
 def chat_conversations(session: AppSession = Depends(require_session)):
   require_sucursal(session)
@@ -1280,9 +1327,11 @@ def chat_delete_conversation(id_conv: int, session: AppSession = Depends(require
 
 
 @router.get("/chat/conversations/{id_conv}/messages")
+@rate_limit("60/minute")
 def chat_messages(id_conv: int, session: AppSession = Depends(require_session)):
   require_sucursal(session)
-  session.chat.switch_conversation(id_conv)
+  if not session.chat.switch_conversation(id_conv):
+    raise HTTPException(status_code=404, detail="Conversación no encontrada")
   return {"messages": public_chat_messages(session.chat.get_ui_messages())}
 
 

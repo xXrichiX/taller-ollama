@@ -204,7 +204,7 @@ class RagService:
         if id_mecanico and meta_mec and meta_mec != str(id_mecanico):
           continue
         filtered.append(item)
-      fused = filtered or fused
+      fused = filtered
 
     reranked = rerank(query, fused, top_k=final_k)
     latency_ms = (time.perf_counter() - start) * 1000

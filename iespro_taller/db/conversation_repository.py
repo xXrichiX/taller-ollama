@@ -65,7 +65,23 @@ class ConversationRepository:
         )
         return msg_id
 
-    def obtener_mensajes(self, id_conversacion: int) -> list[dict]:
+    def obtener_mensajes(
+        self,
+        id_conversacion: int,
+        *,
+        id_usuario: int | None = None,
+        id_sucursal: int | None = None,
+    ) -> list[dict]:
+        if id_usuario is not None and id_sucursal is not None:
+            owner = fetch_one(
+                """
+                SELECT id FROM conversaciones
+                WHERE id = %s AND id_usuario = %s AND id_sucursal = %s
+                """,
+                (id_conversacion, id_usuario, id_sucursal),
+            )
+            if not owner:
+                return []
         return fetch_all(
             """
             SELECT id, role, contenido, route, creado_en

@@ -25,10 +25,12 @@ from api.rest_routes import router  # noqa: E402
 from api.session import clear_sessions  # noqa: E402
 from api.rate_limit import limiter  # noqa: E402
 from api.security_headers import SecurityHeadersMiddleware  # noqa: E402
+from api.production_checks import validate_production_config  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+  validate_production_config()
   ok, msg = init_database()
   if not ok:
     print(f"[WARN] BD: {msg}")
