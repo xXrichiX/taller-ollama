@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,52 @@ BLOCKED_MESSAGE = (
     "Tu solicitud fue bloqueada por seguridad. "
     "Reformula la pregunta sin intentar alterar las instrucciones del sistema."
 )
+
+# Zero-width / invisible chars usados para evadir regex (p. ej. informe Frenos C-03).
+_ZERO_WIDTH_RE = re.compile(
+    r"[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\ufe00-\ufe0f]"
+)
+
+
+def _normalize_prompt_for_guardrails(text: str) -> str:
+    """NFKC + quita caracteres invisibles antes de evaluar reglas."""
+    normalized = unicodedata.normalize("NFKC", text or "")
+    normalized = _ZERO_WIDTH_RE.sub("", normalized)
+    return normalized.strip()
+
+
+def _prompt_guardrail_variants(prompt: str) -> list[str]:
+    """Variantes tras quitar ZW (une letras) o sustituirlo por espacio (evita pegado)."""
+    base = unicodedata.normalize("NFKC", prompt or "")
+    collapsed = _ZERO_WIDTH_RE.sub("", base).strip()
+    spaced = re.sub(r"\s+", " ", _ZERO_WIDTH_RE.sub(" ", base)).strip()
+    variants: list[str] = []
+    for candidate in (collapsed, spaced):
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return variants
+
+
+def _evaluate_guardrail_text(text: str) -> GuardrailResult:
+    if len(text) > 5000:
+        return GuardrailResult(True, BLOCKED_MESSAGE, "input_too_long")
+
+    for rule_id, pattern in _BLOCK_PATTERNS:
+        if pattern.search(text):
+            logger.warning("Guardrail blocked prompt rule=%s len=%d", rule_id, len(text))
+            try:
+                from api.metrics import record_guardrail_block
+
+                record_guardrail_block(rule_id)
+            except Exception:
+                pass
+            return GuardrailResult(True, BLOCKED_MESSAGE, rule_id)
+
+    if re.search(r"(\b\w+\b)(?:\s+\1){5,}", text.lower()):
+        logger.warning("Guardrail blocked prompt rule=abnormal_repetition len=%d", len(text))
+        return GuardrailResult(True, BLOCKED_MESSAGE, "abnormal_repetition")
+
+    return GuardrailResult(blocked=False)
 
 
 @dataclass
@@ -204,27 +251,14 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 def validate_user_prompt(prompt: str) -> GuardrailResult:
-    text = (prompt or "").strip()
-    if not text:
+    variants = _prompt_guardrail_variants(prompt)
+    if not variants:
         return GuardrailResult(blocked=False)
 
-    if len(text) > 5000:
-        return GuardrailResult(True, BLOCKED_MESSAGE, "input_too_long")
-
-    for rule_id, pattern in _BLOCK_PATTERNS:
-        if pattern.search(text):
-            logger.warning("Guardrail blocked prompt rule=%s len=%d", rule_id, len(text))
-            try:
-                from api.metrics import record_guardrail_block
-
-                record_guardrail_block(rule_id)
-            except Exception:
-                pass
-            return GuardrailResult(True, BLOCKED_MESSAGE, rule_id)
-
-    if re.search(r"(\b\w+\b)(?:\s+\1){5,}", text.lower()):
-        logger.warning("Guardrail blocked prompt rule=abnormal_repetition len=%d", len(text))
-        return GuardrailResult(True, BLOCKED_MESSAGE, "abnormal_repetition")
+    for text in variants:
+        result = _evaluate_guardrail_text(text)
+        if result.blocked:
+            return result
 
     return GuardrailResult(blocked=False)
 
@@ -246,7 +280,7 @@ _STORED_INJECTION_PATTERNS: list[re.Pattern[str]] = [
 
 def sanitize_llm_context(text: str, *, max_len: int = 2000) -> str:
     """Neutraliza texto de BD/historial antes de incluirlo en prompts del LLM."""
-    cleaned = (text or "").strip()
+    cleaned = _normalize_prompt_for_guardrails(text)
     if not cleaned:
         return ""
 
