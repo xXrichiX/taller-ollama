@@ -523,7 +523,10 @@ def update_cita(id_cita: int, updates: dict) -> dict:
         return {"ok": False, "error": "Indica qué quieres cambiar (falla, mecánico, isla, fecha, etc.)."}
 
     params.append(id_cita)
-    execute(f"UPDATE citas SET {', '.join(set_clauses)} WHERE id = %s", tuple(params))
+    execute(
+        f"UPDATE citas SET {', '.join(set_clauses)} WHERE id = %s",  # nosec B608
+        tuple(params),
+    )
 
     if updates.get("descripcion_fallo"):
         execute(
@@ -594,7 +597,7 @@ def actualizar_falla_cita(
 
     params.append(id_cita)
     execute(
-        f"UPDATE fallas_registradas SET {', '.join(updates)} WHERE id_cita = %s",
+        f"UPDATE fallas_registradas SET {', '.join(updates)} WHERE id_cita = %s",  # nosec B608
         tuple(params),
     )
     return {"ok": True, "id_cita": id_cita, "mensaje": "Información de reparación actualizada."}

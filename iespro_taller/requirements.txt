@@ -11,7 +11,7 @@ slowapi>=0.1.9
 bcrypt>=4.2.0
 PyJWT[crypto]>=2.8.0
 cryptography>=42.0.0
-vosk>=0.3.45
+vosk>=0.3.44
 
 # Advanced RAG
 rank-bm25>=0.2.2

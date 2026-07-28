@@ -1,1 +1,2 @@
+# Evita CRLF en scripts (rompe bash en Linux/CI)
 *.sh text eol=lf
