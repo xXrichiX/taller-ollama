@@ -11,6 +11,7 @@ from fastapi import Cookie, Header, HTTPException
 import jwt
 
 from api.jwt_tokens import decode_session_token, issue_session_token
+from api.security_messages import session_error, setup_required
 from config import SESSION_COOKIE_NAME, SESSION_IDLE_SECONDS
 from services import catalog_service, cita_service
 from services.chat_service import ChatService
@@ -172,19 +173,19 @@ def require_session(
   purge_expired_sessions()
   session = _session_from_jwt(_extract_jwt(authorization, x_session_token, session_cookie))
   if not session:
-    raise HTTPException(status_code=401, detail="Sesión inválida o expirada")
+    raise HTTPException(status_code=401, detail=session_error())
   return session
 
 
 def require_sucursal(session: AppSession) -> int:
   if not session.id_sucursal:
-    raise HTTPException(status_code=400, detail="Selecciona una sucursal activa")
+    raise HTTPException(status_code=400, detail=setup_required("Selecciona una sucursal activa"))
   return session.id_sucursal
 
 
 def require_isla(session: AppSession) -> int:
   if not session.id_isla:
-    raise HTTPException(status_code=400, detail="Selecciona una isla activa en la barra superior")
+    raise HTTPException(status_code=400, detail=setup_required("Selecciona una isla activa"))
   return session.id_isla
 
 

@@ -75,6 +75,27 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.I,
         ),
     ),
+    (
+        "pii_dump_es",
+        re.compile(
+            r"\b(base de datos|tabla|dump|exportar|volcar)\b.{0,40}\b(usuarios|clientes|contraseñas|correos)\b",
+            re.I,
+        ),
+    ),
+    (
+        "credential_harvest",
+        re.compile(
+            r"\b(contraseña|password|token|api[_\s]?key|jwt|secret)\b.{0,30}\b(de|del|todos|sistema|admin)\b",
+            re.I,
+        ),
+    ),
+    (
+        "indirect_injection",
+        re.compile(
+            r"\b(olvida|forget|anula|desactiva)\b.{0,40}\b(seguridad|filtros|guardrails|restricciones)\b",
+            re.I,
+        ),
+    ),
 ]
 
 

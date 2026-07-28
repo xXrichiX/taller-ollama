@@ -18,7 +18,9 @@ Usuario → Chat API → LLM → Tools (RBAC) → Servicios → MySQL
 | IA output | `public_chat_result`, `output_filter`, guardrails regex |
 | RAG | `hybrid_search` sin fallback global si el filtro vacía resultados |
 | Auditoría | `audit_logs` + login/logout/cambios críticos |
-| Rate limit | IP real detrás de proxy, límites en auth/chat/CRUD |
+| Rate limit | IP real detrás de proxy, límites en auth/chat/CRUD + nginx edge |
+| WAF edge | nginx: `limit_req`, bloqueo User-Agent/URI de escaneo, 404 rutas sensibles |
+| Errores API | Mensajes genéricos en prod (`api/security_messages.py`) — anti-enumeración |
 | CSP / HSTS | nginx + FastAPI + Caddy redirect HTTPS |
 | Secretos | `.env` gitignored; prod exige contraseñas ≥16 chars y claves JWT |
 | CI | pip-audit, npm audit, bandit, tests de seguridad |
@@ -32,8 +34,8 @@ Usuario → Chat API → LLM → Tools (RBAC) → Servicios → MySQL
 5. Pentest verde: `./scripts/pentest-master.sh`
 6. Respuesta al informe 35/100: `docs/AUDIT_RESPONSE.md`
 7. Backup diario: `./scripts/backup-mysql.sh`
-8. WAF externo (Cloudflare recomendado) delante del VPS
-8. Secretos en Vault/Key Vault para equipos enterprise
+8. WAF edge nginx (rate limit + bloqueo bots); Cloudflare opcional delante del VPS
+9. Secretos en Vault/Key Vault para equipos enterprise
 
 ## Respuesta a incidentes (Prioridad 16)
 

@@ -20,7 +20,14 @@ from api.access_checks import (
   require_list_clientes,
   scoped_clientes_filters,
 )
-from api.security_messages import REGISTER_GENERIC_MESSAGE
+from api.security_messages import (
+  REGISTER_GENERIC_MESSAGE,
+  captcha_failed,
+  forbidden,
+  resource_limit,
+  setup_required,
+  unauthorized,
+)
 from api.session_cookies import clear_session_cookie, json_with_session
 from api.session import (
   AppSession,
@@ -98,12 +105,12 @@ def _user_is_propietario(session: AppSession) -> bool:
 
 def _require_propietario(session: AppSession) -> None:
   if not _user_is_propietario(session):
-    raise HTTPException(status_code=403, detail="Solo el dueño del taller puede hacer esto")
+    raise HTTPException(status_code=403, detail=forbidden("Solo el dueño del taller puede hacer esto"))
 
 
 def _require_sucursal_access(session: AppSession, id_sucursal: int) -> None:
   if not catalog_service.user_can_access_sucursal(session.user["id"], id_sucursal):
-    raise HTTPException(status_code=403, detail="Sucursal no permitida")
+    raise HTTPException(status_code=403, detail=forbidden("Sucursal no permitida"))
 
 
 class SucursalActivaBody(BaseModel):
@@ -119,7 +126,7 @@ class IslaActivaBody(BaseModel):
 def auth_login(request: Request, body: LoginBody):
   user = catalog_service.login(body.email.strip(), body.password)
   if not user:
-    raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    raise HTTPException(status_code=401, detail=unauthorized())
   if is_pending(user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail="Cuenta pendiente de activación")
 
@@ -155,7 +162,7 @@ def auth_register(request: Request, body: RegisterBody):
   if turnstile_enabled():
     client_ip = request.client.host if request.client else None
     if not verify_turnstile(body.captcha_token, client_ip):
-      raise HTTPException(status_code=400, detail="Verificación CAPTCHA fallida.")
+      raise HTTPException(status_code=400, detail=captcha_failed())
 
   result = catalog_service.register_usuario(
     body.nombre.strip(),
@@ -277,7 +284,7 @@ def auth_update_perfil(body: PerfilUpdateBody, session: AppSession = Depends(req
 def set_sucursal(body: SucursalActivaBody, session: AppSession = Depends(require_session)):
   allowed = session.user.get("sucursales_ids") or []
   if body.id_sucursal not in allowed:
-    raise HTTPException(status_code=403, detail="Sucursal no permitida")
+    raise HTTPException(status_code=403, detail=forbidden("Sucursal no permitida"))
   session.id_sucursal = body.id_sucursal
   session.id_isla = None
   apply_user_to_session(session, session.user)
@@ -287,10 +294,10 @@ def set_sucursal(body: SucursalActivaBody, session: AppSession = Depends(require
 @router.put("/session/isla")
 def set_isla(body: IslaActivaBody, session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   if not isla_belongs_to_sucursal(body.id_isla, id_sucursal):
-    raise HTTPException(status_code=403, detail="Isla no permitida")
+    raise HTTPException(status_code=403, detail=forbidden("Isla no permitida"))
   session.id_isla = body.id_isla
   session.chat.id_isla = body.id_isla
   return {"ok": True, "id_isla": body.id_isla}
@@ -299,7 +306,7 @@ def set_isla(body: IslaActivaBody, session: AppSession = Depends(require_session
 @router.get("/islas")
 def list_islas_activas(session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   islas = cita_service.list_islas(id_sucursal)
   for i in islas:
@@ -519,7 +526,7 @@ def create_sucursal(
 ):
   uid = session.user["id"]
   if not catalog_service.user_can_create_sucursal(uid):
-    raise HTTPException(status_code=403, detail="No puedes crear más sucursales")
+    raise HTTPException(status_code=403, detail=resource_limit("No puedes crear más sucursales"))
   nombre = body.nombre.strip()
   if not nombre:
     raise HTTPException(status_code=400, detail="Nombre requerido")
@@ -565,9 +572,9 @@ def create_isla(
 ):
   _require_sucursal_access(session, id_sucursal)
   if not catalog_service.user_owns_sucursal(session.user["id"], id_sucursal):
-    raise HTTPException(status_code=403, detail="Solo el dueño puede crear islas")
+    raise HTTPException(status_code=403, detail=forbidden("Solo el dueño puede crear islas"))
   if cita_service.count_islas(id_sucursal) >= MAX_ISLAS_PER_SUCURSAL:
-    raise HTTPException(status_code=403, detail="Límite de islas alcanzado para esta sucursal")
+    raise HTTPException(status_code=403, detail=resource_limit("Límite de islas alcanzado para esta sucursal"))
   nombre = body.nombre.strip()
   if not nombre:
     raise HTTPException(status_code=400, detail="Nombre de isla requerido")
@@ -625,7 +632,7 @@ class ServicioUpdate(BaseModel):
 @router.get("/servicios")
 def list_servicios(session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   items = catalog_service.list_tipos_mantenimiento(id_sucursal)
   for row in items:
@@ -641,7 +648,7 @@ def create_servicio(
   session: AppSession = Depends(require_session),
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   nombre = body.nombre.strip()
   if not nombre:
@@ -664,7 +671,7 @@ def update_servicio(
   session: AppSession = Depends(require_session),
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   nombre = body.nombre.strip()
   if not nombre:
@@ -725,7 +732,7 @@ def create_cliente(
   session: AppSession = Depends(require_session),
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   nombre = body.nombre.strip()
   telefono = body.telefono.strip()
@@ -789,7 +796,7 @@ class InventarioAjuste(BaseModel):
 @router.get("/inventario")
 def list_inventario(session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   if _requires_sucursal(session):
     return {"items": []}
   id_isla = require_isla(session)
@@ -804,7 +811,7 @@ def create_inventario(
   session: AppSession = Depends(require_session),
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   id_isla = require_isla(session)
   nombre = body.nombre.strip()
@@ -827,7 +834,7 @@ def update_inventario(
   session: AppSession = Depends(require_session),
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   id_isla = require_isla(session)
 
@@ -871,9 +878,9 @@ def ajustar_inventario(
   session: AppSession = Depends(require_session),
 ):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   if not _user_is_propietario(session):
-    raise HTTPException(status_code=403, detail="Solo el dueño del taller puede ajustar stock")
+    raise HTTPException(status_code=403, detail=forbidden("Solo el dueño del taller puede ajustar stock"))
   id_isla = require_isla(session)
   if body.delta == 0:
     raise HTTPException(status_code=400, detail="Indica cuánto sumar o restar")
@@ -1057,7 +1064,7 @@ def create_cita(body: CitaCreate, session: AppSession = Depends(require_session)
     id_mecanico = session.user["id"]
     id_isla = session.id_isla
     if not id_isla:
-      raise HTTPException(status_code=400, detail="Selecciona una isla activa en la barra superior")
+      raise HTTPException(status_code=400, detail=setup_required("Selecciona una isla activa"))
   else:
     if not body.id_cliente or not body.id_mecanico or not body.id_isla:
       raise HTTPException(status_code=400, detail="Cliente, mecánico e isla requeridos")
@@ -1088,7 +1095,7 @@ def create_cita(body: CitaCreate, session: AppSession = Depends(require_session)
 @router.patch("/citas/{id_cita}")
 def update_cita(id_cita: int, body: CitaUpdate, session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail="Sin permiso")
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
 
   cita = cita_service.get_cita_by_id(id_cita)
   if not cita:
@@ -1106,7 +1113,7 @@ def update_cita(id_cita: int, body: CitaUpdate, session: AppSession = Depends(re
 
   if estado_raw == "CANCELADA":
     if not es_prop:
-      raise HTTPException(status_code=403, detail="Solo el dueño puede cancelar")
+      raise HTTPException(status_code=403, detail=forbidden("Solo el dueño puede cancelar"))
     result = cita_service.cambiar_estado_cita(id_cita, estado_raw)
   elif es_prop:
     updates: dict[str, Any] = {}

@@ -1,6 +1,7 @@
 import json
 from typing import Any, Callable
 
+from api.security_messages import setup_required, tool_error
 from services import cita_service, catalog_service, inventory_service
 
 
@@ -589,9 +590,9 @@ class ToolsService:
             return None
         cita = cita_service.get_cita_by_id(id_cita)
         if not cita:
-            return {"ok": False, "error": "Cita no encontrada."}
+            return {"ok": False, "error": tool_error("Cita no encontrada.")}
         if cita.get("id_cliente") != self.id_cliente:
-            return {"ok": False, "error": "Solo puedes gestionar tus propias citas."}
+            return {"ok": False, "error": tool_error("Solo puedes gestionar tus propias citas.")}
         return None
 
     def _assert_cita_del_mecanico(self, id_cita: int) -> dict | None:
@@ -599,11 +600,11 @@ class ToolsService:
             return None
         cita = cita_service.get_cita_by_id(id_cita)
         if not cita:
-            return {"ok": False, "error": "Cita no encontrada."}
+            return {"ok": False, "error": tool_error("Cita no encontrada.")}
         if cita.get("id_mecanico") != self.id_mecanico:
-            return {"ok": False, "error": "Solo puedes gestionar citas asignadas a ti."}
+            return {"ok": False, "error": tool_error("Solo puedes gestionar citas asignadas a ti.")}
         if self.id_sucursal and cita.get("id_sucursal") and cita["id_sucursal"] != self.id_sucursal:
-            return {"ok": False, "error": "Esa cita no pertenece a la sucursal activa."}
+            return {"ok": False, "error": tool_error("Esa cita no pertenece a la sucursal activa.")}
         return None
 
     def _contar_citas(self, args: dict) -> dict:
@@ -636,7 +637,7 @@ class ToolsService:
         if not id_isla:
             return {
                 "ok": False,
-                "error": "Selecciona una isla en la barra superior para consultar inventario.",
+                "error": setup_required("Selecciona una isla para consultar inventario."),
             }
         rows = inventory_service.list_inventario(int(id_isla))
         busqueda = (args.get("busqueda") or "").strip().lower()
@@ -656,7 +657,7 @@ class ToolsService:
         if not id_isla:
             return {
                 "ok": False,
-                "error": "Selecciona una isla en la barra superior para consultar inventario.",
+                "error": setup_required("Selecciona una isla para consultar inventario."),
             }
         rows = inventory_service.list_inventario(int(id_isla))
         if args.get("solo_stock_bajo"):
@@ -823,7 +824,7 @@ class ToolsService:
         if not id_isla:
             return {
                 "ok": False,
-                "error": "Selecciona una isla en la barra superior para agregar inventario.",
+                "error": setup_required("Selecciona una isla para agregar inventario."),
                 "recoverable": True,
             }
         id_sucursal = args.get("id_sucursal") or self.id_sucursal or DEFAULT_SUCURSAL_ID
@@ -876,7 +877,7 @@ class ToolsService:
 
         cliente = cliente_res["cliente"]
         if self.es_cliente and self.id_cliente and cliente["id"] != self.id_cliente:
-            return {"ok": False, "error": "Solo puedes agendar citas para tus vehículos."}
+            return {"ok": False, "error": tool_error("Solo puedes agendar citas para tus vehículos.")}
 
         vehiculo_res = cita_service.find_vehiculo_por_referencia(
             placa=args.get("placa"),
