@@ -70,9 +70,9 @@ export function ChatPanel({ compact }: { compact?: boolean }) {
   }, [auth]);
 
   useEffect(() => {
-    if (!auth?.user.id_sucursal) return;
+    if (!auth?.user.id_sucursal || !perms.is_propietario) return;
     api("/api/rag/bootstrap", { method: "POST" }, auth.token).then(() => loadConversations());
-  }, [auth, loadConversations]);
+  }, [auth, loadConversations, perms.is_propietario]);
 
   const staffReady = Boolean(auth?.user.id_sucursal && auth.user.id_isla);
   const canChat = perms.is_cliente

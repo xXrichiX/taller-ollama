@@ -116,12 +116,33 @@ def auth_captcha():
 
 
 def _user_is_propietario(session: AppSession) -> bool:
+  if "es_propietario" in session.user:
+    return bool(session.user.get("es_propietario"))
   return catalog_service.user_is_propietario(session.user["id"])
 
 
 def _require_propietario(session: AppSession) -> None:
   if not _user_is_propietario(session):
     raise HTTPException(status_code=403, detail=forbidden("Solo el dueño del taller puede hacer esto"))
+
+
+def _require_rag_bootstrap(session: AppSession) -> None:
+  """RAG bootstrap: solo dueño (id_propietario en sucursal activa)."""
+  from db.connection import fetch_one
+
+  _require_propietario(session)
+  sid = session.id_sucursal
+  if not sid:
+    raise HTTPException(status_code=403, detail=forbidden("Selecciona una sucursal"))
+  owner = fetch_one(
+    "SELECT id_propietario FROM sucursales WHERE id = %s AND activo = 1",
+    (sid,),
+  )
+  if not owner or int(owner["id_propietario"]) != int(session.user["id"]):
+    raise HTTPException(
+      status_code=403,
+      detail=forbidden("Solo el dueño de esta sucursal puede sincronizar RAG"),
+    )
 
 
 def _require_sucursal_access(session: AppSession, id_sucursal: int) -> None:
@@ -1467,7 +1488,7 @@ class TokenBody(BaseModel):
 @router.post("/rag/bootstrap")
 @rate_limit("5/minute")
 def rag_bootstrap(request: Request, session: AppSession = Depends(require_session)):
-  _require_propietario(session)
+  _require_rag_bootstrap(session)
   sid = session.id_sucursal
   sucursales = session.user.get("sucursales_ids") or []
   targets = [sid] if sid else list(sucursales)
