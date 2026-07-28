@@ -62,7 +62,8 @@ from services.user_roles import (
 from services.rag_service import RagService
 from services.text_format import plain_chat_text
 from services.tool_response_format import format_tool_calls_log, format_tool_result
-from services.tools_service import TOOL_DEFINITIONS, ToolsService
+from services.tools_service import ToolsService
+from services.tool_policy import tools_for_session
 from services.agents.orchestrator import MultiAgentOrchestrator
 
 SUCURSAL_TOOLS = frozenset({
@@ -852,11 +853,16 @@ class ChatService:
         seen_signatures: set[str] = set()
 
         emit_status("thinking", "Pensando...")
+        tool_defs = tools_for_session(
+            es_cliente=is_cliente(self.rol_nombre),
+            es_mecanico=is_mecanico(self.rol_nombre) and not self.es_propietario,
+            es_propietario=bool(self.es_propietario),
+        )
         try:
             response = ollama.chat(
                 model=OLLAMA_CHAT_MODEL,
                 messages=messages,
-                tools=TOOL_DEFINITIONS,
+                tools=tool_defs,
             )
         except Exception as exc:
             logger.exception("Error en ollama.chat")

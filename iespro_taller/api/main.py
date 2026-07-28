@@ -36,10 +36,15 @@ async def lifespan(_app: FastAPI):
   clear_sessions()
 
 
+_docs_kwargs: dict = {}
+if IS_PRODUCTION:
+  _docs_kwargs = {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
 app = FastAPI(
   title="IESPRO-Taller API",
   version="2.0.0",
   lifespan=lifespan,
+  **_docs_kwargs,
 )
 
 app.state.limiter = limiter

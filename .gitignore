@@ -26,7 +26,11 @@ web/dist/
 # Secretos y configuración local
 .env
 .env.*
+!.env.example
 *.local
+
+# Informes de pentest (pueden contener URLs o credenciales de prueba)
+pentest-reports/
 
 # Sistema / IDE
 .DS_Store

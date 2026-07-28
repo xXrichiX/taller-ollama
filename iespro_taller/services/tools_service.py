@@ -466,24 +466,23 @@ class ToolsService:
                 "error": f"Tool desconocida: {name}",
                 "recoverable": False,
             }
-        if self.es_cliente and name in CLIENTE_DENIED_TOOLS:
-            return {
-                "ok": False,
-                "error": "Esa acción solo la puede hacer el personal del taller.",
-                "recoverable": True,
-            }
-        if self.es_mecanico and not self.es_propietario and name in MECANICO_DENIED_TOOLS:
-            return {
-                "ok": False,
-                "error": "Como mecánico solo puedes consultar y actualizar estado de tus citas asignadas.",
-                "recoverable": True,
-            }
-        if self.es_propietario and name in {"listar_mecanicos", "listar_islas", "mecanicos_en_isla"}:
-            return {
-                "ok": False,
-                "error": "Eres el único mecánico de tu taller; no hace falta listar islas u otros mecánicos.",
-                "recoverable": True,
-            }
+        from services.tool_policy import is_tool_allowed, redact_tool_result
+
+        if not is_tool_allowed(
+            name,
+            es_cliente=self.es_cliente,
+            es_mecanico=self.es_mecanico,
+            es_propietario=self.es_propietario,
+        ):
+            if self.es_cliente:
+                msg = "Esa acción solo la puede hacer el personal del taller."
+            elif self.es_mecanico and not self.es_propietario:
+                msg = "Como mecánico solo puedes consultar y actualizar estado de tus citas asignadas."
+            elif name in {"listar_clientes", "buscar_cliente"}:
+                msg = "Solo el dueño del taller puede consultar el listado completo de clientes."
+            else:
+                msg = "No tienes permiso para esa acción en el asistente."
+            return {"ok": False, "error": msg, "recoverable": True}
         try:
             scoped_args = self._scope_arguments(name, arguments or {})
             result = self._handlers[name](scoped_args)
@@ -493,7 +492,7 @@ class ToolsService:
                     "error": str(result["error"]),
                     "recoverable": True,
                 }
-            return result
+            return redact_tool_result(name, result)
         except Exception as exc:
             from services.tool_resilience import sanitize_tool_result
 

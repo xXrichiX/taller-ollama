@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.rate_limit import rate_limit
+from api.chat_scope import apply_chat_scope
 from api.chat_response import public_chat_messages, public_chat_result
 from api.security_messages import REGISTER_GENERIC_MESSAGE
 from api.session_cookies import clear_session_cookie, json_with_session
@@ -118,14 +119,15 @@ def auth_login(request: Request, body: LoginBody):
   sucursales = user.get("sucursales_ids") or []
 
   session = create_session(user)
-  payload = {
-    "token": session.token,
+  payload: dict[str, Any] = {
     "user": user_payload(user, session),
     "role_label": role_display_label(
       user.get("rol_nombre"),
       es_propietario=bool(user.get("es_propietario")),
     ),
   }
+  if not IS_PRODUCTION:
+    payload["token"] = session.token
   return json_with_session(payload, session.token)
 
 
@@ -167,9 +169,12 @@ def auth_logout(request: Request, session: AppSession = Depends(require_session)
 def speech_status(session: AppSession = Depends(require_session)):
   from services import speech_service
 
+  available = speech_service.speech_available()
+  if IS_PRODUCTION:
+    return {"available": available}
   path = speech_service.resolve_model_path()
   return {
-    "available": speech_service.speech_available(),
+    "available": available,
     "model_path": str(path) if path else None,
   }
 
@@ -1284,15 +1289,7 @@ def chat_messages(id_conv: int, session: AppSession = Depends(require_session)):
 @router.post("/chat")
 @rate_limit("30/minute")
 def chat_send(request: Request, body: ChatMessageBody, session: AppSession = Depends(require_session)):
-  if body.id_sucursal:
-    session.id_sucursal = body.id_sucursal
-    session.chat.id_sucursal = body.id_sucursal
-  if body.id_isla:
-    id_sucursal = require_sucursal(session)
-    if not isla_belongs_to_sucursal(body.id_isla, id_sucursal):
-      raise HTTPException(status_code=403, detail="Isla no permitida")
-    session.id_isla = body.id_isla
-    session.chat.id_isla = body.id_isla
+  apply_chat_scope(session, id_sucursal=body.id_sucursal, id_isla=body.id_isla)
   require_sucursal(session)
   if is_workshop_staff(session.user.get("rol_nombre")):
     require_isla(session)
@@ -1305,15 +1302,7 @@ def chat_send(request: Request, body: ChatMessageBody, session: AppSession = Dep
 @router.post("/chat/stream")
 @rate_limit("30/minute")
 def chat_stream(request: Request, body: ChatMessageBody, session: AppSession = Depends(require_session)):
-  if body.id_sucursal:
-    session.id_sucursal = body.id_sucursal
-    session.chat.id_sucursal = body.id_sucursal
-  if body.id_isla:
-    id_sucursal = require_sucursal(session)
-    if not isla_belongs_to_sucursal(body.id_isla, id_sucursal):
-      raise HTTPException(status_code=403, detail="Isla no permitida")
-    session.id_isla = body.id_isla
-    session.chat.id_isla = body.id_isla
+  apply_chat_scope(session, id_sucursal=body.id_sucursal, id_isla=body.id_isla)
   require_sucursal(session)
   if is_workshop_staff(session.user.get("rol_nombre")):
     require_isla(session)

@@ -94,6 +94,38 @@ Variables en `.env` / `docker-compose.prod.yml`:
 
 Incluye: bcrypt, rate limiting, cookies HttpOnly, cabeceras CSP, observabilidad solo dueño, inventario por rol, Turnstile opcional en registro.
 
+### Modelo de amenazas (asistente IA)
+
+El chat **no ejecuta SQL arbitrario**. Usa un catálogo cerrado de herramientas con **tres capas de control**:
+
+1. **RBAC por rol** — el LLM solo ve las tools permitidas (`tool_policy.py`): clientes no listan inventario; mecánicos no listan clientes; solo el dueño usa `listar_clientes` / `buscar_cliente`.
+2. **Scope de datos** — cada tool fuerza `id_sucursal` / `id_isla` del usuario (`tools_service._scope_arguments`); el chat valida sucursal en API (`chat_scope.py`, anti-IDOR).
+3. **Minimización** — listados masivos ocultan email/teléfono (`[oculto]`), máximo 25 filas; guardrails bloquean extracción masiva y SQL en español/inglés.
+
+En producción no se exponen `tool_calls`, `route` ni métricas internas. Prompt injection se mitiga con guardrails y ruta `blocked`; el riesgo residual de LLM es inherente al producto, no un backdoor a la BD.
+
+### Auto-auditoría (pentest)
+
+```bash
+# Rápido (11 secciones)
+URL=https://tu-servidor.sslip.io ./scripts/pentest-selfcheck.sh
+
+# Completo + reporte Markdown
+URL=https://tu-servidor.sslip.io EMAIL=tu@mail.com PASS='...' ./scripts/pentest-master.sh
+# → pentest-reports/pentest-*.md
+
+# Limpieza forense tras pentest del profesor
+docker compose -f docker-compose.prod.yml exec -T database \
+  mysql -uroot -p"$MYSQL_ROOT_PASSWORD" iespro_taller_app \
+  < scripts/cleanup-pentest-data.sql
+```
+
+Tests unitarios (scope del chat):
+
+```bash
+cd iespro_taller && python -m unittest discover -s tests -v
+```
+
 ---
 
 ## Terminal (opcional)

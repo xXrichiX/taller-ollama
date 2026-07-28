@@ -49,6 +49,29 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
             re.I,
         ),
     ),
+    (
+        "sql_injection_es",
+        re.compile(
+            r"\b(select|insert|update|delete|drop|union)\b.{0,40}\b(from|into|tabla|usuarios|clientes)\b",
+            re.I,
+        ),
+    ),
+    (
+        "bulk_exfil_es",
+        re.compile(
+            r"\b(dame|lista|listame|muestra|muéstrame|sacame|sácame|exporta|todos los|todas las)\b"
+            r".{0,60}\b(correos?|emails?|contraseñas?|passwords?|usuarios administrador|"
+            r"datos personales|información personal)\b",
+            re.I,
+        ),
+    ),
+    (
+        "admin_probe_es",
+        re.compile(
+            r"\b(hay|existe|tienes|muéstrame|dime)\b.{0,40}\b(usuario|cuenta|rol)\b.{0,30}\b(admin|administrador|root)\b",
+            re.I,
+        ),
+    ),
 ]
 
 

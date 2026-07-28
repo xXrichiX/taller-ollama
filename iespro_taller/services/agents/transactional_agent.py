@@ -17,7 +17,8 @@ from services.tool_resilience import (
   tool_message_content,
 )
 from services.tool_response_format import format_tool_calls_log
-from services.tools_service import TOOL_DEFINITIONS
+from services.tools_service import ToolsService
+from services.tool_policy import tools_for_session
 from services.user_roles import is_cliente, is_mecanico, is_staff_manager, is_workshop_staff
 
 PLAIN_TEXT_RULE = """
@@ -36,7 +37,8 @@ ISLA_TOOLS = frozenset({
 })
 
 TX_SYSTEM = """Eres el agente transaccional del taller.
-Tu único trabajo es consultar o modificar la base de datos del taller mediante tools.
+Tu único trabajo es consultar o modificar datos del taller mediante las tools disponibles (function calling).
+- NUNCA ejecutes SQL ni pidas acceso directo a la base de datos: solo las tools del catálogo.
 - Usa function calling para listar, crear, editar o cancelar citas, clientes, vehículos, servicios e inventario.
 - Para conteos exactos usa contar_inventario, contar_citas o las tools de listado.
 - No inventes datos. No pidas IDs numéricos al usuario.
@@ -45,6 +47,7 @@ Tu único trabajo es consultar o modificar la base de datos del taller mediante 
 - Tras un registro exitoso, ofrece ayudar con el siguiente paso (ej. vehículo después de cliente).
 - Preséntate como "tu asistente", sin marcas. "Orden" y "cita" son lo mismo; di siempre cita.
 - Responde en español, breve y profesional.
+- No compartas correos, teléfonos ni datos personales masivos; resume con nombres y totales.
 """
 
 
@@ -85,11 +88,16 @@ class TransactionalAgent:
     seen_signatures: set[str] = set()
 
     emit_status("thinking", "Pensando...")
+    tool_defs = tools_for_session(
+      es_cliente=is_cliente(self.chat.rol_nombre),
+      es_mecanico=is_mecanico(self.chat.rol_nombre) and not self.chat.es_propietario,
+      es_propietario=bool(self.chat.es_propietario),
+    )
     try:
       response = ollama.chat(
         model=OLLAMA_CHAT_MODEL,
         messages=messages,
-        tools=TOOL_DEFINITIONS,
+        tools=tool_defs,
       )
     except Exception as exc:
       answer = f"Error con Ollama: {exc}"
