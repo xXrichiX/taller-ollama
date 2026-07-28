@@ -80,6 +80,7 @@ services:
       CORS_ALLOW_ALL: "0"
     volumes:
       - chroma_data:/data/chroma
+      - ./iespro_taller/data/keys:/app/iespro_taller/data/keys
 
   frontend:
     build:
