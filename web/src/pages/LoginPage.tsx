@@ -5,8 +5,8 @@ import { AppLoader } from "../components/AppLoader";
 import { ApiError, fetchPublicAuthConfig, type PublicAuthConfig } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
-const LOGIN_COOLDOWN_SEC = 60;
-const REGISTER_COOLDOWN_SEC = 60;
+const LOGIN_COOLDOWN_SEC = 30;
+const REGISTER_COOLDOWN_SEC = 30;
 
 export function LoginPage() {
   const { login, register, auth, loading: authLoading } = useAuth();

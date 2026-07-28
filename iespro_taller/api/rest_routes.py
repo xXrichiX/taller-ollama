@@ -105,7 +105,7 @@ class IslaActivaBody(BaseModel):
 
 
 @router.post("/auth/login")
-@rate_limit("5/minute")
+@rate_limit("10/minute")
 def auth_login(request: Request, body: LoginBody):
   user = catalog_service.login(body.email.strip(), body.password)
   if not user:
