@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 
 from config import (
+  APP_ENV,
   IS_PRODUCTION,
   MAX_TOOL_CALLS_PER_TURN,
   MYSQL_PASSWORD,
@@ -19,6 +20,9 @@ def validate_production_config() -> None:
     return
 
   errors: list[str] = []
+
+  if APP_ENV not in ("production", "prod"):
+    errors.append(f"APP_ENV debe ser production (actual: {APP_ENV!r})")
 
   if MYSQL_USER == "root":
     errors.append("MYSQL_USER no debe ser 'root' (usa MYSQL_USER=iespro_app)")

@@ -65,3 +65,11 @@ def scoped_clientes_filters(session: AppSession) -> dict:
   """Nunca devuelve filtros vacíos para listados de clientes."""
   require_list_clientes(session)
   return {"id_sucursal": require_sucursal(session)}
+
+
+def assert_usuario_in_workshop(session: AppSession, id_usuario: int) -> None:
+  """El usuario objetivo debe ser staff visible en la sucursal activa (anti-IDOR)."""
+  sid = require_sucursal(session)
+  visible_ids = {row["id"] for row in catalog_service.list_usuarios(sid)}
+  if id_usuario not in visible_ids:
+    raise HTTPException(status_code=404, detail=not_found("Usuario no encontrado"))

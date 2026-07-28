@@ -48,6 +48,29 @@ def audit(
     logger.exception("Fallo al registrar auditoría accion=%s", accion)
 
 
+def audit_session_action(
+  request: Any,
+  session: Any,
+  *,
+  accion: str,
+  recurso: str | None = None,
+  detalle: str | None = None,
+  resultado: str = "ok",
+) -> None:
+  """Registra auditoría con usuario de la sesión activa."""
+  user_id = None
+  if session is not None and getattr(session, "user", None):
+    user_id = session.user.get("id")
+  audit_from_request(
+    request,
+    accion=accion,
+    id_usuario=user_id,
+    recurso=recurso,
+    detalle=detalle,
+    resultado=resultado,
+  )
+
+
 def audit_from_request(
   request: Any,
   *,

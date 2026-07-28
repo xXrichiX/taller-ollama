@@ -37,6 +37,26 @@ class AccessChecksTests(unittest.TestCase):
       assert_cita_access(session, cita)
     self.assertEqual(ctx.exception.status_code, 403)
 
+  @patch("api.access_checks.catalog_service.list_usuarios", return_value=[{"id": 2}])
+  @patch("api.access_checks.require_sucursal", return_value=1)
+  def test_assert_usuario_in_workshop_ok(self, _sid: MagicMock, _list: MagicMock) -> None:
+    from api.access_checks import assert_usuario_in_workshop
+
+    session = self._session(rol="PROPIETARIO", uid=1)
+    session.id_sucursal = 1
+    assert_usuario_in_workshop(session, 2)
+
+  @patch("api.access_checks.catalog_service.list_usuarios", return_value=[{"id": 2}])
+  @patch("api.access_checks.require_sucursal", return_value=1)
+  def test_assert_usuario_in_workshop_foreign(self, _sid: MagicMock, _list: MagicMock) -> None:
+    from api.access_checks import assert_usuario_in_workshop
+
+    session = self._session(rol="PROPIETARIO", uid=1)
+    session.id_sucursal = 1
+    with self.assertRaises(HTTPException) as ctx:
+      assert_usuario_in_workshop(session, 99)
+    self.assertEqual(ctx.exception.status_code, 404)
+
 
 if __name__ == "__main__":
   unittest.main()

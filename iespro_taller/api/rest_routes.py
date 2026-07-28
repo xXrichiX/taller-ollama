@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
 from typing import Any
@@ -17,6 +18,7 @@ from api.chat_response import public_chat_messages, public_chat_result
 from api.access_checks import (
   assert_cita_access,
   assert_cliente_in_sucursal,
+  assert_usuario_in_workshop,
   require_list_clientes,
   scoped_clientes_filters,
 )
@@ -26,6 +28,7 @@ from api.security_messages import (
   forbidden,
   resource_limit,
   setup_required,
+  stream_error,
   unauthorized,
 )
 from api.session_cookies import clear_session_cookie, json_with_session
@@ -59,7 +62,10 @@ from services.user_roles import (
   is_workshop_staff,
   role_display_label,
 )
-from services.audit_service import audit_from_request
+from services.audit_service import audit_from_request, audit_session_action
+from services import audit_actions as audit
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -144,7 +150,7 @@ def auth_login(request: Request, body: LoginBody):
     payload["token"] = jwt_token
   audit_from_request(
     request,
-    accion="auth.login",
+    accion=audit.AUTH_LOGIN,
     id_usuario=user["id"],
     recurso="session",
     resultado="ok",
@@ -174,6 +180,13 @@ def auth_register(request: Request, body: RegisterBody):
   if not result.get("ok"):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo registrar"))
 
+  audit_from_request(
+    request,
+    accion=audit.AUTH_REGISTER,
+    recurso="usuario",
+    detalle=body.email.strip().lower()[:120],
+    resultado="ok",
+  )
   return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
 
 
@@ -182,7 +195,7 @@ def auth_register(request: Request, body: RegisterBody):
 def auth_logout(request: Request, session: AppSession = Depends(require_session)):
   audit_from_request(
     request,
-    accion="auth.logout",
+    accion=audit.AUTH_LOGOUT,
     id_usuario=session.user["id"],
     recurso="session",
   )
@@ -550,6 +563,13 @@ def create_sucursal(
   session.id_sucursal = id_sucursal
   session.chat.id_sucursal = id_sucursal
   session.user["es_propietario"] = True
+  audit_session_action(
+    request,
+    session,
+    accion=audit.SUCURSAL_CREATE,
+    recurso=f"sucursal:{id_sucursal}",
+    detalle=nombre[:120],
+  )
   return {"ok": True, "id": id_sucursal}
 
 
@@ -581,6 +601,13 @@ def create_isla(
   id_isla = cita_service.create_isla(nombre, id_sucursal)
   if body.id_mecanico:
     cita_service.assign_mecanico_isla(id_isla, body.id_mecanico)
+  audit_session_action(
+    request,
+    session,
+    accion=audit.ISLA_CREATE,
+    recurso=f"isla:{id_isla}",
+    detalle=nombre[:120],
+  )
   return {"ok": True, "id": id_isla}
 
 
@@ -647,8 +674,7 @@ def create_servicio(
   body: ServicioCreate,
   session: AppSession = Depends(require_session),
 ):
-  if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
+  _require_propietario(session)
   id_sucursal = require_sucursal(session)
   nombre = body.nombre.strip()
   if not nombre:
@@ -661,17 +687,24 @@ def create_servicio(
     body.precio,
     id_sucursal,
   )
+  audit_session_action(
+    request,
+    session,
+    accion=audit.SERVICIO_CREATE,
+    recurso=f"servicio:{id_item}",
+    detalle=nombre[:120],
+  )
   return {"ok": True, "id": id_item}
 
 
 @router.patch("/servicios/{id_servicio}")
 def update_servicio(
+  request: Request,
   id_servicio: int,
   body: ServicioUpdate,
   session: AppSession = Depends(require_session),
 ):
-  if not is_workshop_staff(session.user.get("rol_nombre")):
-    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
+  _require_propietario(session)
   id_sucursal = require_sucursal(session)
   nombre = body.nombre.strip()
   if not nombre:
@@ -687,6 +720,13 @@ def update_servicio(
   )
   if not result.get("ok"):
     raise HTTPException(status_code=404, detail=result.get("error", "No encontrado"))
+  audit_session_action(
+    request,
+    session,
+    accion=audit.SERVICIO_UPDATE,
+    recurso=f"servicio:{id_servicio}",
+    detalle=nombre[:120],
+  )
   return {"ok": True}
 
 
@@ -752,7 +792,7 @@ def create_cliente(
   )
   audit_from_request(
     request,
-    accion="cliente.create",
+    accion=audit.CLIENTE_CREATE,
     id_usuario=session.user["id"],
     recurso=f"cliente:{id_cliente}",
     detalle=nombre[:120],
@@ -824,11 +864,19 @@ def create_inventario(
   if payload["cantidad"] < 0 or payload["stock_minimo"] < 0 or payload["precio_unitario"] < 0:
     raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
   id_item = inventory_service.create_item(id_sucursal, id_isla, payload)
+  audit_session_action(
+    request,
+    session,
+    accion=audit.INVENTARIO_CREATE,
+    recurso=f"inventario:{id_item}",
+    detalle=nombre[:120],
+  )
   return {"ok": True, "id": id_item}
 
 
 @router.patch("/inventario/{id_item}")
 def update_inventario(
+  request: Request,
   id_item: int,
   body: InventarioUpdate,
   session: AppSession = Depends(require_session),
@@ -868,11 +916,19 @@ def update_inventario(
   result = inventory_service.update_item(id_item, id_isla, payload)
   if not result.get("ok"):
     raise HTTPException(status_code=404, detail=result.get("error", "No encontrado"))
+  audit_session_action(
+    request,
+    session,
+    accion=audit.INVENTARIO_UPDATE,
+    recurso=f"inventario:{id_item}",
+    detalle=nombre[:120],
+  )
   return {"ok": True}
 
 
 @router.post("/inventario/{id_item}/ajustar")
 def ajustar_inventario(
+  request: Request,
   id_item: int,
   body: InventarioAjuste,
   session: AppSession = Depends(require_session),
@@ -887,6 +943,13 @@ def ajustar_inventario(
   result = inventory_service.ajustar_stock(id_item, id_isla, body.delta)
   if not result.get("ok"):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo ajustar"))
+  audit_session_action(
+    request,
+    session,
+    accion=audit.INVENTARIO_AJUSTE,
+    recurso=f"inventario:{id_item}",
+    detalle=f"delta={body.delta}",
+  )
   return result
 
 
@@ -1038,7 +1101,12 @@ def get_cita(request: Request, id_cita: int, session: AppSession = Depends(requi
 
 
 @router.post("/citas")
-def create_cita(body: CitaCreate, session: AppSession = Depends(require_session)):
+@rate_limit("30/minute")
+def create_cita(
+  request: Request,
+  body: CitaCreate,
+  session: AppSession = Depends(require_session),
+):
   id_sucursal = require_sucursal(session)
   rol = session.user.get("rol_nombre")
 
@@ -1089,11 +1157,24 @@ def create_cita(body: CitaCreate, session: AppSession = Depends(require_session)
     session.chat.rag.sync_fallas_from_db()
   except Exception:
     pass
+  audit_session_action(
+    request,
+    session,
+    accion=audit.CITA_CREATE,
+    recurso=f"cita:{cita_id}",
+    detalle=body.descripcion_fallo.strip()[:120],
+  )
   return {"ok": True, "id": cita_id}
 
 
 @router.patch("/citas/{id_cita}")
-def update_cita(id_cita: int, body: CitaUpdate, session: AppSession = Depends(require_session)):
+@rate_limit("30/minute")
+def update_cita(
+  request: Request,
+  id_cita: int,
+  body: CitaUpdate,
+  session: AppSession = Depends(require_session),
+):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
 
@@ -1148,10 +1229,14 @@ def update_cita(id_cita: int, body: CitaUpdate, session: AppSession = Depends(re
     session.chat.rag.sync_fallas_from_db()
   except Exception:
     pass
+  audit_session_action(
+    request,
+    session,
+    accion=audit.CITA_UPDATE,
+    recurso=f"cita:{id_cita}",
+    detalle=(body.estado or "update")[:120],
+  )
   return {"ok": True}
-
-
-@router.get("/citas/default-asignacion")
 def cita_defaults(session: AppSession = Depends(require_session)):
   id_sucursal = require_sucursal(session)
   return cita_service.get_default_asignacion_taller(id_sucursal)
@@ -1189,11 +1274,16 @@ def list_usuarios(session: AppSession = Depends(require_session)):
 @router.get("/usuarios/{id_usuario}/sucursales")
 def usuario_sucursales(id_usuario: int, session: AppSession = Depends(require_session)):
   _require_propietario(session)
+  assert_usuario_in_workshop(session, id_usuario)
   return {"sucursales": catalog_service.list_sucursales_usuario(id_usuario)}
 
 
 @router.post("/usuarios")
-def create_usuario(body: UsuarioCreate, session: AppSession = Depends(require_session)):
+def create_usuario(
+  request: Request,
+  body: UsuarioCreate,
+  session: AppSession = Depends(require_session),
+):
   _require_propietario(session)
 
   password = normalize_password(body.password)
@@ -1215,16 +1305,25 @@ def create_usuario(body: UsuarioCreate, session: AppSession = Depends(require_se
   })
   if body.sucursales_ids and puesto == "mecánico":
     catalog_service.set_usuario_sucursales(id_usuario, body.sucursales_ids)
+  audit_session_action(
+    request,
+    session,
+    accion=audit.USUARIO_CREATE,
+    recurso=f"usuario:{id_usuario}",
+    detalle=body.email.strip()[:120],
+  )
   return {"ok": True, "id": id_usuario}
 
 
 @router.patch("/usuarios/{id_usuario}/staff")
 def update_usuario_staff(
+  request: Request,
   id_usuario: int,
   body: UsuarioStaffUpdate,
   session: AppSession = Depends(require_session),
 ):
   _require_propietario(session)
+  assert_usuario_in_workshop(session, id_usuario)
 
   puesto = body.puesto_nombre.strip().lower()
   if puesto == "mecánico" and not body.sucursales_ids:
@@ -1235,6 +1334,13 @@ def update_usuario_staff(
     body.id_puesto,
     body.puesto_nombre.strip(),
     id_sucursales=body.sucursales_ids or None,
+  )
+  audit_session_action(
+    request,
+    session,
+    accion=audit.USUARIO_STAFF_UPDATE,
+    recurso=f"usuario:{id_usuario}",
+    detalle=body.puesto_nombre.strip()[:120],
   )
   return {"ok": True}
 
@@ -1257,6 +1363,14 @@ class TokenBody(BaseModel):
 def rag_bootstrap(request: Request, session: AppSession = Depends(require_session)):
   _require_propietario(session)
   ok, msg = session.chat.bootstrap()
+  audit_session_action(
+    request,
+    session,
+    accion=audit.RAG_BOOTSTRAP,
+    recurso="rag",
+    detalle=msg[:120] if msg else None,
+    resultado="ok" if ok else "error",
+  )
   return {"ok": ok, "message": msg}
 
 
@@ -1385,8 +1499,9 @@ def chat_stream(request: Request, body: ChatMessageBody, session: AppSession = D
         "tool_calls": result.get("tool_calls", []),
         "metrics": result.get("metrics", {}),
       })))
-    except Exception as exc:
-      event_q.put(("error", {"message": str(exc)}))
+    except Exception:
+      logger.exception("chat stream error user_id=%s", session.user.get("id"))
+      event_q.put(("error", {"message": stream_error()}))
 
   threading.Thread(target=worker, daemon=True).start()
 

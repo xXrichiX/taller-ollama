@@ -24,6 +24,8 @@ from services.tool_resilience import (
 from db.conversation_repository import ConversationRepository
 from db.observability_repository import ObservabilityRepository
 from services.guardrails import BLOCKED_MESSAGE, sanitize_llm_context, validate_user_prompt
+from services.audit_service import audit
+from services import audit_actions
 from services.chat_intents import (
     ACKNOWLEDGMENT_ANSWER,
     CLIENTE_SIN_VEHICULOS_ANSWER,
@@ -723,6 +725,14 @@ class ChatService:
 
         guard = validate_user_prompt(question)
         if guard.blocked:
+            if self.id_usuario:
+                audit(
+                    accion=audit_actions.CHAT_GUARDRAIL_BLOCKED,
+                    id_usuario=self.id_usuario,
+                    recurso=f"conversacion:{self.id_conversacion or 'nueva'}",
+                    detalle=guard.rule_id or "blocked",
+                    resultado="blocked",
+                )
             emit_status("thinking", "Validando entrada...")
             answer = stream_answer(BLOCKED_MESSAGE)
             return finalize(answer, "blocked", was_blocked=True)

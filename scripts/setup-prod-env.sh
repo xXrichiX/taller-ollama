@@ -57,5 +57,5 @@ FLUSH PRIVILEGES;
 echo ""
 echo "Listo. Siguiente:"
 echo "  docker compose -f docker-compose.prod.yml up -d --build backend frontend"
-echo "  set -a && source .env && set +a"
-echo "  docker compose -f docker-compose.prod.yml exec -T database mysql -uroot -p\"\$MYSQL_ROOT_PASSWORD\" ${MYSQL_DATABASE:-iespro_taller_app} < scripts/cleanup-pentest-data.sql"
+echo "  ./scripts/post-deploy-prod.sh   # cleanup + verificación forense"
+echo "  URL=https://... EMAIL=... PASS='...' ./scripts/pentest-master.sh"

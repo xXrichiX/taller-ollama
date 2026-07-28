@@ -41,7 +41,8 @@ Usuario → Chat API → LLM → Tools (RBAC) → Servicios → MySQL
 
 ```bash
 ./scripts/forensics-post-incident.sh
-./scripts/cleanup-pentest-data.sql   # vía docker exec
+./scripts/post-deploy-prod.sh          # cleanup SQL + verificación HACKED
+# Plantilla de cierre: docs/INCIDENT_RESPONSE.md
 # Rotar contraseñas, JWT, reiniciar backend
 ```
 

@@ -62,3 +62,7 @@ def resource_limit(dev_message: str) -> str:
 
 def tool_error(dev_message: str) -> str:
   return public_detail(dev_message, prod_message=_GENERIC_TOOL)
+
+
+def stream_error(dev_message: str = "Error interno del chat") -> str:
+  return public_detail(dev_message, prod_message="No se pudo procesar el mensaje.")
