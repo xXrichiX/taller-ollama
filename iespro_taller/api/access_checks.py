@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from api.security_messages import forbidden, not_found
 from api.session import AppSession, require_sucursal
 from services import catalog_service, cita_service
-from services.user_roles import is_cliente, is_mecanico, is_workshop_staff
+from services.user_roles import is_cliente, is_mecanico, is_pending, is_workshop_staff
 
 
 def assert_cita_access(session: AppSession, cita: dict) -> None:
@@ -51,6 +51,20 @@ def assert_cliente_in_sucursal(session: AppSession, id_cliente: int) -> None:
 def require_workshop_staff(session: AppSession) -> None:
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
+
+
+def require_authenticated_app_user(session: AppSession) -> None:
+  """Cliente o personal del taller activo (no cuentas pendientes)."""
+  rol = session.user.get("rol_nombre")
+  if is_pending(rol):
+    raise HTTPException(status_code=403, detail=forbidden("Cuenta pendiente de activación"))
+  if not (is_cliente(rol) or is_workshop_staff(rol)):
+    raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
+
+
+def require_catalog_reader(session: AppSession) -> None:
+  """Catálogos de referencia: solo usuarios de la app (cliente o taller)."""
+  require_authenticated_app_user(session)
 
 
 def require_list_clientes(session: AppSession) -> None:

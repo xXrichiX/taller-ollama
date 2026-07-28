@@ -6,7 +6,19 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from config import IS_PRODUCTION
+_CSP = (
+  "default-src 'self'; "
+  "script-src 'self' https://challenges.cloudflare.com; "
+  "frame-src https://challenges.cloudflare.com; "
+  "frame-ancestors 'none'; "
+  "style-src 'self' 'unsafe-inline'; "
+  "img-src 'self' data: blob:; "
+  "connect-src 'self'; "
+  "font-src 'self'; "
+  "object-src 'none'; "
+  "base-uri 'self'; "
+  "form-action 'self'"
+)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -16,18 +28,5 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(self), geolocation=()"
-    if IS_PRODUCTION:
-      response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' https://challenges.cloudflare.com; "
-        "frame-src https://challenges.cloudflare.com; "
-        "frame-ancestors 'none'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; "
-        "connect-src 'self'; "
-        "font-src 'self'; "
-        "object-src 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'"
-      )
+    response.headers["Content-Security-Policy"] = _CSP
     return response

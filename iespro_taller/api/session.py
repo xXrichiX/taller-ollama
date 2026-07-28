@@ -162,7 +162,22 @@ def _session_from_jwt(jwt_token: str | None) -> AppSession | None:
     return None
   if str(session.user.get("id")) != str(claims.get("sub")):
     return None
+  claims_rol = str(claims.get("rol") or "")
+  session_rol = str(session.user.get("rol_nombre") or "")
+  if claims_rol and session_rol and claims_rol != session_rol:
+    return None
   return session
+
+
+def refresh_session_jwt(session: AppSession) -> str:
+  """Re-emite JWT con claims actualizados (p. ej. tras cambiar sucursal)."""
+  jwt_str, _ = issue_session_token(
+    user_id=int(session.user["id"]),
+    rol=str(session.user.get("rol_nombre") or ""),
+    sucursal_id=session.id_sucursal,
+    session_id=session.token,
+  )
+  return jwt_str
 
 
 def require_session(

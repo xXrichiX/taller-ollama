@@ -26,3 +26,10 @@ INVENTARIO_AJUSTE = "inventario.ajuste"
 
 RAG_BOOTSTRAP = "rag.bootstrap"
 CHAT_GUARDRAIL_BLOCKED = "chat.guardrail_blocked"
+
+API_ACCESS = "api.access"
+AUTH_PERFIL_UPDATE = "auth.perfil_update"
+SESSION_SUCURSAL = "session.sucursal"
+SESSION_ISLA = "session.isla"
+VEHICULO_CREATE = "vehiculo.create"
+COMPROMISED_SUCURSAL = "security.compromised_sucursal"

@@ -25,7 +25,9 @@ from api.rest_routes import router  # noqa: E402
 from api.session import clear_sessions  # noqa: E402
 from api.rate_limit import limiter  # noqa: E402
 from api.security_headers import SecurityHeadersMiddleware  # noqa: E402
+from api.audit_middleware import AuditAccessMiddleware  # noqa: E402
 from api.production_checks import validate_production_config  # noqa: E402
+from api.security_messages import bad_request, not_found  # noqa: E402
 
 
 @asynccontextmanager
@@ -52,6 +54,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(AuditAccessMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 
@@ -78,7 +81,15 @@ async def http_exception_handler(request: Request, exc: HTTPException):
       detalle=detail[:120],
       resultado="denied",
     )
-  return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+  detail = exc.detail
+  if IS_PRODUCTION:
+    if exc.status_code == 400:
+      detail = bad_request(str(detail) if isinstance(detail, str) else "invalid")
+    elif exc.status_code == 404:
+      detail = not_found(str(detail) if isinstance(detail, str) else "missing")
+    elif exc.status_code == 503:
+      detail = "Servicio no disponible temporalmente."
+  return JSONResponse(status_code=exc.status_code, content={"detail": detail})
 
 
 _cors_origins = list(CORS_ORIGINS)

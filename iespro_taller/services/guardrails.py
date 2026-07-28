@@ -119,6 +119,36 @@ _BLOCK_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
     (
+        "tool_chain_attack",
+        re.compile(
+            r"\b(ejecuta|run|invoke|llama a|usa la tool)\b.{0,40}\b(sql|run_sql|shell|exec|eval)\b",
+            re.I,
+        ),
+    ),
+    (
+        "delimiter_injection",
+        re.compile(
+            r"(\[INST\]|<\|im_start\|>|<<SYS>>|Human:|Assistant:)",
+            re.I,
+        ),
+    ),
+    (
+        "data_exfil_all",
+        re.compile(
+            r"\b(todos los|todas las|completo|entero|full dump)\b.{0,40}\b("
+            r"registros|datos|tabla|base de datos|usuarios|clientes)\b",
+            re.I,
+        ),
+    ),
+    (
+        "privilege_escalation",
+        re.compile(
+            r"\b(dame|otórgame|otorgame|asigna|conviérteme|convierteme)\b.{0,40}\b("
+            r"rol admin|permisos de admin|acceso root|ser propietario)\b",
+            re.I,
+        ),
+    ),
+    (
         "system_internals",
         re.compile(
             r"\b(arquitectura|stack|variables de entorno|\.env|docker|nginx)\b.{0,40}\b("

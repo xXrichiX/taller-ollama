@@ -49,6 +49,7 @@ def init_database() -> tuple[bool, str]:
         ensure_clientes_sucursal_column()
         ensure_remove_legacy_admin()
         ensure_roles_simplified()
+        ensure_deactivate_compromised_sucursales()
         ensure_performance_indexes()
         ok, msg = test_connection()
         return ok, msg if ok else msg
@@ -290,6 +291,34 @@ def ensure_clientes_sucursal_column() -> None:
 def ensure_remove_legacy_admin() -> None:
     """Elimina la cuenta global de administrador (modelo multi-taller por registro)."""
     execute("DELETE FROM usuarios WHERE LOWER(email) = %s", ("admin@iespro.mx",))
+
+
+def ensure_deactivate_compromised_sucursales() -> None:
+    """Desactiva sucursales con nombres de compromiso conocidos (p. ej. HACKED_SUCURSAL)."""
+    import logging
+    import re
+
+    from services import audit_actions as audit_actions
+    from services.audit_service import audit as log_audit
+
+    logger = logging.getLogger(__name__)
+    suspicious_re = re.compile(r"(hacked|backdoor|pwned|malicious|injected)", re.I)
+    rows = fetch_all(
+        "SELECT id, nombre FROM sucursales WHERE activo = 1",
+    )
+    for row in rows:
+        nombre = str(row.get("nombre") or "")
+        if not suspicious_re.search(nombre):
+            continue
+        sid = int(row["id"])
+        logger.warning("Desactivando sucursal comprometida id=%s nombre=%s", sid, nombre)
+        execute("UPDATE sucursales SET activo = 0 WHERE id = %s", (sid,))
+        log_audit(
+            accion=audit_actions.COMPROMISED_SUCURSAL,
+            recurso=f"sucursal:{sid}",
+            detalle=nombre[:120],
+            resultado="deactivated",
+        )
 
 
 def ensure_roles_simplified() -> None:
