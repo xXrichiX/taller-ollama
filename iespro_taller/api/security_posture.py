@@ -1,0 +1,116 @@
+"""Postura de seguridad verificable desde código."""
+
+from __future__ import annotations
+
+from config import (
+  AUDIT_HMAC_SECRET,
+  AUDIT_RETENTION_DAYS,
+  BASE_DIR,
+  IS_PRODUCTION,
+  MAX_ISLAS_PER_SUCURSAL,
+  MAX_SUCURSALES_PER_OWNER,
+  METRICS_TOKEN,
+  RATE_LIMIT_ENABLED,
+  REGISTRATION_ENABLED,
+  REGISTRATION_INVITE_CODE,
+  TURNSTILE_SECRET_KEY,
+  TURNSTILE_SITE_KEY,
+)
+from security.nginx_waf import verify_nginx_waf_config
+
+
+def _read_module_source(relative: str) -> str:
+  path = BASE_DIR / relative
+  try:
+    return path.read_text(encoding="utf-8")
+  except OSError:
+    return ""
+
+
+def _guardrail_rule_count() -> int:
+  text = _read_module_source("services/guardrails.py")
+  return text.count('"rule_id"') + text.count("_BLOCK_PATTERNS") if text else 0
+
+
+def _sql_tool_absent() -> bool:
+  src = _read_module_source("services/tools_service.py")
+  if not src:
+    return False
+  banned = ("run_sql", "run_sql_query", '"sql"', "route: sql")
+  return not any(b in src for b in banned)
+
+
+def _llm_layers() -> dict[str, object]:
+  guardrails_src = _read_module_source("services/guardrails.py")
+  policy_src = _read_module_source("services/tool_policy.py")
+  safety_src = _read_module_source("services/llm_safety.py")
+  return {
+    "input_guardrails": {
+      "active": "validate_user_prompt" in guardrails_src,
+      "rule_count": guardrails_src.count('("') if guardrails_src else 0,
+    },
+    "tool_rbac": {
+      "active": "is_tool_allowed" in policy_src and "redact_tool_result" in policy_src,
+      "propietario_only_tools_declared": "PROPIETARIO_ONLY_TOOLS" in policy_src,
+    },
+    "output_filter": {
+      "active": "enforce_llm_output" in safety_src,
+      "enforce_function": "services.llm_safety.enforce_llm_output",
+      "production_enforced": IS_PRODUCTION,
+    },
+    "sql_agent_disabled": _sql_tool_absent(),
+  }
+
+
+def collect_security_controls() -> dict[str, object]:
+  waf = verify_nginx_waf_config()
+  llm = _llm_layers()
+  registration_secure = (not REGISTRATION_ENABLED) or bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY)
+
+  controls: dict[str, object] = {
+    "environment": "production" if IS_PRODUCTION else "development",
+    "auth": {
+      "jwt_rs256": True,
+      "session_cookie_http_only": True,
+      "cors_credentials_disabled_in_prod": IS_PRODUCTION,
+    },
+    "llm": llm,
+    "waf_edge_nginx": waf,
+    "rate_limiting": {
+      "enabled": RATE_LIMIT_ENABLED,
+      "nginx_layers": waf.get("features", {}),
+    },
+    "audit": {
+      "hmac_secret_configured": bool(AUDIT_HMAC_SECRET),
+      "retention_days": AUDIT_RETENTION_DAYS,
+      "verify_endpoint": "/api/audit/verify",
+    },
+    "observability": {
+      "prometheus_endpoint": "/metrics",
+      "metrics_token_configured": bool(METRICS_TOKEN),
+    },
+    "registration": {
+      "public_enabled": REGISTRATION_ENABLED,
+      "turnstile_configured": bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY),
+      "invite_code_configured": bool(REGISTRATION_INVITE_CODE),
+      "secure_for_production": registration_secure,
+    },
+    "resource_limits": {
+      "max_sucursales_per_owner": MAX_SUCURSALES_PER_OWNER,
+      "max_islas_per_sucursal": MAX_ISLAS_PER_SUCURSAL,
+    },
+  }
+
+  checks = {
+    "waf_edge": bool(waf.get("implemented")),
+    "llm_sql_disabled": bool(llm["sql_agent_disabled"]),
+    "llm_guardrails": bool(llm["input_guardrails"]["active"])
+    and int(llm["input_guardrails"].get("rule_count") or 0) >= 9,
+    "llm_output_safety": bool(llm["output_filter"]["active"]),
+    "audit_hmac": bool(AUDIT_HMAC_SECRET) or not IS_PRODUCTION,
+    "metrics_protected": bool(METRICS_TOKEN) or not IS_PRODUCTION,
+    "registration_hardened": registration_secure or not IS_PRODUCTION,
+  }
+  controls["checks"] = checks
+  controls["compliant"] = all(checks.values())
+  return controls

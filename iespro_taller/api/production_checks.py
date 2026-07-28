@@ -6,12 +6,17 @@ import os
 
 from config import (
   APP_ENV,
+  AUDIT_HMAC_SECRET,
   IS_PRODUCTION,
   MAX_TOOL_CALLS_PER_TURN,
+  METRICS_TOKEN,
   MYSQL_PASSWORD,
   MYSQL_USER,
+  REGISTRATION_ENABLED,
   SESSION_IDLE_SECONDS,
   TRUST_PROXY_HEADERS,
+  TURNSTILE_SECRET_KEY,
+  TURNSTILE_SITE_KEY,
 )
 
 
@@ -46,6 +51,17 @@ def validate_production_config() -> None:
   has_jwt_files = (BASE_DIR / "data" / "keys" / "jwt_private.pem").is_file()
   if not has_jwt_env and not has_jwt_files:
     errors.append("Faltan claves JWT (JWT_PRIVATE_KEY_PEM o data/keys/*.pem)")
+
+  if not AUDIT_HMAC_SECRET or len(AUDIT_HMAC_SECRET) < 32:
+    errors.append("AUDIT_HMAC_SECRET debe tener al menos 32 caracteres en producción")
+
+  if not METRICS_TOKEN or len(METRICS_TOKEN) < 32:
+    errors.append("METRICS_TOKEN debe configurarse en producción (protege /metrics)")
+
+  if REGISTRATION_ENABLED and (not TURNSTILE_SECRET_KEY or not TURNSTILE_SITE_KEY):
+    errors.append(
+      "REGISTRATION_ENABLED=1 exige TURNSTILE_SITE_KEY y TURNSTILE_SECRET_KEY en producción"
+    )
 
   if errors:
     raise RuntimeError(

@@ -1478,6 +1478,15 @@ def rag_bootstrap(request: Request, session: AppSession = Depends(require_sessio
   return {"ok": ok, "message": operation_message(msg) if ok else bad_request(msg)}
 
 
+@router.get("/security/controls")
+@rate_limit("60/minute")
+def security_controls(request: Request):
+  """Postura de seguridad verificable desde código (auditoría / pentest)."""
+  from api.security_posture import collect_security_controls
+
+  return collect_security_controls()
+
+
 @router.get("/health/detail")
 @rate_limit("30/minute")
 def health_detail(request: Request, session: AppSession = Depends(require_session)):

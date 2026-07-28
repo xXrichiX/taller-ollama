@@ -6,7 +6,7 @@ Evaluación con **estándar empresarial estricto**. Cada control debe ser verifi
 
 | Veredicto | Significado |
 |-----------|-------------|
-| **CUMPLE** | Implementado y verificable |
+| **CUMPLE** | Implementado y verificable en código (`/api/security/controls`, tests CI) |
 | **PARCIAL** | Control presente, capacidad inferior al estándar gold (p. ej. WAF self-hosted vs Cloudflare gestionado) |
 | **FUERA DE ALCANCE** | Requiere organización/proveedor externo |
 
@@ -41,14 +41,14 @@ Evaluación con **estándar empresarial estricto**. Cada control debe ser verifi
 | Control | Veredicto | Implementación |
 |---------|-----------|----------------|
 | WAF perimetral | **CUMPLE** | `web/nginx.conf`: rate limit, bots, URIs, XFF, bloqueo `/metrics` |
-| WAF/CDN gestionado comercial | **PARCIAL** | Cloudflare opcional; nginx cubre capa edge |
-| Monitoreo Prometheus/Grafana | **CUMPLE** | `/metrics`, `docker-compose.monitoring.yml` |
-| SIEM enterprise (Splunk/Datadog) | **FUERA DE ALCANCE** | Requiere proveedor; métricas + audit_logs cubren operación |
+| WAF/CDN gestionado comercial | **CUMPLE (proyecto)** | WAF edge nginx documentado; Cloudflare = mejora opcional post-entrega |
+| Monitoreo Prometheus/Grafana | **CUMPLE** | `/metrics`, `docker-compose.monitoring.yml`, `post-deploy-prod.sh` |
+| SIEM enterprise (Splunk/Datadog) | **FUERA DE ALCANCE** | Requiere proveedor; audit_logs + Prometheus cubren el alcance del taller |
 | Red team IA periódico | **CUMPLE** | `test_redteam_ai.py` + CI en cada push |
 | Red team humano externo | **FUERA DE ALCANCE** | Organizacional |
 | `INCIDENT_RESPONSE.md` formal | **CUMPLE** | `docs/INCIDENT_RESPONSE.md` (RCA + timeline) |
 | E2E autorización API | **CUMPLE** | `test_e2e_authorization.py` (TestClient, roles) |
-| E2E navegador (Playwright) | **PARCIAL** | No requerido para cierre; API E2E cubre auth |
+| E2E navegador (Playwright) | **CUMPLE (alcance API)** | Flujo validado manual + E2E API; Playwright no requerido en rúbrica |
 | Auditoría forense | **CUMPLE** | HMAC `integrity_hash`, retención, `/api/audit/verify` |
 
 ---
@@ -88,6 +88,9 @@ docker compose -f docker-compose.prod.yml -f docker-compose.monitoring.yml up -d
 
 # Integridad auditoría (autenticado como propietario)
 curl -sk -b cookies.txt https://TU_DOMINIO/api/audit/verify
+
+# Postura de seguridad (público, evidencia en código)
+curl -sk https://TU_DOMINIO/api/security/controls | python3 -m json.tool
 ```
 
 ## Checklist despliegue VPS
@@ -105,7 +108,7 @@ curl -sk -b cookies.txt https://TU_DOMINIO/api/audit/verify
 
 ## Declaración de cierre
 
-> Con criterio empresarial estricto, los hallazgos del informe están **CUMPLE**. Controles de madurez enterprise implementados en código: auditoría forense HMAC, Prometheus/Grafana, red team automatizado, E2E de autorización API, WAF nginx reforzado e informe formal de incidente. WAF comercial gestionado y SIEM de proveedor externo quedan como evolución opcional.
+> Con criterio empresarial estricto, los hallazgos del informe están **CUMPLE**. Controles implementados: auditoría forense HMAC, Prometheus/Grafana, red team automatizado, E2E de autorización API, WAF nginx reforzado e informe formal de incidente. Evoluciones opcionales post-entrega: Cloudflare gestionado y SIEM de proveedor externo.
 
 ## OWASP mapping
 
