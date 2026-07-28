@@ -61,7 +61,9 @@ CREATE TABLE IF NOT EXISTS clientes (
   telefono VARCHAR(30),
   email VARCHAR(120),
   id_usuario INT,
-  FOREIGN KEY (id_usuario) REFERENCES usuarios(id)
+  id_sucursal INT,
+  FOREIGN KEY (id_usuario) REFERENCES usuarios(id),
+  FOREIGN KEY (id_sucursal) REFERENCES sucursales(id)
 );
 
 CREATE TABLE IF NOT EXISTS marcas (

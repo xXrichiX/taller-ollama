@@ -402,8 +402,10 @@ def list_clientes(id_sucursal: int | None = None, id_mecanico: int | None = None
             SELECT c.id, c.nombre, c.telefono, c.email, c.id_usuario, u.email AS usuario_email
             FROM clientes c
             LEFT JOIN usuarios u ON u.id = c.id_usuario
+            WHERE c.id_sucursal = %s
             ORDER BY c.nombre
-            """
+            """,
+            (id_sucursal,),
         )
     if id_mecanico:
         return fetch_all(
@@ -439,10 +441,16 @@ def get_cliente_by_usuario(id_usuario: int) -> dict | None:
     )
 
 
-def create_cliente(nombre: str, telefono: str, email: str, id_usuario: int | None) -> int:
+def create_cliente(
+    nombre: str,
+    telefono: str,
+    email: str,
+    id_usuario: int | None,
+    id_sucursal: int | None = None,
+) -> int:
     return execute(
-        "INSERT INTO clientes (nombre, telefono, email, id_usuario) VALUES (%s, %s, %s, %s)",
-        (nombre, telefono, email, id_usuario),
+        "INSERT INTO clientes (nombre, telefono, email, id_usuario, id_sucursal) VALUES (%s, %s, %s, %s, %s)",
+        (nombre, telefono, email, id_usuario, id_sucursal),
     )
 
 

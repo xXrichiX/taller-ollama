@@ -695,6 +695,7 @@ def create_cliente(body: ClienteCreate, session: AppSession = Depends(require_se
     telefono,
     email,
     None,
+    session.id_sucursal,
   )
   return {"ok": True, "id": id_cliente}
 

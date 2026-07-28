@@ -673,7 +673,7 @@ class ToolsService:
         return cita_service.list_vehiculos(args["id_cliente"])
 
     def _listar_clientes(self, args: dict) -> list[dict]:
-        return catalog_service.list_clientes()
+        return catalog_service.list_clientes(id_sucursal=self.id_sucursal)
 
     def _listar_vehiculos(self, args: dict) -> list[dict]:
         return cita_service.list_vehiculos(
@@ -714,7 +714,9 @@ class ToolsService:
             return {"ok": False, "error": "Teléfono inválido. Usa solo números.", "recoverable": True}
         if email and ("@" not in email or "." not in email.split("@")[-1]):
             return {"ok": False, "error": "Correo inválido.", "recoverable": True}
-        id_cliente = catalog_service.create_cliente(nombre, telefono, email, None)
+        id_cliente = catalog_service.create_cliente(
+            nombre, telefono, email, None, self.id_sucursal
+        )
         return {"ok": True, "id_cliente": id_cliente, "nombre": nombre, "telefono": telefono or None}
 
     def _crear_vehiculo_natural(self, args: dict) -> dict:

@@ -35,6 +35,7 @@ def init_database() -> tuple[bool, str]:
         ensure_schema_migrations()
         ensure_inventario_table()
         ensure_inventario_isla_column()
+        ensure_clientes_sucursal_column()
         ensure_remove_legacy_admin()
         ensure_roles_simplified()
         ensure_performance_indexes()
@@ -221,6 +222,47 @@ def ensure_catalog_seeds() -> None:
         (1, 'Sedán'), (2, 'Pickup'), (3, 'SUV'), (4, 'Camioneta')
         """
     )
+
+
+def ensure_clientes_sucursal_column() -> None:
+    col = fetch_one(
+        """
+        SELECT COUNT(*) AS n FROM information_schema.columns
+        WHERE table_schema = %s AND table_name = 'clientes' AND column_name = 'id_sucursal'
+        """,
+        (MYSQL_DATABASE,),
+    )
+    if col and col["n"]:
+        return
+    execute("ALTER TABLE clientes ADD COLUMN id_sucursal INT NULL AFTER id_usuario")
+    execute(
+        """
+        UPDATE clientes c
+        JOIN (
+          SELECT id_cliente, MIN(id_sucursal) AS id_sucursal
+          FROM vehiculos
+          GROUP BY id_cliente
+        ) v ON v.id_cliente = c.id
+        SET c.id_sucursal = v.id_sucursal
+        WHERE c.id_sucursal IS NULL
+        """
+    )
+    fk = fetch_one(
+        """
+        SELECT COUNT(*) AS n FROM information_schema.table_constraints
+        WHERE table_schema = %s AND table_name = 'clientes'
+          AND constraint_name = 'clientes_ibfk_sucursal'
+        """,
+        (MYSQL_DATABASE,),
+    )
+    if not fk or not fk["n"]:
+        execute(
+            """
+            ALTER TABLE clientes
+            ADD CONSTRAINT clientes_ibfk_sucursal
+            FOREIGN KEY (id_sucursal) REFERENCES sucursales(id)
+            """
+        )
 
 
 def ensure_remove_legacy_admin() -> None:
