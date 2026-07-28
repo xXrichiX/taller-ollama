@@ -17,6 +17,7 @@ export function LoginPage() {
   const [nombre, setNombre] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [publicConfig, setPublicConfig] = useState<PublicAuthConfig | null>(null);
@@ -44,6 +45,7 @@ export function LoginPage() {
   useEffect(() => {
     setCaptchaToken("");
     turnstileRef.current?.reset();
+    setSuccess("");
   }, [mode]);
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export function LoginPage() {
     if (blocked) return;
 
     setError("");
+    setSuccess("");
     if (mode === "register" && turnstileSiteKey && !captchaToken) {
       setError("Completa la verificación CAPTCHA.");
       return;
@@ -86,14 +89,20 @@ export function LoginPage() {
 
     setLoading(true);
     try {
-      if (mode === "login") await login(email, password);
-      else {
-        await register(nombre, email, password, {
+      if (mode === "login") {
+        await login(email, password);
+        navigate("/", { replace: true });
+      } else {
+        const message = await register(nombre, email, password, {
           inviteCode,
           captchaToken,
         });
+        setPassword("");
+        setNombre("");
+        setInviteCode("");
+        setMode("login");
+        setSuccess(message);
       }
-      navigate("/", { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
         const seconds = err.retryAfterSec
@@ -214,6 +223,7 @@ export function LoginPage() {
               />
             </div>
           )}
+          {success && <p className="success-text">{success}</p>}
           {error && <p className="error-text">{error}</p>}
           <button
             className="btn btn-with-loader"

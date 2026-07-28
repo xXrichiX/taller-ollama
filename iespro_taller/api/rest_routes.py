@@ -149,18 +149,7 @@ def auth_register(request: Request, body: RegisterBody):
   if not result.get("ok"):
     raise HTTPException(status_code=400, detail=result.get("error", "No se pudo registrar"))
 
-  user = catalog_service.login(body.email.strip().lower(), normalize_password(body.password))
-  if not user:
-    return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
-
-  session = create_session(user)
-  payload = {
-    "ok": True,
-    "token": session.token,
-    "user": user_payload(user, session),
-    "sucursal": result.get("sucursal"),
-  }
-  return json_with_session(payload, session.token)
+  return {"ok": True, "message": REGISTER_GENERIC_MESSAGE}
 
 
 @router.post("/auth/logout")

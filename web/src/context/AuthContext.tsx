@@ -24,7 +24,7 @@ interface AuthContextValue {
       captchaChallenge?: string;
       captchaAnswer?: string;
     },
-  ) => Promise<void>;
+  ) => Promise<string>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   setSucursal: (id: number) => Promise<void>;
@@ -97,8 +97,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   ) => {
     const data = await api<{
-      token?: string;
-      user?: User;
       ok?: boolean;
       message?: string;
     }>("/api/auth/register", {
@@ -113,9 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         captcha_answer: extras?.captchaAnswer ?? "",
       }),
     });
-    if (data.token && data.user) {
-      await loadMe(data.token);
-    }
+    return (
+      data.message
+      ?? "Si el correo es válido, hemos procesado tu solicitud. Revisa tu bandeja o inicia sesión."
+    );
   };
 
   const logout = async () => {
