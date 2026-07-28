@@ -220,7 +220,7 @@ def auth_logout(request: Request, session: AppSession = Depends(require_session)
 
 @router.get("/speech/status")
 @rate_limit("60/minute")
-def speech_status(session: AppSession = Depends(require_session)):
+def speech_status(request: Request, session: AppSession = Depends(require_session)):
   from services import speech_service
 
   available = speech_service.speech_available()
@@ -371,7 +371,7 @@ def set_isla(
 
 @router.get("/islas")
 @rate_limit("60/minute")
-def list_islas_activas(session: AppSession = Depends(require_session)):
+def list_islas_activas(request: Request, session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
@@ -449,7 +449,7 @@ def _cita_dashboard_row(c: dict) -> dict:
 
 @router.get("/dashboard")
 @rate_limit("60/minute")
-def dashboard(session: AppSession = Depends(require_session)):
+def dashboard(request: Request, session: AppSession = Depends(require_session)):
   require_authenticated_app_user(session)
   empty = {
     "title": "Resumen del taller",
@@ -580,7 +580,7 @@ class IslaCreate(BaseModel):
 
 @router.get("/sucursales")
 @rate_limit("60/minute")
-def list_sucursales(session: AppSession = Depends(require_session)):
+def list_sucursales(request: Request, session: AppSession = Depends(require_session)):
   rows = catalog_service.list_sucursales_usuario(session.user["id"])
   for r in rows:
     r["activo_label"] = "Sí" if r.get("activo", 1) else "No"
@@ -633,7 +633,7 @@ def create_sucursal(
 
 @router.get("/sucursales/{id_sucursal}/islas")
 @rate_limit("60/minute")
-def list_islas(id_sucursal: int, session: AppSession = Depends(require_session)):
+def list_islas(request: Request, id_sucursal: int, session: AppSession = Depends(require_session)):
   _require_sucursal_access(session, id_sucursal)
   rows = cita_service.list_islas(id_sucursal)
   for r in rows:
@@ -675,35 +675,35 @@ def create_isla(
 
 @router.get("/catalogos/marcas")
 @rate_limit("60/minute")
-def catalog_marcas(session: AppSession = Depends(require_session)):
+def catalog_marcas(request: Request, session: AppSession = Depends(require_session)):
   require_catalog_reader(session)
   return {"items": catalog_service.list_marcas()}
 
 
 @router.get("/catalogos/combustibles")
 @rate_limit("60/minute")
-def catalog_combustibles(session: AppSession = Depends(require_session)):
+def catalog_combustibles(request: Request, session: AppSession = Depends(require_session)):
   require_catalog_reader(session)
   return {"items": catalog_service.list_tipos_combustible()}
 
 
 @router.get("/catalogos/unidades")
 @rate_limit("60/minute")
-def catalog_unidades(session: AppSession = Depends(require_session)):
+def catalog_unidades(request: Request, session: AppSession = Depends(require_session)):
   require_catalog_reader(session)
   return {"items": catalog_service.list_tipos_unidad()}
 
 
 @router.get("/catalogos/puestos")
 @rate_limit("60/minute")
-def catalog_puestos(session: AppSession = Depends(require_session)):
+def catalog_puestos(request: Request, session: AppSession = Depends(require_session)):
   _require_propietario(session)
   return {"items": catalog_service.list_puestos()}
 
 
 @router.get("/catalogos/mantenimiento")
 @rate_limit("60/minute")
-def catalog_mantenimiento(session: AppSession = Depends(require_session)):
+def catalog_mantenimiento(request: Request, session: AppSession = Depends(require_session)):
   require_catalog_reader(session)
   id_sucursal = require_sucursal(session)
   return {"items": catalog_service.list_tipos_mantenimiento(id_sucursal)}
@@ -726,7 +726,7 @@ class ServicioUpdate(BaseModel):
 
 @router.get("/servicios")
 @rate_limit("60/minute")
-def list_servicios(session: AppSession = Depends(require_session)):
+def list_servicios(request: Request, session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
@@ -802,7 +802,7 @@ def update_servicio(
 
 @router.get("/catalogos/estados-cita")
 @rate_limit("60/minute")
-def catalog_estados(session: AppSession = Depends(require_session)):
+def catalog_estados(request: Request, session: AppSession = Depends(require_session)):
   require_catalog_reader(session)
   if is_mecanico(session.user.get("rol_nombre")):
     return {"items": ESTADOS_MECANICO_UI}
@@ -812,6 +812,7 @@ def catalog_estados(session: AppSession = Depends(require_session)):
 @router.get("/catalogos/mecanicos")
 @rate_limit("60/minute")
 def catalog_mecanicos(
+  request: Request,
   session: AppSession = Depends(require_session),
   id_sucursal: int | None = None,
 ):
@@ -908,7 +909,7 @@ class InventarioAjuste(BaseModel):
 
 @router.get("/inventario")
 @rate_limit("60/minute")
-def list_inventario(session: AppSession = Depends(require_session)):
+def list_inventario(request: Request, session: AppSession = Depends(require_session)):
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   if _requires_sucursal(session):
@@ -1167,7 +1168,7 @@ def _normalize_hora(hora: str) -> str:
 
 @router.get("/citas")
 @rate_limit("60/minute")
-def list_citas(session: AppSession = Depends(require_session)):
+def list_citas(request: Request, session: AppSession = Depends(require_session)):
   if _requires_sucursal(session):
     return {"citas": []}
   rows = cita_service.list_citas(**_citas_filters(session))
@@ -1333,7 +1334,7 @@ def update_cita(
 
 @router.get("/citas/defaults")
 @rate_limit("60/minute")
-def cita_defaults(session: AppSession = Depends(require_session)):
+def cita_defaults(request: Request, session: AppSession = Depends(require_session)):
   id_sucursal = require_sucursal(session)
   return cita_service.get_default_asignacion_taller(id_sucursal)
 
@@ -1358,7 +1359,7 @@ class UsuarioStaffUpdate(BaseModel):
 
 @router.get("/usuarios")
 @rate_limit("60/minute")
-def list_usuarios(session: AppSession = Depends(require_session)):
+def list_usuarios(request: Request, session: AppSession = Depends(require_session)):
   _require_propietario(session)
   if _requires_sucursal(session):
     return {"usuarios": []}
@@ -1370,7 +1371,7 @@ def list_usuarios(session: AppSession = Depends(require_session)):
 
 @router.get("/usuarios/{id_usuario}/sucursales")
 @rate_limit("60/minute")
-def usuario_sucursales(id_usuario: int, session: AppSession = Depends(require_session)):
+def usuario_sucursales(request: Request, id_usuario: int, session: AppSession = Depends(require_session)):
   _require_propietario(session)
   assert_usuario_in_workshop(session, id_usuario)
   return {"sucursales": catalog_service.list_sucursales_usuario(id_usuario)}
@@ -1479,7 +1480,7 @@ def rag_bootstrap(request: Request, session: AppSession = Depends(require_sessio
 
 @router.get("/health/detail")
 @rate_limit("30/minute")
-def health_detail(session: AppSession = Depends(require_session)):
+def health_detail(request: Request, session: AppSession = Depends(require_session)):
   """Detalle de BD; en producción solo dueño del taller."""
   if IS_PRODUCTION:
     _require_propietario(session)
@@ -1492,6 +1493,7 @@ def health_detail(session: AppSession = Depends(require_session)):
 @router.get("/observability/recent")
 @rate_limit("30/minute")
 def observability_recent(
+  request: Request,
   limit: int = 20,
   session: AppSession = Depends(require_session),
 ):
@@ -1521,7 +1523,7 @@ def audit_recent(
 
 @router.get("/chat/conversations")
 @rate_limit("60/minute")
-def chat_conversations(session: AppSession = Depends(require_session)):
+def chat_conversations(request: Request, session: AppSession = Depends(require_session)):
   require_sucursal(session)
   return {"conversations": session.chat.list_conversations()}
 
@@ -1538,7 +1540,7 @@ def chat_new_conversation(request: Request, session: AppSession = Depends(requir
 
 @router.post("/chat/conversations/{id_conv}/activate")
 @rate_limit("30/minute")
-def chat_activate(id_conv: int, session: AppSession = Depends(require_session)):
+def chat_activate(request: Request, id_conv: int, session: AppSession = Depends(require_session)):
   require_sucursal(session)
   ok = session.chat.switch_conversation(id_conv)
   if not ok:
@@ -1548,7 +1550,7 @@ def chat_activate(id_conv: int, session: AppSession = Depends(require_session)):
 
 @router.delete("/chat/conversations/{id_conv}")
 @rate_limit("20/minute")
-def chat_delete_conversation(id_conv: int, session: AppSession = Depends(require_session)):
+def chat_delete_conversation(request: Request, id_conv: int, session: AppSession = Depends(require_session)):
   require_sucursal(session)
   ok = session.chat.delete_conversation(id_conv)
   if not ok:
