@@ -39,6 +39,15 @@ from api.security_messages import (
   stream_error,
   unauthorized,
 )
+from api.input_validation import (
+  validate_catalog_code,
+  validate_catalog_description,
+  validate_catalog_name,
+  validate_catalog_price,
+  validate_catalog_unit,
+  validate_client_name,
+  validate_inventory_quantity,
+)
 from api.session_cookies import clear_session_cookie, json_with_session
 from api.session import (
   AppSession,
@@ -845,14 +854,12 @@ def create_servicio(
 ):
   _require_propietario(session)
   id_sucursal = require_sucursal(session)
-  nombre = body.nombre.strip()
-  if not nombre:
-    raise HTTPException(status_code=400, detail="Nombre requerido")
-  if body.precio < 0:
-    raise HTTPException(status_code=400, detail="El precio no puede ser negativo")
+  nombre = validate_catalog_name(body.nombre)
+  descripcion = validate_catalog_description(body.descripcion)
+  validate_catalog_price(body.precio)
   id_item = catalog_service.create_tipo_mantenimiento(
     nombre,
-    body.descripcion.strip(),
+    descripcion,
     body.precio,
     id_sucursal,
   )
@@ -876,16 +883,14 @@ def update_servicio(
 ):
   _require_propietario(session)
   id_sucursal = require_sucursal(session)
-  nombre = body.nombre.strip()
-  if not nombre:
-    raise HTTPException(status_code=400, detail="Nombre requerido")
-  if body.precio < 0:
-    raise HTTPException(status_code=400, detail="El precio no puede ser negativo")
+  nombre = validate_catalog_name(body.nombre)
+  descripcion = validate_catalog_description(body.descripcion)
+  validate_catalog_price(body.precio)
   result = catalog_service.update_tipo_mantenimiento(
     id_servicio,
     id_sucursal,
     nombre,
-    body.descripcion.strip(),
+    descripcion,
     body.precio,
   )
   if not result.get("ok"):
@@ -948,7 +953,7 @@ def create_cliente(
   if not is_workshop_staff(session.user.get("rol_nombre")):
     raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
-  nombre = body.nombre.strip()
+  nombre = validate_client_name(body.nombre)
   telefono = body.telefono.strip()
   email = body.email.strip()
   if len(nombre) < 2:
@@ -1029,15 +1034,21 @@ def create_inventario(
     raise HTTPException(status_code=403, detail=forbidden("Sin permiso"))
   id_sucursal = require_sucursal(session)
   id_isla = require_isla(session)
-  nombre = body.nombre.strip()
-  if not nombre:
-    raise HTTPException(status_code=400, detail="Nombre requerido")
+  nombre = validate_catalog_name(body.nombre)
+  codigo = validate_catalog_code(body.codigo)
+  descripcion = validate_catalog_description(body.descripcion)
+  unidad = validate_catalog_unit(body.unidad)
   payload = body.model_dump()
+  payload["nombre"] = nombre
+  payload["codigo"] = codigo
+  payload["descripcion"] = descripcion
+  payload["unidad"] = unidad
   if not _user_is_propietario(session):
     payload["precio_unitario"] = 0
     payload["stock_minimo"] = body.stock_minimo if body.stock_minimo >= 0 else 0
-  if payload["cantidad"] < 0 or payload["stock_minimo"] < 0 or payload["precio_unitario"] < 0:
-    raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
+  validate_inventory_quantity(payload["cantidad"], field_label="La cantidad")
+  validate_inventory_quantity(payload["stock_minimo"], field_label="El stock mínimo")
+  validate_catalog_price(payload["precio_unitario"], field_label="El precio unitario")
   id_item = inventory_service.create_item(id_sucursal, id_isla, payload)
   audit_session_action(
     request,
@@ -1067,26 +1078,34 @@ def update_inventario(
     raise HTTPException(status_code=404, detail=not_found("Artículo no encontrado"))
 
   if _user_is_propietario(session):
-    nombre = body.nombre.strip()
-    if not nombre:
-      raise HTTPException(status_code=400, detail="Nombre requerido")
-    if body.cantidad < 0 or body.stock_minimo < 0 or body.precio_unitario < 0:
-      raise HTTPException(status_code=400, detail="Cantidades y precios no pueden ser negativos")
+    nombre = validate_catalog_name(body.nombre)
+    codigo = validate_catalog_code(body.codigo)
+    descripcion = validate_catalog_description(body.descripcion)
+    unidad = validate_catalog_unit(body.unidad)
+    validate_inventory_quantity(body.cantidad, field_label="La cantidad")
+    validate_inventory_quantity(body.stock_minimo, field_label="El stock mínimo")
+    validate_catalog_price(body.precio_unitario, field_label="El precio unitario")
     payload = body.model_dump()
+    payload.update(
+      nombre=nombre,
+      codigo=codigo,
+      descripcion=descripcion,
+      unidad=unidad,
+    )
   else:
     mec = InventarioUpdateMecanico(
       nombre=body.nombre,
       descripcion=body.descripcion,
       unidad=body.unidad,
     )
-    nombre = mec.nombre.strip()
-    if not nombre:
-      raise HTTPException(status_code=400, detail="Nombre requerido")
+    nombre = validate_catalog_name(mec.nombre)
+    descripcion = validate_catalog_description(mec.descripcion)
+    unidad = validate_catalog_unit(mec.unidad)
     payload = {
       **existing,
       "nombre": nombre,
-      "descripcion": mec.descripcion,
-      "unidad": mec.unidad,
+      "descripcion": descripcion,
+      "unidad": unidad,
     }
 
   result = inventory_service.update_item(id_item, id_isla, payload)
