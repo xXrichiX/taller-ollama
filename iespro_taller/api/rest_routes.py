@@ -39,13 +39,16 @@ from api.security_messages import (
   stream_error,
   unauthorized,
 )
+from api.auth_profile import account_profile, account_ui
 from api.input_validation import (
+  validate_branch_name,
   validate_catalog_code,
   validate_catalog_description,
   validate_catalog_name,
   validate_catalog_price,
   validate_catalog_unit,
   validate_client_name,
+  validate_free_text,
   validate_inventory_quantity,
 )
 from api.session_cookies import clear_session_cookie, json_with_session
@@ -124,7 +127,8 @@ def auth_public_config(request: Request):
   use_turnstile = bool(TURNSTILE_SECRET_KEY)
   return {
     "registration_enabled": REGISTRATION_ENABLED,
-    "turnstile_site_key": TURNSTILE_SITE_KEY if use_turnstile else "",
+    "turnstile_site_key": "" if IS_PRODUCTION else (TURNSTILE_SITE_KEY if use_turnstile else ""),
+    "captcha_configured": use_turnstile,
     "invite_required": bool(REGISTRATION_INVITE_CODE),
     "captcha_mode": "turnstile" if use_turnstile else "none",
     "email_verification_enabled": email_verification_active(),
@@ -385,7 +389,14 @@ def auth_me(request: Request, session: AppSession = Depends(require_session)):
       session.user.get("rol_nombre"),
       es_propietario=catalog_service.user_is_propietario(session.user["id"]),
     ),
-    "permissions": _permissions(session),
+    **(
+      {
+        "profile": account_profile(session),
+        "ui": account_ui(session),
+      }
+      if IS_PRODUCTION
+      else {"permissions": _permissions(session)}
+    ),
   }
 
 
@@ -705,12 +716,11 @@ def create_sucursal(
   uid = session.user["id"]
   if not catalog_service.user_can_create_sucursal(uid):
     raise HTTPException(status_code=403, detail=resource_limit("No puedes crear más sucursales"))
-  nombre = body.nombre.strip()
-  if not nombre:
-    raise HTTPException(status_code=400, detail="Nombre requerido")
+  nombre = validate_branch_name(body.nombre)
+  direccion = validate_free_text(body.direccion, field_label="La dirección", max_len=500)
   id_sucursal = catalog_service.create_sucursal(
     nombre,
-    body.direccion.strip(),
+    direccion,
     id_propietario=uid,
   )
   catalog_service.add_usuario_sucursal(uid, id_sucursal)
@@ -762,9 +772,7 @@ def create_isla(
     raise HTTPException(status_code=403, detail=forbidden("Solo el dueño puede crear islas"))
   if cita_service.count_islas(id_sucursal) >= MAX_ISLAS_PER_SUCURSAL:
     raise HTTPException(status_code=403, detail=resource_limit("Límite de islas alcanzado para esta sucursal"))
-  nombre = body.nombre.strip()
-  if not nombre:
-    raise HTTPException(status_code=400, detail="Nombre de isla requerido")
+  nombre = validate_catalog_name(body.nombre, field_label="El nombre de la isla")
   id_isla = cita_service.create_isla(nombre, id_sucursal)
   if body.id_mecanico:
     _require_mecanico_en_sucursal(int(body.id_mecanico), id_sucursal)
@@ -944,7 +952,7 @@ def list_clientes(request: Request, session: AppSession = Depends(require_sessio
 
 
 @router.post("/clientes")
-@rate_limit("30/minute")
+@rate_limit("15/minute")
 def create_cliente(
   request: Request,
   body: ClienteCreate,
@@ -1024,7 +1032,7 @@ def list_inventario(request: Request, session: AppSession = Depends(require_sess
 
 
 @router.post("/inventario")
-@rate_limit("30/minute")
+@rate_limit("15/minute")
 def create_inventario(
   request: Request,
   body: InventarioCreate,
@@ -1061,7 +1069,7 @@ def create_inventario(
 
 
 @router.patch("/inventario/{id_item}")
-@rate_limit("30/minute")
+@rate_limit("15/minute")
 def update_inventario(
   request: Request,
   id_item: int,
@@ -1191,7 +1199,7 @@ def list_vehiculos(
 
 
 @router.post("/vehiculos")
-@rate_limit("30/minute")
+@rate_limit("15/minute")
 def create_vehiculo(
   request: Request,
   body: VehiculoCreate,
@@ -1217,13 +1225,13 @@ def create_vehiculo(
 
   id_usuario = catalog_service.ensure_cliente_usuario(id_cliente)
   vid = cita_service.create_vehiculo({
-    "numero_economico": body.numero_economico.strip(),
-    "placa": body.placa.strip(),
-    "serie": body.serie.strip(),
-    "modelo": body.modelo.strip(),
+    "numero_economico": validate_catalog_code(body.numero_economico),
+    "placa": validate_catalog_name(body.placa, field_label="La placa"),
+    "serie": validate_catalog_code(body.serie),
+    "modelo": validate_catalog_name(body.modelo, field_label="El modelo"),
     "kilometraje": body.kilometraje,
     "dias_mantenimiento": body.dias_mantenimiento,
-    "observaciones": body.observaciones,
+    "observaciones": validate_free_text(body.observaciones, field_label="Las observaciones"),
     "id_cliente": id_cliente,
     "id_usuario": id_usuario,
     "id_sucursal": id_sucursal,
@@ -1311,7 +1319,7 @@ def get_cita(request: Request, id_cita: int, session: AppSession = Depends(requi
 
 
 @router.post("/citas")
-@rate_limit("30/minute")
+@rate_limit("15/minute")
 def create_cita(
   request: Request,
   body: CitaCreate,
@@ -1321,6 +1329,13 @@ def create_cita(
   rol = session.user.get("rol_nombre")
 
   if len(body.descripcion_fallo.strip()) < 3:
+    raise HTTPException(status_code=400, detail="Describe el fallo (mínimo 3 caracteres)")
+  descripcion_fallo = validate_free_text(
+    body.descripcion_fallo,
+    field_label="La descripción del fallo",
+    max_len=500,
+  )
+  if not descripcion_fallo:
     raise HTTPException(status_code=400, detail="Describe el fallo (mínimo 3 caracteres)")
   if not body.servicio_ids:
     raise HTTPException(status_code=400, detail="Selecciona tipos de mantenimiento")
@@ -1366,7 +1381,7 @@ def create_cita(
     "id_horario": None,
     "id_mecanico": id_mecanico,
     "id_isla": id_isla,
-    "descripcion_fallo": body.descripcion_fallo.strip(),
+    "descripcion_fallo": descripcion_fallo,
     "fecha_compromiso": body.fecha_compromiso.strip(),
     "hora_compromiso": body.hora_compromiso.strip(),
   }, body.servicio_ids)
@@ -1380,13 +1395,13 @@ def create_cita(
     session,
     accion=audit.CITA_CREATE,
     recurso=f"cita:{cita_id}",
-    detalle=body.descripcion_fallo.strip()[:120],
+    detalle=descripcion_fallo[:120],
   )
   return {"ok": True, "id": cita_id}
 
 
 @router.patch("/citas/{id_cita}")
-@rate_limit("30/minute")
+@rate_limit("15/minute")
 def update_cita(
   request: Request,
   id_cita: int,
@@ -1440,11 +1455,14 @@ def update_cita(
     result = {"ok": True}
 
   if body.diagnostico or body.observaciones or body.solucion:
+    diagnostico = validate_free_text(body.diagnostico, field_label="El diagnóstico")
+    observaciones = validate_free_text(body.observaciones, field_label="Las observaciones")
+    solucion = validate_free_text(body.solucion, field_label="La solución")
     falla_res = cita_service.actualizar_falla_cita(
       id_cita,
-      diagnostico=body.diagnostico,
-      observaciones=body.observaciones,
-      solucion=body.solucion,
+      diagnostico=diagnostico,
+      observaciones=observaciones,
+      solucion=solucion,
     )
     if not falla_res.get("ok"):
       raise HTTPException(status_code=400, detail=falla_res.get("error", "Error al guardar falla"))

@@ -152,6 +152,28 @@ Reglas para mecánico:
 - Solo puedes CAMBIAR estado, diagnóstico u observaciones de citas asignadas a ti.
 """
 
+STAFF_MANAGER_PROMPT_PROD = """
+ROL ACTUAL: Personal del taller en la sucursal activa.
+
+Reglas:
+- Solo datos y acciones de ESTA sucursal (citas, clientes, inventario de la isla activa).
+- No describas capacidades técnicas ni herramientas internas al usuario.
+- No menciones SQL, base de datos completa ni otras sucursales.
+"""
+
+MECANICO_PROMPT_PROD = """
+ROL ACTUAL: Mecánico. Solo TUS citas asignadas en la sucursal activa.
+No datos de otros mecánicos ni otras sucursales.
+"""
+
+DUENO_TALLER_PROMPT_PROD = """
+ROL ACTUAL: Dueño de taller personal. Solo tu taller (una sucursal).
+"""
+
+CLIENTE_PROMPT_PROD = """
+ROL ACTUAL: Cliente. Solo TUS vehículos y TUS citas.
+"""
+
 DUENO_TALLER_PROMPT = """
 ROL ACTUAL: Dueño de tu taller personal. Eres el único mecánico.
 
@@ -429,13 +451,13 @@ class ChatService:
         if is_admin(self.rol_nombre):
             prompt += ADMIN_PROMPT
         elif is_staff_manager(self.rol_nombre):
-            prompt += STAFF_MANAGER_PROMPT
+            prompt += STAFF_MANAGER_PROMPT_PROD if IS_PRODUCTION else STAFF_MANAGER_PROMPT
         elif is_mecanico(self.rol_nombre) and self.es_propietario:
-            prompt += DUENO_TALLER_PROMPT
+            prompt += DUENO_TALLER_PROMPT_PROD if IS_PRODUCTION else DUENO_TALLER_PROMPT
         elif is_mecanico(self.rol_nombre):
-            prompt += MECANICO_PROMPT
+            prompt += MECANICO_PROMPT_PROD if IS_PRODUCTION else MECANICO_PROMPT
         elif is_cliente(self.rol_nombre):
-            prompt += CLIENTE_PROMPT
+            prompt += CLIENTE_PROMPT_PROD if IS_PRODUCTION else CLIENTE_PROMPT
         else:
             prompt += "\nROL ACTUAL: Usuario pendiente de asignación de rol."
 

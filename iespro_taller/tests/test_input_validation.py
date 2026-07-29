@@ -7,10 +7,12 @@ import unittest
 from fastapi import HTTPException
 
 from api.input_validation import (
+  validate_branch_name,
   validate_catalog_description,
   validate_catalog_name,
   validate_catalog_price,
   validate_client_name,
+  validate_free_text,
   validate_inventory_quantity,
 )
 
@@ -43,6 +45,13 @@ class TestInputValidation(unittest.TestCase):
 
   def test_cliente_nombre_seguro(self) -> None:
     self.assertEqual(validate_client_name("Juan Pérez"), "Juan Pérez")
+
+  def test_texto_libre_rechaza_xss(self) -> None:
+    with self.assertRaises(HTTPException):
+      validate_free_text("<img src=x onerror=alert(1)>", field_label="Nota")
+
+  def test_sucursal_nombre_seguro(self) -> None:
+    self.assertEqual(validate_branch_name("Taller Centro"), "Taller Centro")
 
 
 if __name__ == "__main__":

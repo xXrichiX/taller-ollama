@@ -127,6 +127,24 @@ def validate_client_name(value: str) -> str:
   return validate_catalog_name(value, field_label="El nombre del cliente")
 
 
+def validate_branch_name(value: str) -> str:
+  return validate_catalog_name(value, field_label="El nombre de la sucursal")
+
+
+def validate_free_text(value: str, *, field_label: str, max_len: int = _MAX_CATALOG_DESC_LEN) -> str:
+  """Texto libre (notas, direcciones, fallas) con los mismos filtros anti-inyección."""
+  text = (value or "").strip()
+  if not text:
+    return ""
+  if len(text) > max_len:
+    raise HTTPException(
+      status_code=400,
+      detail=bad_request(f"{field_label} no puede exceder {max_len} caracteres."),
+    )
+  _reject_unsafe_text(text, field_label=field_label)
+  return text
+
+
 def validate_fields(*pairs: tuple[str, str]) -> None:
   """Uso interno/tests: valida lista de (valor, etiqueta)."""
   for value, label in pairs:

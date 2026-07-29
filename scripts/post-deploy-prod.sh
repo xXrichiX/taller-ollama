@@ -63,4 +63,5 @@ echo ""
 
 echo ""
 echo "Post-despliegue completado."
+echo "Backup diario (opcional): ./scripts/install-backup-cron.sh"
 echo "Siguiente: URL=https://200-234-226-167.sslip.io EMAIL=... PASS='...' ./scripts/pentest-master.sh"

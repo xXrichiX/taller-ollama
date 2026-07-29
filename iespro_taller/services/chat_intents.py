@@ -767,11 +767,18 @@ Acciones en el sistema:
 No uses "mi auto": actúa siempre con el nombre del cliente o la placa que te indiquen."""
 
 
+CAPABILITIES_ANSWER_STAFF_PROD = """Puedo ayudarte con citas, clientes, vehículos e inventario de tu sucursal activa.
+Dime qué necesitas (por ejemplo: cuántas citas hay, o crea un cliente)."""
+
+
+from config import IS_PRODUCTION
+
+
 def get_capabilities_answer(rol_nombre: str | None = None) -> str:
     from services.user_roles import is_cliente, is_mecanico, is_staff_manager
 
     if is_staff_manager(rol_nombre):
-        return CAPABILITIES_ANSWER_STAFF
+        return CAPABILITIES_ANSWER_STAFF_PROD if IS_PRODUCTION else CAPABILITIES_ANSWER_STAFF
     if is_cliente(rol_nombre):
         return CAPABILITIES_ANSWER_CLIENTE
     if is_mecanico(rol_nombre):
