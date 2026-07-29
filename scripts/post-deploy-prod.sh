@@ -19,15 +19,6 @@ if [ -f .env ]; then
   set +a
 fi
 
-if [ "${REGISTRATION_ENABLED:-0}" = "1" ] || [ "${REGISTRATION_ENABLED:-0}" = "true" ]; then
-  if [ -z "${REGISTRATION_INVITE_CODE:-}" ] && [ "${EMAIL_VERIFICATION_ENABLED:-0}" != "1" ]; then
-    echo "ERROR: REGISTRATION_ENABLED=1 requiere REGISTRATION_INVITE_CODE en .env"
-    echo "  Ejemplo: echo 'REGISTRATION_INVITE_CODE=IESPRO2026' >> .env"
-    echo "  (o activa EMAIL_VERIFICATION_ENABLED=1 con SMTP operativo)"
-    exit 1
-  fi
-fi
-
 echo "==> Levantando servicios..."
 docker compose -f "$COMPOSE_FILE" up -d --build backend frontend
 

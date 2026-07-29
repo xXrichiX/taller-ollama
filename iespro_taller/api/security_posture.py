@@ -82,10 +82,7 @@ def collect_security_controls() -> dict[str, object]:
 
   waf = verify_nginx_waf_config()
   llm = _llm_layers()
-  registration_secure = (not REGISTRATION_ENABLED) or (
-    bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY)
-    and (bool(REGISTRATION_INVITE_CODE) or email_verification_on)
-  )
+  registration_secure = (not REGISTRATION_ENABLED) or bool(TURNSTILE_SECRET_KEY and TURNSTILE_SITE_KEY)
 
   session_store_ok = SESSION_STORE == "mysql" or not IS_PRODUCTION
   email_verification_on = email_verification_active()

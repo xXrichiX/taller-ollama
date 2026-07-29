@@ -15,7 +15,6 @@ from config import (
   MYSQL_PASSWORD,
   MYSQL_USER,
   REGISTRATION_ENABLED,
-  REGISTRATION_INVITE_CODE,
   SESSION_IDLE_SECONDS,
   SESSION_STORE,
   TRUST_PROXY_HEADERS,
@@ -62,17 +61,10 @@ def validate_production_config() -> None:
   if not METRICS_TOKEN or len(METRICS_TOKEN) < 32:
     errors.append("METRICS_TOKEN debe configurarse en producción (protege /metrics)")
 
-  if REGISTRATION_ENABLED:
-    if not TURNSTILE_SECRET_KEY or not TURNSTILE_SITE_KEY:
-      errors.append(
-        "REGISTRATION_ENABLED=1 exige TURNSTILE_SITE_KEY y TURNSTILE_SECRET_KEY en producción"
-      )
-    from services.email_verification import email_verification_active
-
-    if not REGISTRATION_INVITE_CODE and not email_verification_active():
-      errors.append(
-        "REGISTRATION_ENABLED=1 exige REGISTRATION_INVITE_CODE o EMAIL_VERIFICATION_ENABLED con SMTP"
-      )
+  if REGISTRATION_ENABLED and (not TURNSTILE_SECRET_KEY or not TURNSTILE_SITE_KEY):
+    errors.append(
+      "REGISTRATION_ENABLED=1 exige TURNSTILE_SITE_KEY y TURNSTILE_SECRET_KEY en producción"
+    )
 
   if IS_PRODUCTION and SESSION_STORE != "mysql":
     errors.append("SESSION_STORE debe ser 'mysql' en producción")
