@@ -61,6 +61,8 @@ Esperado: **400**.
 URL=https://200-234-226-167.sslip.io EMAIL=... PASS='...' ./scripts/pentest-master.sh
 ```
 
+En el **VPS**, el pentest termina con limpieza automática de la BD (`CLEANUP_AFTER=1` por defecto).
+
 ### 5. Postura en código
 
 ```bash

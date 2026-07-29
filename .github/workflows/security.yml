@@ -16,6 +16,7 @@ jobs:
           bash -n scripts/backup-mysql.sh
           bash -n scripts/post-deploy-prod.sh
           bash -n scripts/setup-prod-env.sh
+          bash -n scripts/run-cleanup-pentest.sh
 
       - name: Python dependency audit
         working-directory: iespro_taller

@@ -45,9 +45,7 @@ fi
 if [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
   echo ""
   echo "==> Limpieza forense (cleanup-pentest-data.sql)..."
-  docker compose -f "$COMPOSE_FILE" exec -T database \
-    mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "${MYSQL_DATABASE:-iespro_taller_app}" \
-    < scripts/cleanup-pentest-data.sql
+  ./scripts/run-cleanup-pentest.sh
 fi
 
 if [ -f docker-compose.monitoring.yml ]; then
