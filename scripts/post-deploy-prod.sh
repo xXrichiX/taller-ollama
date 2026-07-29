@@ -19,20 +19,37 @@ if [ -f .env ]; then
   set +a
 fi
 
+if [ "${REGISTRATION_ENABLED:-0}" = "1" ] || [ "${REGISTRATION_ENABLED:-0}" = "true" ]; then
+  if [ -z "${REGISTRATION_INVITE_CODE:-}" ] && [ "${EMAIL_VERIFICATION_ENABLED:-0}" != "1" ]; then
+    echo "ERROR: REGISTRATION_ENABLED=1 requiere REGISTRATION_INVITE_CODE en .env"
+    echo "  Ejemplo: echo 'REGISTRATION_INVITE_CODE=IESPRO2026' >> .env"
+    echo "  (o activa EMAIL_VERIFICATION_ENABLED=1 con SMTP operativo)"
+    exit 1
+  fi
+fi
+
 echo "==> Levantando servicios..."
 docker compose -f "$COMPOSE_FILE" up -d --build backend frontend
 
 echo ""
 echo "==> Verificando health del backend..."
+HEALTH_OK=0
 for _ in $(seq 1 30); do
   if docker compose -f "$COMPOSE_FILE" exec -T backend \
     python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)" \
     >/dev/null 2>&1; then
     echo "OK: backend respondiendo en /api/health"
+    HEALTH_OK=1
     break
   fi
   sleep 2
 done
+
+if [ "$HEALTH_OK" -ne 1 ]; then
+  echo "ERROR: el backend no responde — revisa logs:"
+  docker compose -f "$COMPOSE_FILE" logs backend --tail 40 || true
+  exit 1
+fi
 
 if [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
   echo ""
