@@ -53,6 +53,7 @@ export async function api<T>(
 export type PublicAuthConfig = {
   registration_enabled: boolean;
   turnstile_site_key: string;
+  captcha_configured?: boolean;
   invite_required: boolean;
   captcha_mode: "turnstile" | "none";
   email_verification_enabled: boolean;

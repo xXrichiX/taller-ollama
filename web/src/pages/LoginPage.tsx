@@ -68,7 +68,14 @@ export function LoginPage() {
   }
 
   const registrationEnabled = publicConfig?.registration_enabled ?? false;
-  const turnstileSiteKey = publicConfig?.turnstile_site_key ?? "";
+  const turnstileSiteKey =
+    (import.meta.env.VITE_TURNSTILE_SITE_KEY as string | undefined)?.trim()
+    || publicConfig?.turnstile_site_key
+    || "";
+  const turnstileActive =
+    Boolean(turnstileSiteKey)
+    || publicConfig?.captcha_configured === true
+    || publicConfig?.captcha_mode === "turnstile";
   const inviteRequired = publicConfig?.invite_required ?? false;
   const blocked = cooldown > 0;
 

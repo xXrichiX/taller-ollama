@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { api } from "../api/client";
+import { derivePermissions, type AccountUi } from "../lib/permissions";
 import type { AuthState, Permissions, User } from "../types";
 
 interface AuthContextValue {
@@ -57,13 +58,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await api<{
       user: User;
       role_label: string;
-      permissions: Permissions;
+      permissions?: Permissions;
+      profile?: string;
+      ui?: AccountUi;
     }>("/api/auth/me", {}, token);
+    const permissions =
+      data.permissions
+      ?? derivePermissions(data.user, data.profile ?? "guest", data.ui ?? {});
     setAuth({
       token: token ?? undefined,
       user: data.user,
       role_label: data.role_label,
-      permissions: data.permissions,
+      permissions,
     });
   }, []);
 

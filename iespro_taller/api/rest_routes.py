@@ -48,6 +48,7 @@ from api.input_validation import (
   validate_client_name,
   validate_inventory_quantity,
 )
+from api.auth_profile import account_profile, account_ui
 from api.session_cookies import clear_session_cookie, json_with_session
 from api.session import (
   AppSession,
@@ -124,7 +125,8 @@ def auth_public_config(request: Request):
   use_turnstile = bool(TURNSTILE_SECRET_KEY)
   return {
     "registration_enabled": REGISTRATION_ENABLED,
-    "turnstile_site_key": TURNSTILE_SITE_KEY if use_turnstile else "",
+    "turnstile_site_key": "" if IS_PRODUCTION else (TURNSTILE_SITE_KEY if use_turnstile else ""),
+    "captcha_configured": use_turnstile,
     "invite_required": bool(REGISTRATION_INVITE_CODE),
     "captcha_mode": "turnstile" if use_turnstile else "none",
     "email_verification_enabled": email_verification_active(),
@@ -385,7 +387,14 @@ def auth_me(request: Request, session: AppSession = Depends(require_session)):
       session.user.get("rol_nombre"),
       es_propietario=catalog_service.user_is_propietario(session.user["id"]),
     ),
-    "permissions": _permissions(session),
+    **(
+      {
+        "profile": account_profile(session),
+        "ui": account_ui(session),
+      }
+      if IS_PRODUCTION
+      else {"permissions": _permissions(session)}
+    ),
   }
 
 
