@@ -84,6 +84,33 @@ else
 fi
 
 echo ""
+echo "5b. Base de datos — residuos XSS/SSTI/SQLi en inventario y servicios"
+if [ -n "${MYSQL_ROOT_PASSWORD:-}" ]; then
+  PENTEST_ITEMS="$(
+    docker compose -f "$COMPOSE_FILE" exec -T database \
+      mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B "${MYSQL_DATABASE:-iespro_taller_app}" \
+      -e "SELECT (
+        (SELECT COUNT(*) FROM inventario WHERE activo=1 AND (
+          nombre LIKE '%<%' OR nombre LIKE '%{{%' OR nombre LIKE '%EXPLOIT%'
+          OR nombre LIKE '%XSS%' OR nombre LIKE '%SQLI%' OR precio_unitario >= 999999
+        ))
+        +
+        (SELECT COUNT(*) FROM tipos_mantenimiento WHERE activo=1 AND (
+          nombre LIKE '%{{%' OR nombre LIKE '%\${%' OR descripcion LIKE '%{{%'
+        ))
+      );" \
+      2>/dev/null || echo "?"
+  )"
+  if [ "$PENTEST_ITEMS" = "0" ]; then
+    ok "Sin inventario/servicios de pentest activos"
+  elif [ "$PENTEST_ITEMS" = "?" ]; then
+    warn "No se pudo consultar residuos de pentest en BD"
+  else
+    bad "Hay $PENTEST_ITEMS registro(s) de pentest en inventario/servicios — ejecuta cleanup-pentest-data.sql"
+  fi
+fi
+
+echo ""
 echo "6. Monitoreo (opcional)"
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -q prometheus; then
   ok "Prometheus corriendo"
